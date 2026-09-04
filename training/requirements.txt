@@ -7,3 +7,4 @@ websockets>=12.0
 pettingzoo>=1.24.0,<=1.24.3  # Confirmed with 1.24.3
 supersuit>=3.9.0,<=3.9.3    # Confirmed with 3.9.3
 onnx>=1.14.0
+tensorboard>=2.13.0
