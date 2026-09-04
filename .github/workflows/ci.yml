@@ -44,4 +44,15 @@ jobs:
       run: npm test
 
     - name: Run Python PPO smoke test (transport parity)
-      run: npm run test:ppo
+      run: |
+        npm run bridge &
+        BRIDGE_PID=$!
+        for i in $(seq 1 60); do
+          if curl -s http://127.0.0.1:5050/health >/dev/null; then
+            echo "Bridge server ready"
+            break
+          fi
+          sleep 1
+        done
+        npm run test:ppo
+        kill $BRIDGE_PID || true
