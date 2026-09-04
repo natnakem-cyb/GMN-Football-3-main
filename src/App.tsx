@@ -369,7 +369,8 @@ export default function App() {
 
   const agentCreditMetrics = TrainingTelemetryService.getInstance().computeMultiAgentCredits(
     engine.players,
-    engine.ball
+    engine.ball,
+    engine.events
   );
 
   return (

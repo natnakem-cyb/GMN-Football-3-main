@@ -35,7 +35,7 @@ export const MultiAgentCreditMatrix: React.FC<MultiAgentCreditMatrixProps> = ({
           <div>
             <h3 className="text-xs font-bold text-slate-100">Cooperative Multi-Agent Credit Assignment</h3>
             <p className="text-[11px] text-slate-400">
-              Counterfactual advantage decomposition & joint policy contribution
+              Observable per-player contribution: distance covered, pass volume, and interceptions
             </p>
           </div>
         </div>
@@ -103,18 +103,9 @@ export const MultiAgentCreditMatrix: React.FC<MultiAgentCreditMatrixProps> = ({
                 </span>
               </div>
 
-              {/* Counterfactual Advantage Value */}
+              {/* Reward Contribution */}
               <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800/80 mb-2.5">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400 flex items-center gap-1">
-                    <Zap className="w-3 h-3 text-amber-400" />
-                    Advantage $A_i$:
-                  </span>
-                  <span className="font-mono font-bold text-amber-400">
-                    {m.counterfactualAdvantage >= 0 ? `+${m.counterfactualAdvantage}` : m.counterfactualAdvantage}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] mt-1">
                   <span className="text-slate-400 flex items-center gap-1">
                     <Award className="w-3 h-3 text-emerald-400" />
                     Credit Share:
@@ -126,20 +117,16 @@ export const MultiAgentCreditMatrix: React.FC<MultiAgentCreditMatrixProps> = ({
               {/* Specific Performance Metrics */}
               <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
                 <div className="p-1.5 rounded bg-slate-900/60 border border-slate-800/50">
-                  <div className="text-slate-500">Space Creation</div>
-                  <div className="text-slate-200 font-bold">{m.spaceCreationScore} pts</div>
+                  <div className="text-slate-500">Distance Covered</div>
+                  <div className="text-slate-200 font-bold">{m.distanceCovered.toFixed(2)} m</div>
                 </div>
                 <div className="p-1.5 rounded bg-slate-900/60 border border-slate-800/50">
-                  <div className="text-slate-500">Pass Accuracy</div>
-                  <div className="text-blue-400 font-bold">{m.passCompletionRate}%</div>
+                  <div className="text-slate-500">Total Passes</div>
+                  <div className="text-blue-400 font-bold">{m.totalPasses}</div>
                 </div>
                 <div className="p-1.5 rounded bg-slate-900/60 border border-slate-800/50">
-                  <div className="text-slate-500">Key Passes</div>
-                  <div className="text-purple-400 font-bold">{m.keyPasses}</div>
-                </div>
-                <div className="p-1.5 rounded bg-slate-900/60 border border-slate-800/50">
-                  <div className="text-slate-500">Discipline</div>
-                  <div className="text-emerald-400 font-bold">{m.positionalDiscipline}%</div>
+                  <div className="text-slate-500">Interceptions</div>
+                  <div className="text-purple-400 font-bold">{m.defensiveInterceptions}</div>
                 </div>
               </div>
             </div>

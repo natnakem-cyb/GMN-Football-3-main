@@ -33,14 +33,10 @@ export interface AgentCreditMetrics {
   playerId: string;
   playerName: string;
   role: string;
-  counterfactualAdvantage: number;
   rewardContribution: number;
-  passCompletionRate: number;
-  keyPasses: number;
   distanceCovered: number;
-  spaceCreationScore: number;
+  totalPasses: number;
   defensiveInterceptions: number;
-  positionalDiscipline: number;
 }
 
 export interface ActionProbabilityEntry {

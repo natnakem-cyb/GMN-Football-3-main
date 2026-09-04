@@ -54,6 +54,7 @@ export interface Player {
   actionState?: string;
   yellowCards: number;
   redCard: boolean;
+  distanceCovered?: number;
 }
 
 export interface Ball {

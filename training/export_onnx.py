@@ -164,6 +164,15 @@ def export_to_onnx(
             assert diff_w0 > 0.01, f"Trained checkpoint weights are identical to smoke checkpoint! diff={diff_w0}"
             print(f"   ✓ Confirmed: Trained checkpoint is distinct from smoke checkpoint (w0 max diff: {diff_w0:.6f}).")
 
+    # 5b. Loud assertion: the source checkpoint must still exist on disk at the path we are about to record in the header.
+    # This prevents the specific failure mode where the exported weights/ONNX claim provenance for a file that is no longer present.
+    canonical_source = os.path.abspath(checkpoint_path)
+    assert os.path.exists(canonical_source), (
+        f"[GMN-Export Error] Source checkpoint missing at recorded path: {canonical_source}. "
+        f"Refusing to write exported artifacts that would claim provenance for a nonexistent file."
+    )
+    print(f"   ✓ Source checkpoint confirmed present at: {canonical_source}")
+
     # 6. Compute cryptographic SHA-256 checksums and write sidecar JSON
     import hashlib
     from datetime import datetime, timezone

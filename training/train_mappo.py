@@ -231,7 +231,7 @@ def run_mappo_training(
 
     duration = time.time() - start_time
     fps = (total_steps_elapsed - (total_steps_elapsed - remaining_timesteps)) / max(0.001, duration)
-    print(f"\n   ✓ MAPPO Training completed in {duration:.2f}s ({fps:.1f} steps/sec)", flush=True)
+    print(f"\n[OK] MAPPO Training completed in {duration:.2f}s ({fps:.1f} steps/sec)", flush=True)
 
     # 4. Save model checkpoint
     checkpoint_path = os.path.join(models_dir, checkpoint_name)
@@ -250,7 +250,7 @@ def run_mappo_training(
         checkpoint_path,
     )
     print(
-        f"   ✓ Checkpoint saved successfully. File exists: {os.path.exists(checkpoint_path)} "
+        f"[OK] Checkpoint saved successfully. File exists: {os.path.exists(checkpoint_path)} "
         f"(size: {os.path.getsize(checkpoint_path)} bytes)",
         flush=True,
     )

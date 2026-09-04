@@ -476,7 +476,13 @@ export class GameEngine {
 
         // 2. Physics updates for players
         this.players.forEach((player) => {
+          const prevX = player.position.x;
+          const prevY = player.position.y;
           PhysicsEngine.updatePlayer(player, this.ball, dt);
+          const dx = player.position.x - prevX;
+          const dy = player.position.y - prevY;
+          const dist = Math.hypot(dx, dy);
+          player.distanceCovered = (player.distanceCovered || 0) + dist;
         });
 
         // 3. Ball physics

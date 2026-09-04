@@ -119,7 +119,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
     isRefreshingCheckpoints,
   } = telemetryService;
 
-  const lastSnapshot = snapshots[snapshots.length - 1] || snapshots[0];
+  const lastSnapshot = snapshots[snapshots.length - 1] || snapshots[0] || {};
   const totalTargetSteps = activeJob?.config?.timesteps || hyperparameters.targetTimesteps;
   const currentProgressStep = activeJob?.currentStep || currentStep;
   const progressPct = Math.min(100, Math.max(0, (currentProgressStep / totalTargetSteps) * 100)).toFixed(1);

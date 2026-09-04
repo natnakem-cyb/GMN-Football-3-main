@@ -6,7 +6,7 @@ import {
   ActionProbabilityEntry,
   TrainingHyperparameters,
 } from '../types/telemetry';
-import { Player, Ball, Vector2D } from '../types/football';
+import { Player, Ball, Vector2D, MatchEvent } from '../types/football';
 import { TrainedPolicyAgent } from '../agents/TrainedPolicyAgent';
 import { ObservationEncoder } from './ObservationEncoder';
 
@@ -596,44 +596,50 @@ export class TrainingTelemetryService {
   }
 
   /**
-   * Evaluates counterfactual multi-agent credit decomposition across controlled players.
+   * Computes honest per-player contribution metrics from real match state.
+   * Counterfactual advantage is not available from the browser-side engine alone,
+   * so this returns observable behavioral metrics instead.
    */
-  public computeMultiAgentCredits(players: Player[], ball: Ball): AgentCreditMetrics[] {
+  public computeMultiAgentCredits(players: Player[], ball: Ball, events: MatchEvent[] = []): AgentCreditMetrics[] {
     const leftPlayers = players.filter((p) => p.team === 'left');
 
-    return leftPlayers.map((p, idx) => {
-      const distToGoal = Math.hypot(1.0 - p.position.x, p.position.y);
-      const isBallCarrier = p.hasBall;
-
-      // Counterfactual advantage: how much did this agent's action deviate from average expected team return
-      let ca = 0;
-      if (isBallCarrier) {
-        ca = 0.42 + 0.35 * (1.0 - distToGoal);
-      } else if (p.position.x > 0.3) {
-        // Forward off-ball run
-        ca = 0.28 + 0.15 * Math.random();
-      } else {
-        // Defensive support
-        ca = 0.14 + 0.08 * Math.random();
+    // Pre-compute per-player event counts from the actual match event log.
+    const passCounts: Record<string, number> = {};
+    const interceptionCounts: Record<string, number> = {};
+    for (const ev of events) {
+      if (!ev.playerId) continue;
+      if (ev.type === 'pass') {
+        passCounts[ev.playerId] = (passCounts[ev.playerId] || 0) + 1;
+      } else if (ev.type === 'interception') {
+        interceptionCounts[ev.playerId] = (interceptionCounts[ev.playerId] || 0) + 1;
       }
+    }
 
-      const rewardContribution = Number((ca * 1.8).toFixed(3));
-      const spaceCreation = isBallCarrier ? 45 : Math.round(65 + 30 * Math.random());
-      const passRate = isBallCarrier ? 88 : Math.round(75 + 20 * Math.random());
-      const keyPasses = isBallCarrier ? 2 : Math.round(Math.random() * 2);
+    // Normalize raw counts to a 0-1 contribution score so rewardContribution
+    // is comparable across metrics without inventing counterfactual baselines.
+    const maxDistance = Math.max(1, ...leftPlayers.map((p) => p.distanceCovered || 0));
+    const maxPasses = Math.max(1, ...leftPlayers.map((p) => passCounts[p.id] || 0));
+    const maxInterceptions = Math.max(1, ...leftPlayers.map((p) => interceptionCounts[p.id] || 0));
+
+    return leftPlayers.map((p) => {
+      const distance = p.distanceCovered || 0;
+      const passes = passCounts[p.id] || 0;
+      const interceptions = interceptionCounts[p.id] || 0;
+
+      const distanceScore = distance / maxDistance;
+      const passScore = passes / maxPasses;
+      const interceptionScore = interceptions / maxInterceptions;
+
+      const rewardContribution = Number(((distanceScore * 0.5 + passScore * 0.3 + interceptionScore * 0.2) * 1.8).toFixed(3));
 
       return {
         playerId: p.id,
         playerName: p.name || `Player #${p.number}`,
         role: p.role,
-        counterfactualAdvantage: Number(ca.toFixed(3)),
         rewardContribution,
-        passCompletionRate: passRate,
-        keyPasses,
-        distanceCovered: Number((1.2 + idx * 0.4 + Math.random() * 0.3).toFixed(2)),
-        spaceCreationScore: spaceCreation,
-        defensiveInterceptions: p.role.includes('B') || p.role.includes('DM') ? 3 : 1,
-        positionalDiscipline: Math.round(82 + 15 * Math.random()),
+        distanceCovered: Number(distance.toFixed(2)),
+        totalPasses: passes,
+        defensiveInterceptions: interceptions,
       };
     });
   }
