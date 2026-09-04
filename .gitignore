@@ -34,3 +34,14 @@ cmake_install.cmake
 # IDE
 .idea
 .vs*
+
+# Logs and generated outputs
+*.log
+*.out
+tsc_errors.txt
+vite_dev.log
+bun.lock
+
+# Environment / secrets
+.env
+.env.*
