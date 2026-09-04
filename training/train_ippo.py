@@ -1,5 +1,5 @@
 """
-DEPRECATED — IPPO is superseded by MAPPO; root cause documented in
+DEPRECATED -- IPPO is superseded by MAPPO; root cause documented in
 `training/ippo_credit_assignment_report.md`. Do not use for new training.
 """
 
@@ -125,7 +125,7 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
         )
 
     print("==================================================")
-    print(f"GMN FOOTBALL — INDEPENDENT PPO (IPPO) {'SMOKE TEST' if is_smoke_test else 'REAL TRAINING RUN'}")
+    print(f"GMN FOOTBALL -- INDEPENDENT PPO (IPPO) {'SMOKE TEST' if is_smoke_test else 'REAL TRAINING RUN'}")
     print(f"Target Scenario: academy_3_vs_1_with_keeper | Timesteps: {timesteps}")
     if resume_path:
         print(f"Resuming From Checkpoint: {resume_path}")
@@ -200,13 +200,13 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
         duration = time.time() - start_time
         fps = timesteps / max(0.001, duration)
 
-        print(f"\n   ✓ IPPO Training completed in {duration:.2f}s ({fps:.1f} steps/sec)")
+        print(f"\n   [OK] IPPO Training completed in {duration:.2f}s ({fps:.1f} steps/sec)")
 
         # Save model checkpoint
         checkpoint_path = os.path.join(models_dir, checkpoint_name)
         print(f"\n4. Saving Multi-Agent Model Checkpoint to: {checkpoint_path}...")
         model.save(checkpoint_path)
-        print(f"   ✓ Checkpoint saved successfully. File exists: {os.path.exists(checkpoint_path)} (size: {os.path.getsize(checkpoint_path)} bytes)")
+        print(f"   [OK] Checkpoint saved successfully. File exists: {os.path.exists(checkpoint_path)} (size: {os.path.getsize(checkpoint_path)} bytes)")
 
         # Persist Trend Snapshots
         if callback.trend_snapshots:
@@ -248,7 +248,7 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
         # Verify loading model
         print("\n6. Testing Model Loading from Checkpoint...")
         loaded_model = PPO.load(checkpoint_path)
-        print("   ✓ Checkpoint loaded successfully into memory.")
+        print("   [OK] Checkpoint loaded successfully into memory.")
 
         # Run multi-agent PettingZoo sample evaluation
         eval_steps = 200 if is_smoke_test else 500
@@ -287,10 +287,10 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
                         break
 
             print(
-                f"   ✓ Multi-Agent Evaluation Rollout completed: {step_count} steps across {episodes_completed + 1} episode(s)"
+                f"   [OK] Multi-Agent Evaluation Rollout completed: {step_count} steps across {episodes_completed + 1} episode(s)"
             )
-            print(f"   ✓ Cumulative Team Reward: {total_team_reward:+.4f}")
-            print(f"   ✓ Goals Scored during rollout: {goals_scored}")
+            print(f"   [OK] Cumulative Team Reward: {total_team_reward:+.4f}")
+            print(f"   [OK] Goals Scored during rollout: {goals_scored}")
             print("\n==================================================")
             print(f"RESULT: IPPO {'SMOKE TEST' if is_smoke_test else 'TRAINING RUN'} COMPLETED SUCCESSFULLY")
             print("==================================================")

@@ -103,11 +103,11 @@ def export_to_onnx(
         os.remove(data_sidecar)
 
     onnx_size = os.path.getsize(output_path)
-    print(f"   ✓ Self-contained ONNX export successful: {output_path} ({onnx_size} bytes)")
+    print(f"   [OK] Self-contained ONNX export successful: {output_path} ({onnx_size} bytes)")
 
     # 3. Check ONNX model validity with onnx package
     onnx.checker.check_model(onnx_model)
-    print("   ✓ ONNX model syntax and topology verified with onnx.checker.check_model.")
+    print("   [OK] ONNX model syntax and topology verified with onnx.checker.check_model.")
 
     # 4. Extract weights from PyTorch state dict and compare against ONNX initializers
     print(f"\n3. Verifying Layer Weight & Bias Parity between PyTorch Checkpoint and ONNX...")
@@ -133,17 +133,17 @@ def export_to_onnx(
     for name, arr in onnx_tensors.items():
         if arr.shape == (64, obs_dim):
             diff = np.max(np.abs(arr - pt_w0))
-            print(f"   ✓ Layer 0 Weight matched in ONNX ({name}): max diff = {diff:.10e}")
+            print(f"   [OK] Layer 0 Weight matched in ONNX ({name}): max diff = {diff:.10e}")
             assert diff == 0.0, f"Layer 0 weight mismatch: {diff}"
             found_weights += 1
         elif arr.shape == (64, 64):
             diff = np.max(np.abs(arr - pt_w1))
-            print(f"   ✓ Layer 1 Weight matched in ONNX ({name}): max diff = {diff:.10e}")
+            print(f"   [OK] Layer 1 Weight matched in ONNX ({name}): max diff = {diff:.10e}")
             assert diff == 0.0, f"Layer 1 weight mismatch: {diff}"
             found_weights += 1
         elif arr.shape == (19, 64):
             diff = np.max(np.abs(arr - pt_w2))
-            print(f"   ✓ Layer 2 Weight matched in ONNX ({name}): max diff = {diff:.10e}")
+            print(f"   [OK] Layer 2 Weight matched in ONNX ({name}): max diff = {diff:.10e}")
             assert diff == 0.0, f"Layer 2 weight mismatch: {diff}"
             found_weights += 1
 
@@ -162,7 +162,7 @@ def export_to_onnx(
             print(f"   Max abs difference in Layer 0 weight (w0): {diff_w0:.6f}")
             print(f"   Max abs difference in Layer 2 weight (w2): {diff_w2:.6f}")
             assert diff_w0 > 0.01, f"Trained checkpoint weights are identical to smoke checkpoint! diff={diff_w0}"
-            print(f"   ✓ Confirmed: Trained checkpoint is distinct from smoke checkpoint (w0 max diff: {diff_w0:.6f}).")
+            print(f"   [OK] Confirmed: Trained checkpoint is distinct from smoke checkpoint (w0 max diff: {diff_w0:.6f}).")
 
     # 5b. Loud assertion: the source checkpoint must still exist on disk at the path we are about to record in the header.
     # This prevents the specific failure mode where the exported weights/ONNX claim provenance for a file that is no longer present.
@@ -171,7 +171,7 @@ def export_to_onnx(
         f"[GMN-Export Error] Source checkpoint missing at recorded path: {canonical_source}. "
         f"Refusing to write exported artifacts that would claim provenance for a nonexistent file."
     )
-    print(f"   ✓ Source checkpoint confirmed present at: {canonical_source}")
+    print(f"   [OK] Source checkpoint confirmed present at: {canonical_source}")
 
     # 6. Compute cryptographic SHA-256 checksums and write sidecar JSON
     import hashlib
@@ -208,7 +208,7 @@ def export_to_onnx(
     }
     with open(sidecar_json_path, "w") as f:
         json.dump(sidecar_data, f, indent=2)
-    print(f"   ✓ Saved ONNX metadata sidecar JSON: {sidecar_json_path}")
+    print(f"   [OK] Saved ONNX metadata sidecar JSON: {sidecar_json_path}")
 
     # Generate synchronized TypeScript embedded weights file with cryptographic seal
     print(f"\n5. Generating TypeScript Embedded Weights file: {ts_weights_path}...")
@@ -241,13 +241,13 @@ export const MAPPO_WEIGHTS = {{
     with open(ts_weights_path, "w") as f:
         f.write(ts_content)
 
-    print(f"   ✓ Saved synchronized TypeScript weights ({os.path.getsize(ts_weights_path)} bytes) with SHA-256 seal: {weights_sha256[:12]}...")
+    print(f"   [OK] Saved synchronized TypeScript weights ({os.path.getsize(ts_weights_path)} bytes) with SHA-256 seal: {weights_sha256[:12]}...")
 
     # 7. Verification inference test
     print("\n6. Running post-export cryptographic verification...")
     if not verify_weights_file(ts_weights_path):
         raise RuntimeError(f"Post-export verification failed for {ts_weights_path}. Weights may have been tampered with.")
-    print("   ✓ Post-export SHA-256 seal verification passed.")
+    print("   [OK] Post-export SHA-256 seal verification passed.")
 
     # 8. Deterministic inference smoke test
     test_obs = torch.tensor([[(i * 0.031) - 0.5 for i in range(obs_dim)]], dtype=torch.float32)
@@ -259,7 +259,7 @@ export const MAPPO_WEIGHTS = {{
     print(f"   Output action logits (top 5): {pt_logits[:5]}")
     print(f"   Argmax Action: {np.argmax(pt_logits)}")
     print("\n==================================================")
-    print("✓ ONNX EXPORT & WEIGHT SYNCHRONIZATION COMPLETE")
+    print("[OK] ONNX EXPORT & WEIGHT SYNCHRONIZATION COMPLETE")
     print("==================================================")
 
 
@@ -277,7 +277,7 @@ def verify_weights_file(ts_weights_path: str = "src/agents/mappo_weights.ts") ->
 
     hash_match = re.search(r'weightsSha256:\s*"([a-f0-9]{64})"', content)
     if not hash_match:
-        print(f"❌ Checksum verification failed: No weightsSha256 field found in {ts_weights_path}.")
+        print(f"[FAIL] Checksum verification failed: No weightsSha256 field found in {ts_weights_path}.")
         return False
     expected_hash = hash_match.group(1)
 
@@ -299,10 +299,10 @@ def verify_weights_file(ts_weights_path: str = "src/agents/mappo_weights.ts") ->
     actual_hash = hashlib.sha256(json.dumps(weights_dict, sort_keys=True).encode("utf-8")).hexdigest()
 
     if actual_hash != expected_hash:
-        print(f"❌ TAMPER DETECTED: Computed hash ({actual_hash}) does not match expected seal ({expected_hash})!")
+        print(f"[FAIL] TAMPER DETECTED: Computed hash ({actual_hash}) does not match expected seal ({expected_hash})!")
         return False
 
-    print(f"✓ Weights integrity verified. SHA-256 seal valid ({actual_hash[:12]}...).")
+    print(f"[OK] Weights integrity verified. SHA-256 seal valid ({actual_hash[:12]}...).")
     return True
 
 

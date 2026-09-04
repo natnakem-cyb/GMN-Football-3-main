@@ -1,5 +1,5 @@
 """
-GMN-Football-3 — Multi-Agent PPO (MAPPO) with Centralized Critic Training
+GMN-Football-3 -- Multi-Agent PPO (MAPPO) with Centralized Critic Training
 Trains a parameter-shared policy network and centralized team critic on cooperative football scenarios.
 
 Hyperparameters:
@@ -50,7 +50,7 @@ def run_mappo_training(
         )
 
     print("==================================================")
-    print(f"GMN FOOTBALL — MULTI-AGENT PPO (MAPPO) {'SMOKE TEST' if is_smoke_test else 'REAL TRAINING RUN'}")
+    print(f"GMN FOOTBALL -- MULTI-AGENT PPO (MAPPO) {'SMOKE TEST' if is_smoke_test else 'REAL TRAINING RUN'}")
     print(f"Target Scenario: {scenario} | Timesteps: {timesteps}")
     if resume_path:
         print(f"Resuming From Checkpoint: {resume_path}")
@@ -106,7 +106,7 @@ def run_mappo_training(
         if "critic_opt" in ckpt:
             critic_opt.load_state_dict(ckpt["critic_opt"])
         total_steps_elapsed = int(ckpt.get("timesteps", 0))
-        print(f"   ✓ Checkpoint loaded successfully. Resuming from step {total_steps_elapsed}.")
+        print(f"   [OK] Checkpoint loaded successfully. Resuming from step {total_steps_elapsed}.")
 
     n_steps = 256
     remaining_timesteps = max(0, timesteps - total_steps_elapsed)
@@ -322,7 +322,7 @@ def run_mappo_training(
 
     assert dummy_act.shape == (num_agents,), f"Dummy action shape mismatch: {dummy_act.shape}"
     assert dummy_val.shape == (1,), f"Dummy value shape mismatch: {dummy_val.shape}"
-    print(f"   ✓ Checkpoint loaded and forward pass executed cleanly (action shape: {dummy_act.shape}, val: {dummy_val.item():.4f}).", flush=True)
+    print(f"   [OK] Checkpoint loaded and forward pass executed cleanly (action shape: {dummy_act.shape}, val: {dummy_val.item():.4f}).", flush=True)
 
     return True
 

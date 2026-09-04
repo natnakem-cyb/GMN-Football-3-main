@@ -98,7 +98,7 @@ def run_ppo_training(
     eval_episodes: int = 5,
 ):
     print("==================================================")
-    print("GMN FOOTBALL — STABLE-BASELINES3 PPO TRAINING")
+    print("GMN FOOTBALL -- STABLE-BASELINES3 PPO TRAINING")
     print(f"Target Scenario: {scenario} | Timesteps: {timesteps}")
     print("==================================================")
 
@@ -170,7 +170,7 @@ def run_ppo_training(
         duration = time.time() - start_time
         fps = timesteps / max(0.001, duration)
 
-        print(f"\n   ✓ Training completed in {duration:.2f}s ({fps:.1f} steps/sec)")
+        print(f"\n   [OK] Training completed in {duration:.2f}s ({fps:.1f} steps/sec)")
 
         # Save model checkpoint
         out_name = checkpoint_name or f"ppo_{scenario}_{'smoke' if timesteps <= 5000 else 'trained'}.zip"
@@ -179,7 +179,7 @@ def run_ppo_training(
         model.save(checkpoint_path)
         vec_save_path = checkpoint_path.replace(".zip", "_vecnormalize.pkl")
         env.save(vec_save_path)
-        print("   ✓ Checkpoint and VecNormalize statistics saved successfully.")
+        print("   [OK] Checkpoint and VecNormalize statistics saved successfully.")
 
         # Final evaluation row logging to CSV
         final_lr = initial_lr * (0.0 if lr_schedule == "linear" else 1.0)
@@ -203,7 +203,7 @@ def run_ppo_training(
         eval_vec_env.training = False
         eval_vec_env.norm_reward = False
         loaded_model = PPO.load(checkpoint_path, env=eval_vec_env)
-        print("   ✓ Checkpoint loaded successfully into memory.")
+        print("   [OK] Checkpoint loaded successfully into memory.")
 
         # Run evaluation rollouts
         print(f"\n6. Running Evaluation ({eval_episodes} episodes) with Loaded Policy...")
@@ -231,7 +231,7 @@ def run_ppo_training(
                 eval_goals += 1
 
         avg_reward = sum(eval_rewards) / max(1, len(eval_rewards))
-        print(f"   ✓ Evaluation finished: Avg Reward = {avg_reward:+.4f}, Goals = {eval_goals}/{eval_episodes}")
+        print(f"   [OK] Evaluation finished: Avg Reward = {avg_reward:+.4f}, Goals = {eval_goals}/{eval_episodes}")
         print("\n==================================================")
         print("RESULT: PPO TRAINING PIPELINE SUCCESSFUL")
         print("==================================================")
