@@ -204,6 +204,16 @@ export class TrainedPolicyAgent implements IAgent {
           }
         } else {
           // Browser environment: fetches from public/models/mappo_policy.onnx
+          if (typeof modelSource === 'string') {
+            try {
+              const probe = await fetch(modelSource, { method: 'HEAD', cache: 'no-store' });
+              if (!probe.ok) {
+                throw new Error(`ONNX model not found at ${modelSource} (HTTP ${probe.status}). Export a verified checkpoint with training/export_onnx.py.`);
+              }
+            } catch (fetchErr: any) {
+              throw new Error(`Failed to reach ONNX model at ${modelSource}: ${fetchErr?.message || fetchErr}. Check that the file exists in public/models/.`);
+            }
+          }
           session = await ort.InferenceSession.create(modelSource, {
             executionProviders: ['wasm'],
             graphOptimizationLevel: 'all',
