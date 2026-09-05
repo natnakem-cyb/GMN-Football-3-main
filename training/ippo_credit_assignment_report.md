@@ -1,4 +1,4 @@
-# IPPO Credit-Assignment & Lazy-Agent Analysis
+# IPPO vs. MAPPO: Credit-Assignment Architecture Comparison
 
 ## Executive Summary
 This report compares Independent PPO (IPPO) and Multi-Agent PPO with a Centralized Critic (MAPPO) in cooperative multi-agent football scenarios. It describes the mathematical, architectural, and credit-assignment differences between the two approaches, and explains why this repository implements MAPPO with a Deep Sets centralized critic.

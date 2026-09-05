@@ -1,6 +1,6 @@
 """
-DEPRECATED -- IPPO is superseded by MAPPO; root cause documented in
-`training/ippo_credit_assignment_report.md`. Do not use for new training.
+IPPO is not the primary training path in this repository; see
+`training/ippo_credit_assignment_report.md` for an architectural comparison with MAPPO.
 """
 
 import argparse
