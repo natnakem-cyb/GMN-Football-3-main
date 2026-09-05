@@ -126,6 +126,10 @@ def run_mappo_training(
     trend_snapshots: List[Tuple[int, int, float, float]] = []  # (step, num_eps, mean_rew, goal_rate)
     loss_history: List[Dict[str, Any]] = []
 
+    # Best-checkpoint selection: track highest evaluated goal rate and its checkpoint path.
+    best_goal_rate: float = -1.0
+    best_checkpoint_path: str = ""
+
     last_check_step = total_steps_elapsed
     last_checkpoint_step = (total_steps_elapsed // 100_000) * 100_000
 
@@ -164,7 +168,7 @@ def run_mappo_training(
             returns=returns,
             clip_range=0.2,
             n_epochs=4,
-            batch_size=64,
+            batch_size=256,
             value_coef=0.5,
             entropy_coef=0.01,
             max_grad_norm=0.5,
@@ -217,7 +221,7 @@ def run_mappo_training(
                 milestone_ckpt_path,
             )
             try:
-                evaluate_checkpoint_progress(
+                eval_row = evaluate_checkpoint_progress(
                     checkpoint_path=milestone_ckpt_path,
                     scenario=scenario,
                     algorithm="MAPPO",
@@ -226,6 +230,32 @@ def run_mappo_training(
                     num_episodes=50,
                     deterministic=True,
                 )
+                milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
+                if milestone_goal_rate > best_goal_rate:
+                    best_goal_rate = milestone_goal_rate
+                    best_checkpoint_path = milestone_ckpt_path
+                    best_ckpt_name = os.path.join(
+                        models_dir, f"mappo_{scenario}_best.pt"
+                    )
+                    torch.save(
+                        {
+                            "actor": actor.state_dict(),
+                            "critic": critic.state_dict(),
+                            "actor_opt": actor_opt.state_dict(),
+                            "critic_opt": critic_opt.state_dict(),
+                            "obs_dim": obs_dim,
+                            "global_state_dim": global_state_dim,
+                            "action_dim": action_dim,
+                            "timesteps": total_steps_elapsed,
+                        },
+                        best_ckpt_name,
+                    )
+                    best_checkpoint_path = best_ckpt_name
+                    print(
+                        f"   [OK] New best checkpoint saved: {best_ckpt_name} "
+                        f"(goal rate: {best_goal_rate:.1f}%)",
+                        flush=True,
+                    )
             except Exception as e:
                 print(f"[Notice] MAPPO milestone eval notice: {e}")
 
@@ -254,6 +284,16 @@ def run_mappo_training(
         f"(size: {os.path.getsize(checkpoint_path)} bytes)",
         flush=True,
     )
+
+    # Preserve best checkpoint: if a better checkpoint was found during training, overwrite the durable name.
+    if best_checkpoint_path and os.path.exists(best_checkpoint_path):
+        import shutil
+        shutil.copy2(best_checkpoint_path, checkpoint_path)
+        print(
+            f"[OK] Best checkpoint preserved as durable artifact: {checkpoint_path} "
+            f"(from {best_checkpoint_path}, best goal rate: {best_goal_rate:.1f}%)",
+            flush=True,
+        )
 
     # Persist trend snapshots
     if trend_snapshots:

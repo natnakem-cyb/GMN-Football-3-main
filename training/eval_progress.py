@@ -446,5 +446,5 @@ def persist_trend_snapshots(
             step, num_eps, mean_rew, goal_pct = item
             writer.writerow([step, num_eps, f"{mean_rew:.4f}", f"{goal_pct:.2f}"])
 
-    print(f"   ✓ Trend snapshots persisted to: {csv_path}")
+    print(f"   [OK] Trend snapshots persisted to: {csv_path}")
     return csv_path

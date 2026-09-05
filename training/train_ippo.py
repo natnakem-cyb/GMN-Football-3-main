@@ -146,7 +146,7 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
 
     # Vectorize the 3-agent ParallelEnv into an SB3-compatible VecEnv where each agent is 1 sub-env
     vec_env = ss.pettingzoo_env_to_vec_env_v1(pz_env)
-    vec_env = ss.concat_vec_envs_v1(vec_env, num_vec_envs=1, num_cpus=1, base_class="stable_baselines3")
+    vec_env = ss.concat_vec_envs_v1(vec_env, num_vec_envs=4, num_cpus=0, base_class="stable_baselines3")
     print(f"   SuperSuit VecEnv created: {vec_env.num_envs} vectorized sub-environments (sharing 1 policy)")
 
     # SB3 v2.x / SuperSuit 3.9.x compatibility adapter:
@@ -160,13 +160,13 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
             print(f"\n2. Loading IPPO Model from checkpoint: {resume_path}...")
             model = PPO.load(resume_path, env=vec_env)
         else:
-            print("\n2. Configuring IPPO Model (MlpPolicy, gamma=0.99, n_steps=256, batch_size=64, lr=3e-4)...")
+            print("\n2. Configuring IPPO Model (MlpPolicy, gamma=0.99, n_steps=256, batch_size=256, lr=3e-4)...")
             model = PPO(
                 policy="MlpPolicy",
                 env=vec_env,
                 learning_rate=3e-4,
                 n_steps=256,
-                batch_size=64,
+                batch_size=256,
                 n_epochs=4,
                 gamma=0.99,
                 gae_lambda=0.95,
