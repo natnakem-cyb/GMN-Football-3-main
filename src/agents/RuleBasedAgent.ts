@@ -201,24 +201,59 @@ export class RuleBasedAgent implements IAgent {
       }
     }
 
-    // Closing-down: if an opponent has the ball and is close, come out to pressure/tackle
+    // Closing-down: if an opponent has the ball and is very close, come out to tackle.
+    // Keep this range tight for goalkeepers. A wide close-down causes the keeper to
+    // abandon the goal line and chase the ball carrier, which lets rolling balls roll in.
     const opponentWithBall = opponents.find((o) => o.hasBall || o.id === ball.ownerId);
     if (opponentWithBall) {
       const distToOpponent = Vec2.distance(keeper.position, opponentWithBall.position);
       if (distToOpponent < 0.055) {
-        // Tackle range
+        // Tackle range only — do NOT sprint out to press from distance
         return { type: ActionType.TACKLE };
-      }
-      if (distToOpponent < 0.25) {
-        // Close down the ball carrier
-        return {
-          type: ActionType.SPRINT,
-          direction: Vec2.normalize(Vec2.sub(opponentWithBall.position, keeper.position)),
-        };
       }
     }
 
-    // Position on goal line mirroring ball Y coordinate within goal posts
+    // Loose-ball interception: react to unpossessed or rolling balls heading toward goal
+    const ballSpeed = Vec2.length({ x: ball.velocity.x, y: ball.velocity.y });
+    const ballMovingTowardOwnGoal = ownGoalX > 0 ? ball.velocity.x > 0.01 : ball.velocity.x < -0.01;
+    const ballNearGoalLine = ownGoalX > 0
+      ? ball.position.x > ownGoalX - 0.15
+      : ball.position.x < ownGoalX + 0.15;
+
+    if (ballSpeed > 0.005 && ballMovingTowardOwnGoal && ballNearGoalLine) {
+      // Project ball forward to goal line
+      const distToGoalLine = Math.abs(1.0 - ball.position.x);
+      const timeToGoal = distToGoalLine / Math.max(0.01, Math.abs(ball.velocity.x));
+      const projectedY = ball.position.y + ball.velocity.y * timeToGoal;
+
+      // Only intercept if ball will cross within goal mouth (with generous margin)
+      if (
+        projectedY >= PITCH.goalMinY * 1.5 &&
+        projectedY <= PITCH.goalMaxY * 1.5
+      ) {
+        // Move to intercept at a point between keeper and ball
+        const interceptX = ownGoalX > 0
+          ? Math.min(ball.position.x + 0.1, ownGoalX - 0.02)
+          : Math.max(ball.position.x - 0.1, ownGoalX + 0.02);
+        const interceptY = Math.max(
+          PITCH.goalMinY * 1.3,
+          Math.min(PITCH.goalMaxY * 1.3, projectedY)
+        );
+
+        const interceptPos: Vector2D = { x: interceptX, y: interceptY };
+        const distToIntercept = Vec2.distance(keeper.position, interceptPos);
+
+        // Only commit if interception point is within reasonable reaction distance
+        if (distToIntercept < 0.6) {
+          return {
+            type: ActionType.SPRINT,
+            direction: Vec2.normalize(Vec2.sub(interceptPos, keeper.position)),
+          };
+        }
+      }
+    }
+
+    // Goal-line positioning: mirror ball Y within goal posts
     const targetX = ownGoalX + (keeper.team === 'left' ? 0.04 : -0.04);
     const clampedY = Math.max(PITCH.goalMinY * 1.2, Math.min(PITCH.goalMaxY * 1.2, ball.position.y * 0.7));
 
