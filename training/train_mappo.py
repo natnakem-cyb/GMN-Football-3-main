@@ -5,7 +5,7 @@ Trains a parameter-shared policy network and centralized team critic on cooperat
 Hyperparameters:
 - Timesteps: 200,000 (apples-to-apples comparison against IPPO baseline)
 - Rollout length (n_steps): 256
-- Mini-batch size: 64
+- Mini-batch size: 256
 - PPO Epochs: 4
 - Learning rate: 3e-4 (Adam)
 - Discount (gamma): 0.99
@@ -116,7 +116,7 @@ def run_mappo_training(
     print(f"\n2. Configuration:")
     print(f"   Total Updates: {n_updates} ({n_steps} steps per rollout)")
     print(f"   Remaining Timesteps: {n_updates * n_steps} (Total Target: {timesteps})")
-    print(f"   PPO Epochs: 4 | Mini-batch: 64 | LR: 3e-4 | Clip: 0.2")
+    print(f"   PPO Epochs: 4 | Mini-batch: 256 | LR: 3e-4 | Clip: 0.2")
     print(f"   GAE: gamma=0.99, lambda=0.95 | Value Coef: 0.5 | Entropy Coef: 0.01")
 
     # Metrics tracking

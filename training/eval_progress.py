@@ -1,5 +1,5 @@
 """
-GMN-Football-3 — Persistent Checkpoint Evaluation & Progress Logging
+GMN-Football-3 -- Persistent Checkpoint Evaluation & Progress Logging
 Shared module to evaluate Single-Agent PPO, Multi-Agent IPPO, and Centralized-Critic MAPPO
 at 100k milestone increments, appending deterministic evaluation metrics to win_rate_progress.csv.
 """
@@ -418,7 +418,7 @@ def evaluate_checkpoint_progress(
 
     append_progress_row(csv_path, row)
     print(
-        f"[eval_progress] ✓ Milestone logged -> Goal Rate: {eval_metrics['goal_rate_pct']:.1f}% | "
+        f"[eval_progress] [OK] Milestone logged -> Goal Rate: {eval_metrics['goal_rate_pct']:.1f}% | "
         f"Mean Reward: {eval_metrics['mean_reward']:+.4f} | Shots/Ep: {eval_metrics['shots_per_ep']:.2f} | "
         f"CSV: {csv_path}\n"
     )
