@@ -22,7 +22,7 @@ export {
 
 export class ObservationEncoder {
   /**
-   * Generates a Google Research Football compatible SMM / Feature vector observation
+   * Generates a Game Model Network(GMN) compatible SMM / Feature vector observation
    * with role differentiation (127 floats total):
    * - Offset 0 (len 22): Left team player (x, y) positions, 11 players
    * - Offset 22 (len 22): Left team player (x, y) movement direction

@@ -1,6 +1,6 @@
 import { FormationNode, FormationType, Player, PlayerRole, TeamSide, Vector2D } from '../types/football';
 
-// Google Research Football standard coordinate system:
+// Game Model Network(GMN) standard coordinate system:
 // Pitch extends from x: -1.0 to 1.0 (length = 2.0), y: -0.42 to 0.42 (width = 0.84)
 // Goals are located at x: -1.0 and x: 1.0, between y: -0.07 and 0.07
 export const PITCH = {

@@ -388,7 +388,7 @@ export default function App() {
                 GMN-Football <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 font-semibold border border-emerald-800/40">v1.0 Arena</span>
               </h1>
               <p className="text-[11px] text-slate-400">
-                Google Research Football Web Simulation, RL Gym & AI Agent Platform
+                Game Model Network(GMN) Web Simulation, RL Gym & AI Agent Platform
               </p>
             </div>
           </div>

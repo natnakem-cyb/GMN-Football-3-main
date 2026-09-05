@@ -21,7 +21,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5 border-b border-slate-800 pb-4">
         <div>
           <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-            <GraduationCap className="w-5 h-5 text-emerald-400" /> Google Research Football Academy Curriculum
+            <GraduationCap className="w-5 h-5 text-emerald-400" /> Game Model Network(GMN) Academy Curriculum
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
             Progressive scenario-based training curriculum inspired by GRF Academy benchmarks.

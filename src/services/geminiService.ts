@@ -39,7 +39,7 @@ export class GeminiCoachService {
   ): Promise<TacticalAnalysisResult> {
     const client = await this.getClient();
 
-    const prompt = `You are a world-class AI Football Tactical Analyst and Coach for Google Research Football.
+    const prompt = `You are a world-class AI Football Tactical Analyst and Coach for Game Model Network(GMN).
 Analyze the following live match telemetry and provide structured tactical insights:
 
 Match Details:

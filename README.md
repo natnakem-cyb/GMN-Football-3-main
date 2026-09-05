@@ -101,7 +101,7 @@ Defined in `src/engine/Contract.ts` — treat this file as authoritative if anyt
 | `GMN_ENV_VERSION` | `3.1.0` |
 | `OBSERVATION_SCHEMA_VERSION` | `simple115_v3_role` |
 | `ACTION_SCHEMA_VERSION` | `discrete19_v1` |
-| `BASE_OBSERVATION_DIM` | 115 (Google Research Football–style SMM/feature vector) |
+| `BASE_OBSERVATION_DIM` | 115 (Game Model Network(GMN)–style SMM/feature vector) |
 | `ROLE_DIM` | 12 (one-hot over `ROLE_VOCABULARY`) |
 | `OBSERVATION_DIM` | 127 (`BASE_OBSERVATION_DIM` + `ROLE_DIM`) |
 | `ACTION_SPACE_SIZE` | 19 (discrete) |

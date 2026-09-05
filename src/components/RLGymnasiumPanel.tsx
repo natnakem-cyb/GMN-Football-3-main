@@ -29,7 +29,7 @@ export const RLGymnasiumPanel: React.FC<RLGymnasiumPanelProps> = ({
             <Cpu className="w-5 h-5 text-purple-400" /> Gymnasium RL Environment & SMM Vector Inspector
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-                        Standard {OBSERVATION_DIM}-float Google Research Football observation tensor (simple115_v3_role, base {BASE_OBSERVATION_DIM} + role {ROLE_DIM}), reward signals, and step interface.
+                         Standard {OBSERVATION_DIM}-float Game Model Network(GMN) observation tensor (simple115_v3_role, base {BASE_OBSERVATION_DIM} + role {ROLE_DIM}), reward signals, and step interface.
           </p>
         </div>
 
