@@ -93,6 +93,8 @@ def run_mappo_pipeline_test():
         gamma=0.99,
         lam=0.95,
         bootstrap_value=0.0,
+        next_obs=buffer["next_obs"],
+        critic=critic,
     )
 
     assert advantages.shape == (num_steps,), f"Advantages shape mismatch: {advantages.shape}"

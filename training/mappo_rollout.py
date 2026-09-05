@@ -29,7 +29,9 @@ def collect_rollout(
     - logprobs: shape (num_steps, num_agents) float32
     - values: shape (num_steps,) float32
     - rewards: shape (num_steps,) float32
-    - dones: shape (num_steps,) bool
+    - dones: shape (num_steps,) bool — genuine terminations only (not truncations)
+    - terminated: shape (num_steps,) bool — genuine terminations only
+    - next_obs: shape (obs_dim,) float32 — observation after the last rollout step
     - completed_episodes: list of dicts with {"reward": float, "length": int, "goal": int}
     """
     buffer: Dict[str, list] = {
@@ -39,7 +41,8 @@ def collect_rollout(
         "logprobs": [],       # shape (num_steps, num_agents)
         "values": [],         # shape (num_steps,) — one shared value per step
         "rewards": [],        # shape (num_steps,) — shared team reward
-        "dones": [],          # shape (num_steps,)
+        "dones": [],          # shape (num_steps,) — genuine terminations only (not truncations)
+        "terminated": [],     # shape (num_steps,) — genuine terminations only
     }
     completed_episodes = []
 
@@ -81,7 +84,9 @@ def collect_rollout(
         action_dict = {a: int(actions[i].item()) for i, a in enumerate(current_agents)}
         obs_dict, rewards, terminations, truncations, infos = env.step(action_dict)
 
-        done = any(terminations.values()) or any(truncations.values())
+        terminated = any(terminations.values())
+        truncated = any(truncations.values())
+        done = terminated or truncated
         shared_reward = float(rewards[current_agents[0]])  # identical across agents
 
         env._mappo_ep_rew += shared_reward
@@ -93,7 +98,8 @@ def collect_rollout(
         buffer["logprobs"].append(logprobs.cpu().numpy())
         buffer["values"].append(float(value.item()))
         buffer["rewards"].append(shared_reward)
-        buffer["dones"].append(bool(done))
+        buffer["dones"].append(bool(terminated))
+        buffer["terminated"].append(bool(terminated))
 
         if done:
             # Check if left team scored a goal in the terminal step
@@ -123,6 +129,8 @@ def collect_rollout(
         "values": np.array(buffer["values"], dtype=np.float32),
         "rewards": np.array(buffer["rewards"], dtype=np.float32),
         "dones": np.array(buffer["dones"], dtype=np.bool_),
+        "terminated": np.array(buffer["terminated"], dtype=np.bool_),
+        "next_obs": np.array(obs_dict[agent_order[0]], dtype=np.float32),
         "completed_episodes": completed_episodes,
     }
 
@@ -148,6 +156,12 @@ def collect_rollout(
     assert res_buffer["dones"].shape == (num_steps,), (
         f"dones shape mismatch: expected {(num_steps,)}, got {res_buffer['dones'].shape}"
     )
+    assert res_buffer["terminated"].shape == (num_steps,), (
+        f"terminated shape mismatch: expected {(num_steps,)}, got {res_buffer['terminated'].shape}"
+    )
+    assert res_buffer["next_obs"].shape == (obs_dim,), (
+        f"next_obs shape mismatch: expected {(obs_dim,)}, got {res_buffer['next_obs'].shape}"
+    )
 
     return res_buffer
 
@@ -159,6 +173,8 @@ def compute_gae(
     gamma: float = 0.99,
     lam: float = 0.95,
     bootstrap_value: float = 0.0,
+    next_obs: np.ndarray = None,
+    critic = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes Generalized Advantage Estimation (GAE) and Returns backwards over the rollout.
@@ -166,19 +182,37 @@ def compute_gae(
     Args:
         rewards: shape (T,)
         values: shape (T,)
-        dones: shape (T,)
+        dones: shape (T,) — genuine terminations only (not truncations)
         gamma: discount factor (default 0.99)
         lam: GAE lambda parameter (default 0.95)
-        bootstrap_value: value estimate of state at T (default 0.0)
+        bootstrap_value: value estimate of state at T when terminated (default 0.0)
+        next_obs: shape (obs_dim,) — observation after the last rollout step, used to
+            compute bootstrap_value when the rollout was truncated mid-episode.
+        critic: CentralizedCritic instance. If provided and next_obs is given and the
+            final step was not a termination, bootstrap_value is computed as
+            critic(next_obs). Otherwise the provided bootstrap_value is used.
 
     Returns:
         advantages: shape (T,)
         returns: shape (T,)
     """
+    # If the rollout was truncated mid-episode and we have a critic + next_obs,
+    # compute the real bootstrap value instead of defaulting to 0.0.
+    effective_bootstrap = bootstrap_value
+    if (
+        critic is not None
+        and next_obs is not None
+        and len(rewards) > 0
+        and not dones[-1]
+    ):
+        with torch.no_grad():
+            obs_tensor = torch.tensor(next_obs, dtype=torch.float32).unsqueeze(0)
+            effective_bootstrap = float(critic(obs_tensor).item())
+
     advantages = np.zeros_like(rewards, dtype=np.float32)
     last_gae = 0.0
     for t in reversed(range(len(rewards))):
-        next_value = bootstrap_value if t == len(rewards) - 1 else values[t + 1]
+        next_value = effective_bootstrap if t == len(rewards) - 1 else values[t + 1]
         next_nonterminal = 0.0 if dones[t] else 1.0
         delta = rewards[t] + gamma * next_value * next_nonterminal - values[t]
         last_gae = delta + gamma * lam * next_nonterminal * last_gae

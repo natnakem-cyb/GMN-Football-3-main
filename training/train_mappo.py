@@ -161,6 +161,8 @@ def run_mappo_training(
             gamma=0.99,
             lam=0.95,
             bootstrap_value=0.0,
+            next_obs=buffer["next_obs"],
+            critic=critic,
         )
 
         # 3. PPO Update Step

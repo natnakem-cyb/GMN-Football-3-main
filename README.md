@@ -277,6 +277,7 @@ npm test                  # test_scenarios.ts + test_determinism.ts
 npm run test:scenarios
 npm run test:determinism
 npm run test:staleness     # TrainedPolicyAgent fixed-interval async inference staleness regression
+npm run test:gae           # GAE bootstrap regression (terminated vs truncated)
 npm run test:parity       # HTTP vs. WebSocket transport parity (Python)
 npm run test:e2e          # end-to-end determinism (Python)
 npm run test:multiagent   # multi-agent determinism (Python)
