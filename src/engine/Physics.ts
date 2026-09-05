@@ -30,7 +30,11 @@ export class PhysicsEngine {
         ball.position.x = owner.position.x + offset.x;
         ball.position.y = owner.position.y + offset.y;
         ball.position.z = 0;
-        ball.velocity = { x: owner.velocity.x, y: owner.velocity.y, z: 0 };
+        ball.velocity = {
+          x: owner.velocity.x * PhysicsEngine.GROUND_FRICTION,
+          y: owner.velocity.y * PhysicsEngine.GROUND_FRICTION,
+          z: 0,
+        };
         ball.isInAir = false;
         return;
       } else {
