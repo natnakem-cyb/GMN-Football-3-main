@@ -16,6 +16,7 @@
     "test": "tsx training/test_scenarios.ts && tsx training/test_determinism.ts",
     "test:scenarios": "tsx training/test_scenarios.ts",
     "test:determinism": "tsx training/test_determinism.ts",
+    "test:staleness": "tsx training/test_staleness_ticks.ts",
     "test:parity": "python3 training/test_transport_parity.py",
     "test:e2e": "python3 training/test_e2e_determinism.py",
     "test:env": "python3 training/test_env.py",
