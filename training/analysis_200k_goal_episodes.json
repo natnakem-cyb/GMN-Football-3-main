@@ -1,0 +1,153 @@
+{
+  "num_episodes": 30,
+  "num_goals": 16,
+  "goal_rate_pct": 53.333333333333336,
+  "total_shots": 0,
+  "shots_per_ep": 0.0,
+  "goal_episodes": [
+    {
+      "episode": 0,
+      "seed": 500000,
+      "steps": 63,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 1,
+      "seed": 501009,
+      "steps": 159,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 7,
+      "seed": 507063,
+      "steps": 61,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 9,
+      "seed": 509081,
+      "steps": 63,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 10,
+      "seed": 510090,
+      "steps": 162,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 11,
+      "seed": 511099,
+      "steps": 160,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 14,
+      "seed": 514126,
+      "steps": 63,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 15,
+      "seed": 515135,
+      "steps": 163,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 17,
+      "seed": 517153,
+      "steps": 59,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 18,
+      "seed": 518162,
+      "steps": 162,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 20,
+      "seed": 520180,
+      "steps": 59,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 21,
+      "seed": 521189,
+      "steps": 163,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 24,
+      "seed": 524216,
+      "steps": 59,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 25,
+      "seed": 525225,
+      "steps": 158,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 28,
+      "seed": 528252,
+      "steps": 60,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    },
+    {
+      "episode": 29,
+      "seed": 529261,
+      "steps": 161,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": []
+    }
+  ]
+}
