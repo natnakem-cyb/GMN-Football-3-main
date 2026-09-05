@@ -39,7 +39,7 @@ export class RuleBasedAgent implements IAgent {
 
     // 1. Goalkeeper Specific Heuristic
     if (player.isGoalkeeper) {
-      return this.handleGoalkeeper(player, ball, teammates, ownGoalX, rnd);
+      return this.handleGoalkeeper(player, ball, teammates, opponents, ownGoalX, rnd);
     }
 
     // 2. If this player currently HAS the ball
@@ -180,6 +180,7 @@ export class RuleBasedAgent implements IAgent {
     keeper: Player,
     ball: Ball,
     teammates: Player[],
+    opponents: Player[],
     ownGoalX: number,
     rnd?: () => number
   ): AgentAction {
@@ -196,6 +197,23 @@ export class RuleBasedAgent implements IAgent {
           direction: Vec2.normalize(Vec2.sub(target.position, keeper.position)),
           power: 0.8,
           targetPlayerId: target.id,
+        };
+      }
+    }
+
+    // Closing-down: if an opponent has the ball and is close, come out to pressure/tackle
+    const opponentWithBall = opponents.find((o) => o.hasBall || o.id === ball.ownerId);
+    if (opponentWithBall) {
+      const distToOpponent = Vec2.distance(keeper.position, opponentWithBall.position);
+      if (distToOpponent < 0.055) {
+        // Tackle range
+        return { type: ActionType.TACKLE };
+      }
+      if (distToOpponent < 0.25) {
+        // Close down the ball carrier
+        return {
+          type: ActionType.SPRINT,
+          direction: Vec2.normalize(Vec2.sub(opponentWithBall.position, keeper.position)),
         };
       }
     }

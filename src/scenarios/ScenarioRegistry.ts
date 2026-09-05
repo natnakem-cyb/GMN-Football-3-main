@@ -122,7 +122,7 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
         { role: 'RW', pos: { x: 0.45, y: 0.22 } },
       ],
       rightPlayers: [
-        { role: 'GK', pos: { x: 0.95, y: 0 } },
+        { role: 'GK', pos: { x: 0.88, y: 0 } },
         { role: 'CB', pos: { x: 0.55, y: 0 } },
       ],
       positionJitter: 0.05,
@@ -158,7 +158,7 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
         { role: 'RW', pos: { x: 0.45, y: 0.22 } },
       ],
       rightPlayers: [
-        { role: 'GK', pos: { x: 0.95, y: 0 } },
+        { role: 'GK', pos: { x: 0.88, y: 0 } },
         { role: 'CB', pos: { x: 0.55, y: -0.12 } },
         { role: 'CB', pos: { x: 0.62, y: 0.12 } },
       ],
@@ -194,7 +194,7 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
         { role: 'RW', pos: { x: 0.45, y: 0.22 } },
       ],
       rightPlayers: [
-        { role: 'GK', pos: { x: 0.95, y: 0 } },
+        { role: 'GK', pos: { x: 0.88, y: 0 } },
         { role: 'CB', pos: { x: 0.52, y: -0.16 } },
         { role: 'CB', pos: { x: 0.52, y: 0.16 } },
         { role: 'CB', pos: { x: 0.68, y: 0.0 } },
@@ -266,7 +266,7 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
         { role: 'RW', pos: { x: 0.45, y: 0.17 } },
       ],
       rightPlayers: [
-        { role: 'GK', pos: { x: 0.93, y: -0.08 } },
+        { role: 'GK', pos: { x: 0.88, y: -0.08 } },
         { role: 'CB', pos: { x: 0.42, y: 0.14 } },
       ],
       positionJitter: 0.05,
@@ -301,7 +301,7 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
         { role: 'RW', pos: { x: 0.45, y: 0.22 } },
       ],
       rightPlayers: [
-        { role: 'GK', pos: { x: 0.95, y: 0 } },
+        { role: 'GK', pos: { x: 0.88, y: 0 } },
         { role: 'CB', pos: { x: 0.55, y: 0 } },
       ],
       positionJitter: 0.12,
