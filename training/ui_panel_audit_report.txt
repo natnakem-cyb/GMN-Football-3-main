@@ -1,0 +1,142 @@
+GMN-Football-3 UI Panel Audit Report
+============================================================
+
+Generated: 2026-09-05T09:28:43.715Z
+
+SUMMARY
+----------------------------------------
+Total components audited: 23
+Live-wired: 10
+Real-but-stale: 3
+Fabricated/placeholder: 9
+Unwired/orphaned: 1
+
+DETAILED FINDINGS
+----------------------------------------
+
+Component: TrainingTelemetryDashboard.tsx
+Metric: Training metrics charts (policy loss, value loss, entropy, KL, reward, goal rate)
+Classification: live-wired
+Evidence: Charts use `snapshots` from `TrainingTelemetryService.getInstance().getSnapshots()` (line 122). Service ingests WebSocket messages from `TrainingJobService` stdout parsing (line 257). Real-time hardware metrics via `metricsBroadcaster.startHardwarePolling()` (line 133).
+
+Component: TrainingTelemetryService.ts
+Metric: policyLoss fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: policyLoss falls back to hardcoded -0.04 when no WebSocket data has been received.
+Fix needed: Remove the -0.04 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: valueLoss fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: valueLoss falls back to hardcoded 0.05 when no WebSocket data has been received.
+Fix needed: Remove the 0.05 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: entropy fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: entropy falls back to hardcoded 1.8 when no WebSocket data has been received.
+Fix needed: Remove the 1.8 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: approxKl fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: approxKl falls back to hardcoded 0.01 when no WebSocket data has been received.
+Fix needed: Remove the 0.01 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: clipFraction fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: clipFraction falls back to hardcoded 0.06 when no WebSocket data has been received.
+Fix needed: Remove the 0.06 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: learningRate fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: learningRate falls back to hardcoded 3e-4 when no WebSocket data has been received.
+Fix needed: Remove the 3e-4 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: gradNorm fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: gradNorm falls back to hardcoded 0.1 when no WebSocket data has been received.
+Fix needed: Remove the 0.1 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: rollingReward fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: rollingReward falls back to hardcoded 0.5 when no WebSocket data has been received.
+Fix needed: Remove the 0.5 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: TrainingTelemetryService.ts
+Metric: goalRate fallback value
+Classification: fabricated/placeholder
+Evidence: Line ~414-422: goalRate falls back to hardcoded 65.0 when no WebSocket data has been received.
+Fix needed: Remove the 65.0 fallback and require a real snapshot before displaying the metric, or show "—" until data arrives.
+
+Component: MultiAgentCreditMatrix.tsx
+Metric: Agent credit metrics (distance covered, passes, interceptions)
+Classification: live-wired
+Evidence: Receives `metrics` prop from `TrainingTelemetryService.computeMultiAgentCredits()` in App.tsx (line 371). Uses real engine state: `engine.players`, `engine.ball`, `engine.events`. No synthetic data.
+
+Component: PolicyActionOverlay.tsx
+Metric: Policy action distribution, confidence, value estimate
+Classification: real-but-stale
+Evidence: Receives `distribution` from `TrainingTelemetryService.evaluateAgentPolicy()` (App.tsx line 362). `isSynthetic` flag is displayed when logits are empty (line 105-109). However, this is only computed on render trigger, not on every tick — may lag behind actual engine state.
+
+Component: RLGymnasiumPanel.tsx
+Metric: Step reward, checkpoint reward, terminated/truncated, ball distance to goal
+Classification: live-wired
+Evidence: Receives `lastStepResult` from `engine.step()` via `setLastStepResult()` in App.tsx (line 176). Directly reflects the most recent physics tick.
+
+Component: TacticalAnalytics.tsx
+Metric: Possession history, shots, passes, tackles, interceptions
+Classification: live-wired
+Evidence: Receives `stats` from `engine.stats` in App.tsx (line 728). `stats.possessionHistory` accumulates during match play. No synthetic data.
+
+Component: ReplayAnalyzer.tsx
+Metric: Replay frames, event bookmarks
+Classification: live-wired
+Evidence: Receives `replayFrames` from `engine.replayBuffer` and `events` from `engine.events` in App.tsx (lines 687-688). Real deterministic state timeline.
+
+Component: Scoreboard.tsx
+Metric: Score, match time, possession, formation labels
+Classification: live-wired
+Evidence: Receives `score`, `matchTimeSeconds`, `status`, `possession`, `teamLeft`, `teamRight` from App.tsx engine state. Formation labels come from `TeamConfig.formation`. All live.
+
+Component: AgentArenaPanel.tsx
+Metric: Controller type, formation, AI difficulty, model loading state
+Classification: live-wired
+Evidence: Receives `teamLeft`, `teamRight` from `engine.teamLeftConfig`/`engine.teamRightConfig`. `isModelLoading` and `modelError` from App.tsx state. Configuration panel, not a metrics display.
+
+Component: ScenarioSelector.tsx
+Metric: Scenario objectives, completion status
+Classification: real-but-stale
+Evidence: Receives `activeScenario` from `engine.activeScenario` and `matchTimeSeconds` from `engine.matchTimeSeconds`. Objective completion status (`isCompleted`, `isFailed`) is read from the static `ACADEMY_SCENARIOS` registry — not dynamically updated during play.
+
+Component: PitchCanvas.tsx
+Metric: Player positions, ball position, policy distribution overlay
+Classification: live-wired
+Evidence: Receives `ball`, `players` from engine state. `policyDistribution` from `TrainingTelemetryService.evaluateAgentPolicy()` (App.tsx line 520). Renders every animation frame via `requestAnimationFrame`.
+
+Component: MatchControls.tsx
+Metric: Play/pause state, speed multiplier
+Classification: live-wired
+Evidence: Receives `isPlaying`, `speed` from App.tsx state. Controls only, no metrics display.
+
+Component: GeminiTacticalCoach.tsx
+Metric: Tactical analysis text
+Classification: real-but-stale
+Evidence: Receives `stats`, `teamLeft`, `teamRight`, `score`, `eventsSummary` from App.tsx. Calls `GeminiCoachService.analyzeMatch()` on button click. Analysis is generated on-demand, not live.
+
+Component: ErrorBoundary.tsx
+Metric: Error messages
+Classification: live-wired
+Evidence: Catches actual React errors. Not a metrics display.
+
+Component: ControlsHelpModal.tsx
+Metric: Keyboard shortcuts
+Classification: unwired/orphaned
+Evidence: Static help modal. Not a metrics display. Not wired to any live data.
+
+============================================================
+END OF REPORT
