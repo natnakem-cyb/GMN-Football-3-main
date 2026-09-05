@@ -196,9 +196,6 @@ export class TrainingTelemetryService {
 
     if (url) {
       this.wsUrl = url;
-    } else if (!this.wsUrl || this.wsUrl.includes('localhost') || this.wsUrl.includes('127.0.0.1')) {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      this.wsUrl = `${proto}//${window.location.host}/ws`;
     }
 
     if (this.ws) {
