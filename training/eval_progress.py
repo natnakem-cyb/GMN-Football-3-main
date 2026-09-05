@@ -4,6 +4,7 @@ Shared module to evaluate Single-Agent PPO, Multi-Agent IPPO, and Centralized-Cr
 at 100k milestone increments, appending deterministic evaluation metrics to win_rate_progress.csv.
 """
 
+import hashlib
 import os
 import sys
 import csv
@@ -20,6 +21,14 @@ DEFAULT_CSV_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "results", "win_rate_progress.csv")
 )
 
+# Files whose contents meaningfully affect environment dynamics.
+# If any of these change, cached evaluations must be considered stale.
+ENV_HASH_FILES = [
+    os.path.join("src", "engine", "Physics.ts"),
+    os.path.join("src", "engine", "ObservationEncoder.ts"),
+    os.path.join("src", "scenarios", "ScenarioRegistry.ts"),
+]
+
 CSV_FIELDNAMES = [
     "scenario",
     "algorithm",
@@ -34,14 +43,30 @@ CSV_FIELDNAMES = [
     "deterministic",
     "checkpoint_path",
     "provenance",
+    "env_hash",
 ]
 
 
+def compute_env_hash() -> str:
+    """
+    Computes a short SHA-1 hash over the contents of the files that define
+    the environment's dynamics (physics, rewards, scenario setup).
+    """
+    hasher = hashlib.sha1()
+    for rel_path in ENV_HASH_FILES:
+        abs_path = os.path.join(sys.path[0], rel_path)
+        if os.path.exists(abs_path):
+            with open(abs_path, "rb") as f:
+                hasher.update(f.read())
+            hasher.update(rel_path.encode("utf-8"))
+    return hasher.hexdigest()[:12]
+
+
 def check_existing_evaluation(
-    csv_path: str, scenario: str, algorithm: str, step: int
+    csv_path: str, scenario: str, algorithm: str, step: int, env_hash: str
 ) -> Optional[Dict[str, Any]]:
     """
-    Checks whether an evaluation for (scenario, algorithm, step) is already present in the CSV.
+    Checks whether an evaluation for (scenario, algorithm, step, env_hash) is already present in the CSV.
     Returns the parsed row dict if found, else None.
     """
     if not os.path.exists(csv_path):
@@ -55,6 +80,7 @@ def check_existing_evaluation(
                     row.get("scenario") == scenario
                     and row.get("algorithm", "").upper() == algorithm.upper()
                     and int(float(row.get("step", -1))) == step
+                    and row.get("env_hash") == env_hash
                 ):
                     return row
     except Exception as e:
@@ -346,15 +372,17 @@ def evaluate_checkpoint_progress(
 ) -> Dict[str, Any]:
     """
     Loads checkpoint, runs deterministic evaluation rollout, and appends row to CSV.
-    Idempotent: skips re-evaluating if (scenario, algorithm, step) already exists unless force_reeval=True.
+    Cache key is (scenario, algorithm, step, env_hash). Skips re-evaluating if a matching
+    entry exists unless force_reeval=True.
     """
     algo_upper = algorithm.upper()
+    env_hash = compute_env_hash()
 
     if not force_reeval:
-        existing = check_existing_evaluation(csv_path, scenario, algo_upper, step)
+        existing = check_existing_evaluation(csv_path, scenario, algo_upper, step, env_hash)
         if existing is not None:
             print(
-                f"[eval_progress] Checkpoint already evaluated for ({scenario}, {algo_upper}, step={step}). "
+                f"[eval_progress] Checkpoint already evaluated for ({scenario}, {algo_upper}, step={step}, env_hash={env_hash}). "
                 f"Goal Rate: {float(existing.get('goal_rate_pct', 0.0)):.1f}%. Skipping re-evaluation."
             )
             return existing
@@ -414,6 +442,7 @@ def evaluate_checkpoint_progress(
         "deterministic": deterministic,
         "checkpoint_path": checkpoint_path,
         "provenance": provenance_str,
+        "env_hash": env_hash,
     }
 
     append_progress_row(csv_path, row)
