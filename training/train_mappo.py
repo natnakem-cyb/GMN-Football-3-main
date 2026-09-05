@@ -167,6 +167,8 @@ def run_mappo_training(
         )
 
         # 3. PPO Update Step
+        # Linear entropy schedule: decays from 0.01 to 0.001 over the full training run.
+        entropy_coef = 0.01 - (0.01 - 0.001) * min(total_steps_elapsed / timesteps, 1.0)
         metrics = ppo_update(
             actor=actor,
             critic=critic,
@@ -179,7 +181,7 @@ def run_mappo_training(
             n_epochs=4,
             batch_size=256,
             value_coef=0.5,
-            entropy_coef=0.01,
+            entropy_coef=entropy_coef,
             max_grad_norm=0.5,
         )
         metrics["step"] = total_steps_elapsed

@@ -182,7 +182,7 @@ export class ObservationEncoder {
    * +1.0 for scoring a goal
    * -1.0 for conceding a goal
    * Checkpoint reward for monotonically advancing ball closer to opponent goal (up to +0.05)
-   * +0.03 shot-attempt shaping bonus
+   * +0.005 shot-attempt shaping bonus (reduced from 0.03 to discourage indiscriminate shot-spamming)
    */
   static computeReward(
     prevBallX: number,
@@ -226,7 +226,7 @@ export class ObservationEncoder {
 
     // Shot-attempt shaping bonus — encourages discovering the act of
     // shooting, distinct from and much smaller than the goal reward itself.
-    const SHOT_ATTEMPT_BONUS = 0.03;
+    const SHOT_ATTEMPT_BONUS = 0.005;
     if (shotTakenByTargetTeam) {
       reward += SHOT_ATTEMPT_BONUS;
     }
