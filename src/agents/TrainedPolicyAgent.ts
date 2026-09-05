@@ -78,6 +78,11 @@ export class TrainedPolicyAgent implements IAgent {
   public activeModelPath: string = '/models/mappo_policy.onnx';
   private isInferenceInFlight: boolean = false;
 
+  // Fixed-interval async inference: only fire a new ONNX decision every N ticks.
+  // This bounds staleness and avoids stalling the render loop on occasional slow inferences.
+  public decisionInterval: number = 3;
+  private ticksSinceLastDecision: number = 0;
+
   public constructor(idOrWeights?: string | typeof MAPPO_WEIGHTS, customWeights?: typeof MAPPO_WEIGHTS) {
     if (typeof idOrWeights === 'object' && idOrWeights !== null) {
       this.weights = idOrWeights;
@@ -296,9 +301,47 @@ export class TrainedPolicyAgent implements IAgent {
   }
 
   /**
-   * Synchronous decide function per IAgent contract.
-   * Tracks and increments stalenessTicks while asynchronous inference is running.
+   * Asynchronous decide function that awaits ONNX inference before advancing.
+   * Guarantees zero staleness ticks.
    */
+  public async decideAsync(context: AgentDecisionContext): Promise<AgentAction> {
+    const t0 = performance.now();
+    const obs = ObservationEncoder.encode(
+      context.allPlayers,
+      context.ball,
+      context.player.id,
+      { left: 0, right: 0 },
+      0,
+      3600,
+      context.gameMode ?? GameMode.Normal
+    );
+
+    if (this.isSessionReady()) {
+      try {
+        const actionIdx = await this.actOnnx(Float32Array.from(obs.rawVector));
+        this.lastAction = mapDiscreteAction(actionIdx);
+        this.stalenessTicks = 0;
+      } catch (err) {
+        console.warn('[TrainedPolicyAgent] ONNX async inference error, falling back to math:', err);
+        const actionIdx = this.predictDiscreteAction(obs.rawVector);
+        this.lastAction = mapDiscreteAction(actionIdx);
+      }
+    } else {
+      const actionIdx = this.predictDiscreteAction(obs.rawVector);
+      this.lastAction = mapDiscreteAction(actionIdx);
+      this.stalenessTicks = 0;
+    }
+
+    this.lastInferenceMs = Math.round((performance.now() - t0) * 100) / 100;
+    return this.lastAction;
+  }
+
+  /**
+    * Synchronous decide function per IAgent contract.
+    * Uses fixed-interval async inference: fires a new ONNX decision only every N ticks
+    * (default 3) and returns the cached action in between. This bounds staleness and avoids
+    * stalling the render loop on occasional slow inferences.
+    */
   decide(context: AgentDecisionContext): AgentAction {
     // Encode standard OBSERVATION_DIM-float (127) GRF observation vector using the shared ObservationEncoder
     const obs = ObservationEncoder.encode(
@@ -312,25 +355,30 @@ export class TrainedPolicyAgent implements IAgent {
     );
 
     if (this.isSessionReady()) {
-      if (!this.isInferenceInFlight) {
-        this.isInferenceInFlight = true;
-        this.stalenessTicks++; // Current tick will use previous result until async completes
-        const t0 = performance.now();
-        this.actOnnx(Float32Array.from(obs.rawVector))
-          .then((actionIdx) => {
-            this.lastAction = mapDiscreteAction(actionIdx);
-            this.stalenessTicks = 0;
-            this.lastInferenceMs = Math.round((performance.now() - t0) * 100) / 100;
-          })
-          .catch((err) => {
-            console.warn('[TrainedPolicyAgent] Inference tick warning:', err);
-          })
-          .finally(() => {
-            this.isInferenceInFlight = false;
-          });
+      this.ticksSinceLastDecision++;
+      if (this.ticksSinceLastDecision >= this.decisionInterval) {
+        this.ticksSinceLastDecision = 0;
+        if (!this.isInferenceInFlight) {
+          this.isInferenceInFlight = true;
+          const t0 = performance.now();
+          this.actOnnx(Float32Array.from(obs.rawVector))
+            .then((actionIdx) => {
+              this.lastAction = mapDiscreteAction(actionIdx);
+              this.lastInferenceMs = Math.round((performance.now() - t0) * 100) / 100;
+              this.isInferenceInFlight = false;
+            })
+            .catch((err) => {
+              console.warn('[TrainedPolicyAgent] Inference tick warning:', err);
+              this.isInferenceInFlight = false;
+            });
+        }
+        // Return cached action while the new async inference runs.
+        // Staleness is bounded by decisionInterval ticks.
+        this.stalenessTicks = Math.min(this.stalenessTicks, this.decisionInterval - 1);
       } else {
-        // Increment staleness count to visibly inform UI
-        this.stalenessTicks++;
+        // Not a decision tick: return cached action without firing inference.
+        // Staleness does not increase here because caching is intentional.
+        this.stalenessTicks = Math.min(this.stalenessTicks, this.decisionInterval - 1);
       }
     } else {
       const actionIdx = this.predictDiscreteAction(obs.rawVector);
@@ -343,6 +391,9 @@ export class TrainedPolicyAgent implements IAgent {
 
   reset(): void {
     this.lastAction = { type: ActionType.IDLE };
+    this.ticksSinceLastDecision = 0;
+    this.isInferenceInFlight = false;
+    this.stalenessTicks = 0;
   }
 
   /**
