@@ -156,7 +156,7 @@ class IPPORewardLoggingCallback(BaseCallback):
 
 
 def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resume_path: str = None) -> bool:
-    print("\n[DEPRECATED] Warning: IPPO is deprecated and superseded by MAPPO. Refer to training/ippo_credit_assignment_report.md.")
+    print("\n[INFO] IPPO is not the primary training path in this repository. See training/ippo_credit_assignment_report.md for an architectural comparison with MAPPO.")
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
         checkpoint_name = (

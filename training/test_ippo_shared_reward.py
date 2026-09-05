@@ -3,8 +3,9 @@ GMN-Football-3 — IPPO Shared Reward Behavior-Pinning Test
 Asserts the CURRENT behavior: a single scalar reward from the bridge frame
 is broadcast to all agents simultaneously.
 
-This test serves as a documentation-of-intent test pinning that IPPO is deprecated
-and its shared-reward broadcast is intentional legacy (superseded by MAPPO with centralized critic).
+This test serves as a documentation-of-intent test pinning that IPPO is not the primary
+training path in this repository, and its shared-reward broadcast is intentional legacy
+behavior (MAPPO with centralized critic is the primary alternative).
 """
 
 import sys

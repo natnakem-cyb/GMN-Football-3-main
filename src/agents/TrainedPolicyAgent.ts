@@ -296,42 +296,6 @@ export class TrainedPolicyAgent implements IAgent {
   }
 
   /**
-   * Asynchronous decide function that awaits ONNX inference before advancing.
-   * Guarantees zero staleness ticks.
-   */
-  public async decideAsync(context: AgentDecisionContext): Promise<AgentAction> {
-    const t0 = performance.now();
-    const obs = ObservationEncoder.encode(
-      context.allPlayers,
-      context.ball,
-      context.player.id,
-      { left: 0, right: 0 },
-      0,
-      3600,
-      context.gameMode ?? GameMode.Normal
-    );
-
-    if (this.isSessionReady()) {
-      try {
-        const actionIdx = await this.actOnnx(Float32Array.from(obs.rawVector));
-        this.lastAction = mapDiscreteAction(actionIdx);
-        this.stalenessTicks = 0;
-      } catch (err) {
-        console.warn('[TrainedPolicyAgent] ONNX async inference error, falling back to math:', err);
-        const actionIdx = this.predictDiscreteAction(obs.rawVector);
-        this.lastAction = mapDiscreteAction(actionIdx);
-      }
-    } else {
-      const actionIdx = this.predictDiscreteAction(obs.rawVector);
-      this.lastAction = mapDiscreteAction(actionIdx);
-      this.stalenessTicks = 0;
-    }
-
-    this.lastInferenceMs = Math.round((performance.now() - t0) * 100) / 100;
-    return this.lastAction;
-  }
-
-  /**
    * Synchronous decide function per IAgent contract.
    * Tracks and increments stalenessTicks while asynchronous inference is running.
    */

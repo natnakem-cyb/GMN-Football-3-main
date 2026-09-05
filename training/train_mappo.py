@@ -140,6 +140,7 @@ def run_mappo_training(
 
     print(f"\n3. Starting MAPPO Training for {remaining_timesteps} steps...")
     start_time = time.time()
+    total_steps_elapsed_at_start = total_steps_elapsed
 
     for update_idx in range(start_update, start_update + n_updates):
         # 1. Collect Rollout
@@ -297,7 +298,8 @@ def run_mappo_training(
                 print(f"[Notice] MAPPO milestone eval notice: {e}")
 
     duration = time.time() - start_time
-    fps = (total_steps_elapsed - (total_steps_elapsed - remaining_timesteps)) / max(0.001, duration)
+    steps_this_run = total_steps_elapsed - total_steps_elapsed_at_start
+    fps = steps_this_run / max(0.001, duration)
     print(f"\n[OK] MAPPO Training completed in {duration:.2f}s ({fps:.1f} steps/sec)", flush=True)
 
     # 4. Save model checkpoint
