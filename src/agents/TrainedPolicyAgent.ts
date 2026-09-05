@@ -365,6 +365,7 @@ export class TrainedPolicyAgent implements IAgent {
             .then((actionIdx) => {
               this.lastAction = mapDiscreteAction(actionIdx);
               this.lastInferenceMs = Math.round((performance.now() - t0) * 100) / 100;
+              this.stalenessTicks = 0;
               this.isInferenceInFlight = false;
             })
             .catch((err) => {
@@ -372,13 +373,11 @@ export class TrainedPolicyAgent implements IAgent {
               this.isInferenceInFlight = false;
             });
         }
-        // Return cached action while the new async inference runs.
-        // Staleness is bounded by decisionInterval ticks.
-        this.stalenessTicks = Math.min(this.stalenessTicks, this.decisionInterval - 1);
+        // A new decision was just fired; count this tick as stale while we await it.
+        this.stalenessTicks = Math.min(this.stalenessTicks + 1, this.decisionInterval - 1);
       } else {
-        // Not a decision tick: return cached action without firing inference.
-        // Staleness does not increase here because caching is intentional.
-        this.stalenessTicks = Math.min(this.stalenessTicks, this.decisionInterval - 1);
+        // Not a decision tick: cached action is reused, so it gets one tick older.
+        this.stalenessTicks = Math.min(this.stalenessTicks + 1, this.decisionInterval - 1);
       }
     } else {
       const actionIdx = this.predictDiscreteAction(obs.rawVector);
