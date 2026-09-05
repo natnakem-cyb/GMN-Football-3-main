@@ -1,0 +1,261 @@
+{
+  "source_checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_best.pt",
+  "action_mapping_source": "src/engine/ActionMapping.ts",
+  "action_name_table": {
+    "0": "action_idle",
+    "1": "action_left",
+    "2": "action_top_left",
+    "3": "action_top",
+    "4": "action_top_right",
+    "5": "action_right",
+    "6": "action_bottom_right",
+    "7": "action_bottom",
+    "8": "action_bottom_left",
+    "9": "action_long_pass",
+    "10": "action_high_pass",
+    "11": "action_short_pass",
+    "12": "action_shot",
+    "13": "action_sprint",
+    "14": "action_release_direction",
+    "15": "action_release_sprint",
+    "16": "action_sliding",
+    "17": "action_dribble",
+    "18": "action_release_dribble"
+  },
+  "physics_formula": "kickSpeed = 0.9 + (kickPower/100)*2.7*min(1,max(0.1,power))",
+  "physics_max_kickSpeed": 3.6,
+  "velocity_observation_scaling": 50,
+  "num_episodes": 30,
+  "num_goals": 16,
+  "goal_rate_pct": 53.333333333333336,
+  "total_shots": 0,
+  "shots_per_ep": 0.0,
+  "max_ball_speed_observed": 1.1934509685927233,
+  "within_physics_limits": true,
+  "goal_episodes": [
+    {
+      "episode": 0,
+      "seed": 500000,
+      "steps": 159,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 357,
+        "action_dribble": 20,
+        "action_right": 100
+      }
+    },
+    {
+      "episode": 1,
+      "seed": 501009,
+      "steps": 159,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 360,
+        "action_dribble": 16,
+        "action_right": 101
+      }
+    },
+    {
+      "episode": 7,
+      "seed": 507063,
+      "steps": 61,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 60,
+        "action_dribble": 9,
+        "action_right": 114
+      }
+    },
+    {
+      "episode": 9,
+      "seed": 509081,
+      "steps": 63,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 66,
+        "action_dribble": 16,
+        "action_right": 107
+      }
+    },
+    {
+      "episode": 10,
+      "seed": 510090,
+      "steps": 162,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 363,
+        "action_dribble": 15,
+        "action_right": 108
+      }
+    },
+    {
+      "episode": 11,
+      "seed": 511099,
+      "steps": 160,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 360,
+        "action_dribble": 19,
+        "action_right": 101
+      }
+    },
+    {
+      "episode": 14,
+      "seed": 514126,
+      "steps": 63,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 67,
+        "action_dribble": 11,
+        "action_right": 111
+      }
+    },
+    {
+      "episode": 15,
+      "seed": 515135,
+      "steps": 163,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 369,
+        "action_dribble": 16,
+        "action_right": 104
+      }
+    },
+    {
+      "episode": 17,
+      "seed": 517153,
+      "steps": 59,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 60,
+        "action_dribble": 17,
+        "action_right": 100
+      }
+    },
+    {
+      "episode": 18,
+      "seed": 518162,
+      "steps": 162,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 372,
+        "action_dribble": 9,
+        "action_right": 105
+      }
+    },
+    {
+      "episode": 20,
+      "seed": 520180,
+      "steps": 59,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 60,
+        "action_dribble": 20,
+        "action_right": 97
+      }
+    },
+    {
+      "episode": 21,
+      "seed": 521189,
+      "steps": 163,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 369,
+        "action_dribble": 18,
+        "action_right": 102
+      }
+    },
+    {
+      "episode": 24,
+      "seed": 524216,
+      "steps": 59,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 60,
+        "action_dribble": 20,
+        "action_right": 97
+      }
+    },
+    {
+      "episode": 25,
+      "seed": 525225,
+      "steps": 158,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 360,
+        "action_dribble": 9,
+        "action_right": 105
+      }
+    },
+    {
+      "episode": 28,
+      "seed": 528252,
+      "steps": 60,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 60,
+        "action_dribble": 14,
+        "action_right": 106
+      }
+    },
+    {
+      "episode": 29,
+      "seed": 529261,
+      "steps": 161,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [],
+      "action_distribution": {
+        "action_idle": 366,
+        "action_dribble": 15,
+        "action_right": 102
+      }
+    }
+  ]
+}
