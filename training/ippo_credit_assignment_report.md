@@ -1,11 +1,11 @@
-# IPPO Credit-Assignment & Lazy-Agent Root Cause Analysis
+# IPPO Credit-Assignment & Lazy-Agent Analysis
 
 ## Executive Summary
-In cooperative multi-agent reinforcement learning benchmarks (such as Google Research Football scenarios `academy_3_vs_1_with_keeper`, `5_vs_5`, and `11_vs_11`), Independent PPO (IPPO) exhibits characteristic training degradation, higher gradient variance, and "lazy-agent" pathologies compared to Multi-Agent PPO with a Centralized Critic (MAPPO). This report details the theoretical, mathematical, and architectural root causes of this performance divergence.
+This report compares Independent PPO (IPPO) and Multi-Agent PPO with a Centralized Critic (MAPPO) in cooperative multi-agent football scenarios. It describes the mathematical, architectural, and credit-assignment differences between the two approaches, and explains why this repository implements MAPPO with a Deep Sets centralized critic.
 
 ---
 
-## 1. Mathematical Formulation of the Credit-Assignment Deficit
+## 1. Mathematical Formulation
 
 ### IPPO Value Function (Decentralized)
 In IPPO, each agent $i$ updates its policy using Generalized Advantage Estimation (GAE) computed from a decentralized local value function:
@@ -21,28 +21,28 @@ $$\delta_{\text{MAPPO}}^t = r_{\text{team}}^t + \gamma V_{\text{joint}}(s^{t+1})
 
 ---
 
-## 2. Root Cause Breakdown
+## 2. Architectural Differences
 
 ### A. Partial Observability and Non-Stationarity
-- **The Issue**: In a multi-agent football environment, agent $i$'s local observation $o_i$ contains relative ego-centric coordinates and local teammate vectors. Crucial tactical signals (e.g. whether teammate $j$ has broken through the offside line, goalkeeper positioning, open passing lanes) reside in the global state $s$, not within $o_i$ alone.
-- **Consequence for IPPO**: From agent $i$'s perspective, the environment is non-stationary because other agents are learning simultaneously. $V_i(o_i^t)$ attempts to predict team rewards without knowing what teammates are doing, resulting in extreme variance in the value target and noisy advantage estimates $\hat{A}_i^t$.
+In a multi-agent football environment, agent $i$'s local observation $o_i$ contains relative ego-centric coordinates and local teammate vectors. Crucial tactical signals (e.g. whether teammate $j$ has broken through the offside line, goalkeeper positioning, open passing lanes) reside in the global state $s$, not within $o_i$ alone.
 
-### B. The "Lazy Agent" Problem
-- When team reward is shared (e.g. $+1.0$ for goal), agent $A$ may execute an elite through-ball to agent $B$, who taps the ball into an empty net.
-- Under IPPO:
-  - Agent $B$ receives positive reinforcement directly at $t_{\text{goal}}$.
-  - Agent $A$'s pass occurs at $t_{\text{goal}} - \Delta t$. Over this horizon, the discounted reward $\gamma^{\Delta t} R$ is heavily decayed and blurred by all intervening random actions taken by agents $B$ and $C$.
-  - Often, agent $A$ learns that standing still or moving backwards minimizes individual defensive risk, letting agent $B$ do all the work—leading to sub-optimal local equilibria.
-- Under MAPPO:
-  - $V_{\text{joint}}(s^t)$ observes agent $B$'s unobstructed trajectory the moment agent $A$ plays the pass.
-  - The centralized critic immediately elevates $V_{\text{joint}}(s^{t+1})$, generating a strong immediate positive advantage $\hat{A}^t > 0$ for agent $A$ at the exact tick the assist is delivered.
+For IPPO, the decentralized critic $V_i(o_i^t)$ attempts to predict team rewards without full visibility into teammates' intentions, which can increase variance in the value target and advantage estimates $\hat{A}_i^t$.
+
+For MAPPO, the centralized critic observes the joint state, which removes this information bottleneck.
+
+### B. Credit Attribution for Cooperative Actions
+When a team reward is shared (e.g. $+1.0$ for goal), cooperative actions like passes create a credit-assignment challenge:
+
+- Under IPPO, the advantage for the passing agent is computed from the local value function, which does not immediately observe the receiving agent's subsequent success. The credit signal can be delayed and attenuated over the intervening steps.
+- Under MAPPO, the centralized critic observes the full joint state and can assign immediate advantage when the pass creates a high-quality opportunity.
 
 ### C. Permutation Invariance & Parameter Scaling
-- Standard centralized critics flatten all agent observations into a single dense vector $(N \times D_{\text{obs}})$, which leads to parameter explosion and poor generalization when moving between 3v1 ($3 \times 127 = 381$), 5v5 ($5 \times 127 = 635$), and 11v11 ($11 \times 127 = 1397$).
-- **GMN-Football-3 Solution**: We introduced the **Deep Sets Centralized Critic** with permutation-invariant dual aggregation:
-  $$\phi(s) = \left[ \frac{1}{N} \sum_{i=1}^N f(o_i), \; \max_{i=1}^N f(o_i) \right]$$
-  $$V(s) = g(\phi(s))$$
-  This allows $O(1)$ parameter complexity regardless of team size while preserving full permutation equivariance.
+Standard centralized critics flatten all agent observations into a single dense vector $(N \times D_{\text{obs}})$, which leads to parameter explosion and poor generalization when moving between 3v1 ($3 \times 127 = 381$), 5v5 ($5 \times 127 = 635$), and 11v11 ($11 \times 127 = 1397$).
+
+**GMN-Football-3 Solution**: We introduced the **Deep Sets Centralized Critic** with permutation-invariant dual aggregation:
+$$\phi(s) = \left[ \frac{1}{N} \sum_{i=1}^N f(o_i), \; \max_{i=1}^N f(o_i) \right]$$
+$$V(s) = g(\phi(s))$$
+This allows $O(1)$ parameter complexity regardless of team size while preserving full permutation equivariance.
 
 ---
 
@@ -52,14 +52,15 @@ $$\delta_{\text{MAPPO}}^t = r_{\text{team}}^t + \gamma V_{\text{joint}}(s^{t+1})
 | :--- | :--- | :--- |
 | **Critic Input** | Local $o_i \in \mathbb{R}^{127}$ | Joint $\{o_1, \dots, o_N\} \in \mathbb{R}^{N \times 127}$ |
 | **Environment Stationarity** | Non-stationary from agent's frame | Stationary under joint state-value $V(s)$ |
-| **Pass / Assist Credit Attribution** | Delayed & attenuated over $\Delta t$ steps | Instantaneous advantage spike via $V(s)$ shift |
-| **Lazy Agent Vulnerability** | High (agents easily collapse to passive roles) | Low (cooperative actions correctly rewarded) |
+| **Pass / Assist Credit Attribution** | Delayed & attenuated over $\Delta t$ steps | Immediate advantage via $V(s)$ shift |
+| **Lazy Agent Risk** | Higher (requires careful reward/credit design) | Lower (joint critic observes cooperation directly) |
 | **Scalability across 3v1, 5v5, 11v11** | $O(1)$ network size, but high sample complexity | $O(1)$ parameter scaling via Deep Sets pooling |
 | **Measured Goal Rate / Convergence** | UNMEASURED (requires local environment run) | UNMEASURED (requires local environment run) |
 
 ---
 
-## 4. Recommendations & Mitigations Applied
+## 4. Implementation Notes
+
 1. **Permutation-Invariant Pooling**: Integrated Deep Sets pooling in `mappo_networks.py` so the centralized critic trains effectively across 3v1, 5v5, and 11v11 without retraining flat heads.
 2. **Role Differentiation**: Added 12-dimensional one-hot role embeddings to the observation space (`simple115_v3_role`), enabling actors and critics to distinguish wingers, strikers, and midfielders.
 3. **Shared Trajectory Buffers**: Maintained unified rollout tensors `(num_steps, num_agents, obs_dim)` in `mappo_rollout.py` to ensure synchronous GAE computation across the team.
