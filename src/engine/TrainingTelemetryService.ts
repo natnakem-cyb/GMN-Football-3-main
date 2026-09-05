@@ -99,16 +99,16 @@ export class TrainingTelemetryService {
   private listeners: Array<() => void> = [];
 
   public hardware: HardwareMetrics = {
-    sps: 0,
-    fps: 0,
-    gpuVramUsedMb: 0,
-    gpuVramTotalMb: 0,
-    gpuUtilizationPct: 0,
-    cpuUtilizationPct: 0,
-    workerCount: 0,
-    bufferSize: 0,
-    bufferCapacity: 0,
-    ipcLatencyMs: 0,
+    sps: null,
+    fps: null,
+    gpuVramUsedMb: null,
+    gpuVramTotalMb: null,
+    gpuUtilizationPct: null,
+    cpuUtilizationPct: null,
+    workerCount: null,
+    bufferSize: null,
+    bufferCapacity: null,
+    ipcLatencyMs: null,
     activeDevice: 'No training running',
   };
 
@@ -411,15 +411,15 @@ export class TrainingTelemetryService {
     const fullSnapshot: TrainingMetricsSnapshot = {
       step: newStep,
       update: snapshot.update ?? Math.round(newStep / 256),
-      policyLoss: snapshot.policyLoss ?? lastSnap?.policyLoss ?? -0.04,
-      valueLoss: snapshot.valueLoss ?? lastSnap?.valueLoss ?? 0.05,
-      entropy: snapshot.entropy ?? lastSnap?.entropy ?? 1.8,
-      approxKl: snapshot.approxKl ?? lastSnap?.approxKl ?? 0.01,
-      clipFraction: snapshot.clipFraction ?? lastSnap?.clipFraction ?? 0.06,
-      learningRate: snapshot.learningRate ?? lastSnap?.learningRate ?? 3e-4,
-      gradNorm: snapshot.gradNorm ?? lastSnap?.gradNorm ?? 0.1,
-      rollingReward: snapshot.rollingReward ?? lastSnap?.rollingReward ?? 0.5,
-      goalRate: snapshot.goalRate ?? lastSnap?.goalRate ?? 65.0,
+      policyLoss: snapshot.policyLoss ?? lastSnap?.policyLoss ?? null,
+      valueLoss: snapshot.valueLoss ?? lastSnap?.valueLoss ?? null,
+      entropy: snapshot.entropy ?? lastSnap?.entropy ?? null,
+      approxKl: snapshot.approxKl ?? lastSnap?.approxKl ?? null,
+      clipFraction: snapshot.clipFraction ?? lastSnap?.clipFraction ?? null,
+      learningRate: snapshot.learningRate ?? lastSnap?.learningRate ?? null,
+      gradNorm: snapshot.gradNorm ?? lastSnap?.gradNorm ?? null,
+      rollingReward: snapshot.rollingReward ?? lastSnap?.rollingReward ?? null,
+      goalRate: snapshot.goalRate ?? lastSnap?.goalRate ?? null,
       timestamp: snapshot.timestamp ?? Date.now(),
     };
 

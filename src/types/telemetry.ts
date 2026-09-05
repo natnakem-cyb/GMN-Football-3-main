@@ -3,29 +3,29 @@ import { Vector2D } from './football';
 export interface TrainingMetricsSnapshot {
   step: number;
   update: number;
-  policyLoss: number;
-  valueLoss: number;
-  entropy: number;
-  approxKl: number;
-  clipFraction: number;
-  learningRate: number;
-  gradNorm: number;
-  rollingReward: number;
-  goalRate: number;
+  policyLoss: number | null;
+  valueLoss: number | null;
+  entropy: number | null;
+  approxKl: number | null;
+  clipFraction: number | null;
+  learningRate: number | null;
+  gradNorm: number | null;
+  rollingReward: number | null;
+  goalRate: number | null;
   timestamp: number;
 }
 
 export interface HardwareMetrics {
-  sps: number; // steps per second
-  fps: number; // visual frame rate
-  gpuVramUsedMb: number;
-  gpuVramTotalMb: number;
-  gpuUtilizationPct: number;
-  cpuUtilizationPct: number;
-  workerCount: number;
-  bufferSize: number;
-  bufferCapacity: number;
-  ipcLatencyMs: number;
+  sps: number | null; // steps per second
+  fps: number | null; // visual frame rate
+  gpuVramUsedMb: number | null;
+  gpuVramTotalMb: number | null;
+  gpuUtilizationPct: number | null;
+  cpuUtilizationPct: number | null;
+  workerCount: number | null;
+  bufferSize: number | null;
+  bufferCapacity: number | null;
+  ipcLatencyMs: number | null;
   activeDevice: 'CUDA (RTX 4090 / Cloud T4)' | 'Apple MPS' | 'WebGPU / WASM Vectorized' | 'No training running';
 }
 

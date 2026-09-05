@@ -23,6 +23,9 @@ export interface TrainingMetrics {
   policyLoss?: number;
   entropy?: number;
   approxKl?: number;
+  clipFraction?: number;
+  learningRate?: number;
+  gradNorm?: number;
   timestamp: number;
 }
 
@@ -210,15 +213,15 @@ export class TrainingJobService {
           metricsBroadcaster.broadcastMetrics({
             step: parsedMetrics.step,
             update: parsedMetrics.update ?? 0,
-            policyLoss: parsedMetrics.policyLoss ?? 0,
-            valueLoss: parsedMetrics.valueLoss ?? 0,
-            entropy: parsedMetrics.entropy ?? 0,
-            approxKl: parsedMetrics.approxKl ?? 0,
-            clipFraction: 0,
-            learningRate: 3e-4,
-            gradNorm: 0,
-            rollingReward: parsedMetrics.rollingReward ?? 0,
-            goalRate: parsedMetrics.goalRate ?? 0,
+            policyLoss: parsedMetrics.policyLoss ?? null,
+            valueLoss: parsedMetrics.valueLoss ?? null,
+            entropy: parsedMetrics.entropy ?? null,
+            approxKl: parsedMetrics.approxKl ?? null,
+            clipFraction: null,
+            learningRate: parsedMetrics.learningRate ?? null,
+            gradNorm: null,
+            rollingReward: parsedMetrics.rollingReward ?? null,
+            goalRate: parsedMetrics.goalRate ?? null,
             timestamp: parsedMetrics.timestamp,
           });
         }
@@ -444,7 +447,10 @@ export class TrainingJobService {
     ];
 
     return new Promise((resolve, reject) => {
-      const p = spawn('python3', exportArgs, { stdio: 'inherit' });
+      const p = spawn('python3', exportArgs, {
+        stdio: 'inherit',
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      });
       p.on('close', (code) => {
         if (code === 0) {
           // If this was the academy_3_vs_1_with_keeper scenario, also copy to default mappo_policy.onnx

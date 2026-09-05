@@ -5,15 +5,15 @@ import os from 'os';
 export interface TrainingMetricsSnapshot {
   step: number;
   update: number;
-  policyLoss: number;
-  valueLoss: number;
-  entropy: number;
-  approxKl: number;
-  clipFraction: number;
-  learningRate: number;
-  gradNorm: number;
-  rollingReward: number;
-  goalRate: number;
+  policyLoss: number | null;
+  valueLoss: number | null;
+  entropy: number | null;
+  approxKl: number | null;
+  clipFraction: number | null;
+  learningRate: number | null;
+  gradNorm: number | null;
+  rollingReward: number | null;
+  goalRate: number | null;
   timestamp: number;
 }
 

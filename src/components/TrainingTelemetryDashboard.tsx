@@ -53,14 +53,14 @@ interface TrainingTelemetryDashboardProps {
   activeModelPath?: string;
   onSelectModel?: (modelPath: string) => Promise<void> | void;
   stalenessTicks?: number;
-  lastInferenceMs?: number;
+  lastInferenceMs?: number | null;
 }
 
 export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProps> = ({
   activeModelPath = '/models/mappo_policy.onnx',
   onSelectModel,
   stalenessTicks = 0,
-  lastInferenceMs = 0,
+  lastInferenceMs = null,
 }) => {
   const telemetryService = TrainingTelemetryService.getInstance();
   const [, setTrigger] = useState(0);
@@ -265,7 +265,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
             <div className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
               <span className="text-slate-400">Inference:</span>
-              <span className="font-mono text-slate-200 font-bold">{lastInferenceMs || 1.8} ms</span>
+              <span className="font-mono text-slate-200 font-bold">{lastInferenceMs != null ? `${lastInferenceMs} ms` : '—'}</span>
             </div>
 
             {/* Staleness Badge */}
@@ -317,7 +317,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Zap className="w-3 h-3 text-amber-400" /> Steps / Second
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.sps ? hardware.sps.toLocaleString() : '3,840'}{' '}
+              {hardware.sps != null ? hardware.sps.toLocaleString() : '—'}{' '}
               <span className="text-[10px] text-slate-500 font-normal">SPS</span>
             </div>
           </div>
@@ -327,7 +327,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Cpu className="w-3 h-3 text-blue-400" /> CPU Worker Load
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.cpuUtilizationPct}%
+              {hardware.cpuUtilizationPct != null ? `${hardware.cpuUtilizationPct}%` : '—'}
             </div>
           </div>
 
@@ -336,7 +336,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Server className="w-3 h-3 text-emerald-400" /> GPU Utilization
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.gpuUtilizationPct}%
+              {hardware.gpuUtilizationPct != null ? `${hardware.gpuUtilizationPct}%` : '—'}
             </div>
           </div>
 
@@ -345,7 +345,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <HardDrive className="w-3 h-3 text-purple-400" /> VRAM Memory
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {(hardware.gpuVramUsedMb / 1024).toFixed(1)} GB
+              {hardware.gpuVramUsedMb != null ? `${(hardware.gpuVramUsedMb / 1024).toFixed(1)} GB` : '—'}
             </div>
           </div>
 
@@ -354,7 +354,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Layers className="w-3 h-3 text-cyan-400" /> IPC Bridge Latency
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.ipcLatencyMs} ms
+              {hardware.ipcLatencyMs != null ? `${hardware.ipcLatencyMs} ms` : '—'}
             </div>
           </div>
 
@@ -538,7 +538,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <h3 className="text-xs font-bold text-slate-100">Rolling Episode Reward & Goal Rate</h3>
             </div>
             <span className="text-[11px] font-mono text-emerald-400 font-semibold">
-              Goal Rate: {lastSnapshot.goalRate?.toFixed(1) || '0.0'}%
+              Goal Rate: {lastSnapshot.goalRate != null ? `${lastSnapshot.goalRate.toFixed(1)}%` : '—'}
             </span>
           </div>
 
@@ -592,7 +592,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <h3 className="text-xs font-bold text-slate-100">Loss Curves & Policy Entropy</h3>
             </div>
             <span className="text-[11px] font-mono text-purple-400 font-semibold">
-              Entropy: {lastSnapshot.entropy?.toFixed(3) || '2.85'}
+              Entropy: {lastSnapshot.entropy != null ? lastSnapshot.entropy.toFixed(3) : '—'}
             </span>
           </div>
 

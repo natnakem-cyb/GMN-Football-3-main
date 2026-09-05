@@ -659,8 +659,8 @@ export default function App() {
                   setRenderTrigger((p) => p + 1);
                 }
               }}
-              stalenessTicks={trainedAgentRef.current?.stalenessTicks || 0}
-              lastInferenceMs={trainedAgentRef.current?.lastInferenceMs || 0}
+              stalenessTicks={trainedAgentRef.current?.stalenessTicks ?? 0}
+              lastInferenceMs={trainedAgentRef.current?.lastInferenceMs ?? null}
             />
             <MultiAgentCreditMatrix
               metrics={agentCreditMetrics}
