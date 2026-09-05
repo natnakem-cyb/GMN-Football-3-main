@@ -143,7 +143,7 @@ class GMNMultiAgentEnv(ParallelEnv):
                 self.ws_client.close()
             except Exception:
                 pass
-        self.ws_client = websockets.sync.client.connect(self.ws_url, max_size=None)
+        self.ws_client = websockets.sync.client.connect(self.ws_url, max_size=None, ping_interval=None)
 
     def observation_space(self, agent: str) -> spaces.Space:
         """Returns the observation space for the given agent."""

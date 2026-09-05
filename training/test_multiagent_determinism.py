@@ -42,7 +42,7 @@ def start_bridge_server(port: int) -> subprocess.Popen:
 
 def run_multiagent_ws_trajectory(port: int, scenario: str, seed: int, steps: int):
     ws_url = f"ws://127.0.0.1:{port}"
-    ws = websockets.sync.client.connect(ws_url, max_size=None)
+    ws = websockets.sync.client.connect(ws_url, max_size=None, ping_interval=None)
 
     # 1. Reset
     reset_payload = {"type": "reset", "scenario": scenario, "seed": seed}

@@ -134,11 +134,11 @@ class GMNFootballEnv(gym.Env):
                 pass
         for attempt in range(15):
             try:
-                self.ws_client = websockets.sync.client.connect(self.ws_url, max_size=None)
+                self.ws_client = websockets.sync.client.connect(self.ws_url, max_size=None, ping_interval=None)
                 return
             except Exception:
                 time.sleep(0.2)
-        self.ws_client = websockets.sync.client.connect(self.ws_url, max_size=None)
+        self.ws_client = websockets.sync.client.connect(self.ws_url, max_size=None, ping_interval=None)
 
     def reset(
         self,
