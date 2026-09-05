@@ -56,6 +56,7 @@ export interface PolicyActionDistribution {
   bestActionIndex: number;
   bestActionName: string;
   confidence: number;
+  isSynthetic?: boolean;
   attention?: {
     targetPlayerId?: string;
     targetPos?: Vector2D;

@@ -466,7 +466,8 @@ export class TrainingTelemetryService {
     }
 
     // High-fidelity fallback / tactical policy projection if logits are empty or uninitialized
-    if (!logits || logits.length !== 19) {
+    const isSynthetic = !logits || logits.length !== 19;
+    if (isSynthetic) {
       logits = this.computeSyntheticPolicyLogits(player, allPlayers, ball);
     }
 
@@ -538,6 +539,7 @@ export class TrainingTelemetryService {
       bestActionIndex: bestIdx,
       bestActionName: ACTION_NAMES[bestIdx],
       confidence: Number((maxProb * 100).toFixed(1)),
+      isSynthetic,
       attention: bestPassCandidate
         ? {
             targetPlayerId: bestPassCandidate.id,

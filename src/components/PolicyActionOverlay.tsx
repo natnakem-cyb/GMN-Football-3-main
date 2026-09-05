@@ -93,17 +93,22 @@ export const PolicyActionOverlay: React.FC<PolicyActionOverlayProps> = ({
           <div className="w-6 h-6 rounded-lg bg-purple-500/20 border border-purple-500/40 flex items-center justify-center">
             <BrainCircuit className="w-3.5 h-3.5 text-purple-400" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-100">Neural Policy Inference</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
-                Agent: {distribution.playerId}
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">
-                Role: {distribution.role}
-              </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-100">Neural Policy Inference</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                  Agent: {distribution.playerId}
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">
+                  Role: {distribution.role}
+                </span>
+                {distribution.isSynthetic && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">
+                    Synthetic (policy unavailable)
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
         </div>
 
         <div className="flex items-center gap-2">

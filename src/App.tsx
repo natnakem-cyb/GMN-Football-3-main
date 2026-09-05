@@ -85,6 +85,7 @@ export default function App() {
   // Cleanup on unmount & Async Model Loading
   useEffect(() => {
     let mounted = true;
+    setIsModelLoading(true);
     TrainedPolicyAgent.create('/models/mappo_policy.onnx')
       .then((agent) => {
         if (mounted) {
@@ -501,7 +502,7 @@ export default function App() {
         {/* Pitch Canvas View (Rendered in Arena, Academy, and Replay tabs) */}
         <div className="space-y-3">
           {/* Neural Policy Unavailable Banner */}
-          {neuralFallbackActive && engine.teamLeftConfig.controller === 'neural' && (
+          {neuralFallbackActive && (
             <div className="mb-2 p-2 rounded-lg bg-amber-900/80 border border-amber-600 text-amber-100 text-xs font-semibold text-center">
               ⚠️ Neural Policy Unavailable — Using Rule-Based Fallback.
               {modelError ? ` Error: ${modelError}` : ' No trained checkpoint loaded.'}
@@ -610,7 +611,8 @@ export default function App() {
                   if (!hasValidOnnx) {
                     setNeuralFallbackActive(true);
                     setModelError('Neural Model Unavailable – Reverting to Rule-Based');
-                    engine.teamLeftConfig.controller = 'rule_based';
+                    // Keep controller as 'neural' to preserve user selection;
+                    // the game loop already falls back to NeuralHeuristicAgent internally.
                   } else {
                     setNeuralFallbackActive(false);
                     setModelError(null);
