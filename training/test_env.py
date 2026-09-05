@@ -25,7 +25,7 @@ def test_gymnasium_environment():
         print(f"   ✓ Observation min: {obs.min():.4f}, max: {obs.max():.4f}")
         print(f"   ✓ Info keys: {list(info.keys())}")
 
-        assert obs.shape == (OBSERVATION_DIM,), f"Expected shape (115,), got {obs.shape}"
+        assert obs.shape == (OBSERVATION_DIM,), f"Expected shape ({OBSERVATION_DIM},), got {obs.shape}"
         assert obs.dtype == np.float32, f"Expected float32, got {obs.dtype}"
 
         print("\n3. Testing 10 consecutive step() calls across discrete actions...")

@@ -22,7 +22,7 @@ def ppo_update(
     returns: np.ndarray,
     clip_range: float = 0.2,
     n_epochs: int = 4,
-    batch_size: int = 64,
+    batch_size: int = 256,
     value_coef: float = 0.5,
     entropy_coef: float = 0.01,
     max_grad_norm: float = 0.5,
@@ -40,7 +40,7 @@ def ppo_update(
         returns: GAE returns array of shape (T,)
         clip_range: PPO clipping epsilon (default 0.2)
         n_epochs: Optimization epochs per rollout (default 4)
-        batch_size: Mini-batch sample size (default 64)
+        batch_size: Mini-batch sample size (default 256)
         value_coef: Critic loss weight (default 0.5)
         entropy_coef: Policy entropy bonus weight (default 0.01)
         max_grad_norm: Maximum gradient norm clipping (default 0.5)

@@ -8,7 +8,7 @@ import sys
 import numpy as np
 import torch
 
-from gmn_pettingzoo import GMNMultiAgentEnv
+from gmn_pettingzoo import GMNMultiAgentEnv, OBSERVATION_DIM
 from mappo_networks import SharedActor, CentralizedCritic
 from mappo_rollout import collect_rollout, compute_gae
 
@@ -23,8 +23,8 @@ def run_mappo_pipeline_test():
     torch.manual_seed(42)
     np.random.seed(42)
 
-    actor = SharedActor(obs_dim=115, action_dim=19, hidden=64)
-    critic = CentralizedCritic(global_state_dim=345, hidden=64)
+    actor = SharedActor(obs_dim=OBSERVATION_DIM, action_dim=19, hidden=64)
+    critic = CentralizedCritic(global_state_dim=OBSERVATION_DIM * 3, hidden=64)
 
     print("   ✓ SharedActor:", actor)
     print("   ✓ CentralizedCritic:", critic)
@@ -45,8 +45,8 @@ def run_mappo_pipeline_test():
     # 4. Validate buffer shapes and types
     print("\n4. Validating buffer shapes and types against specification:")
     shapes_spec = {
-        "local_obs": ((num_steps, 3, 115), np.float32),
-        "global_state": ((num_steps, 345), np.float32),
+        "local_obs": ((num_steps, 3, OBSERVATION_DIM), np.float32),
+        "global_state": ((num_steps, OBSERVATION_DIM * 3), np.float32),
         "actions": ((num_steps, 3), np.int64),
         "logprobs": ((num_steps, 3), np.float32),
         "values": ((num_steps,), np.float32),

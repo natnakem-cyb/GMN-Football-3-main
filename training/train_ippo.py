@@ -49,6 +49,11 @@ class IPPORewardLoggingCallback(BaseCallback):
         self.current_lengths: List[int] = []
         self.trend_snapshots: List[Tuple[int, int, float, float]] = []  # (step, ep_count, mean_rew, goal_rate)
 
+        # Best-checkpoint selection: track highest rolling goal rate and its checkpoint path.
+        self.best_goal_rate: float = -1.0
+        self.best_checkpoint_step: int = 0
+        self.best_checkpoint_path: str = ""
+
     def _on_training_start(self) -> None:
         num_envs = self.training_env.num_envs
         self.current_rewards = [0.0] * num_envs
@@ -85,6 +90,20 @@ class IPPORewardLoggingCallback(BaseCallback):
             goal_pct = float(np.mean(recent_goals)) * 100.0
             self.trend_snapshots.append((current_step, len(self.episode_rewards), mean_rew, goal_pct))
 
+            # Update best checkpoint based on rolling goal rate (same metric as the console log).
+            if goal_pct > self.best_goal_rate:
+                self.best_goal_rate = goal_pct
+                self.best_checkpoint_step = current_step
+                best_ckpt_name = f"ippo_{self.scenario}_best.zip"
+                best_ckpt_path = os.path.join(self.models_dir, best_ckpt_name)
+                self.model.save(best_ckpt_path)
+                self.best_checkpoint_path = best_ckpt_path
+                if self.verbose > 0:
+                    print(
+                        f"   [OK] New best checkpoint saved: {best_ckpt_path} "
+                        f"(rolling goal rate: {self.best_goal_rate:.1f}% at step {self.best_checkpoint_step})"
+                    )
+
             if self.verbose > 0:
                 print(
                     f"   [Step {current_step:7d}] Completed Episodes: {len(self.episode_rewards):4d} | "
@@ -99,7 +118,7 @@ class IPPORewardLoggingCallback(BaseCallback):
             ckpt_path = os.path.join(self.models_dir, ckpt_name)
             self.model.save(ckpt_path)
             try:
-                evaluate_checkpoint_progress(
+                eval_row = evaluate_checkpoint_progress(
                     checkpoint_path=ckpt_path,
                     scenario=self.scenario,
                     algorithm="IPPO",
@@ -108,6 +127,18 @@ class IPPORewardLoggingCallback(BaseCallback):
                     num_episodes=50,
                     deterministic=True,
                 )
+                milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
+                if milestone_goal_rate > self.best_goal_rate:
+                    self.best_goal_rate = milestone_goal_rate
+                    best_ckpt_name = f"ippo_{self.scenario}_best.zip"
+                    best_ckpt_path = os.path.join(self.models_dir, best_ckpt_name)
+                    self.model.save(best_ckpt_path)
+                    self.best_checkpoint_path = best_ckpt_path
+                    if self.verbose > 0:
+                        print(
+                            f"   [OK] New best checkpoint saved: {best_ckpt_path} "
+                            f"(eval goal rate: {self.best_goal_rate:.1f}%)"
+                        )
             except Exception as e:
                 print(f"[IPPORewardLoggingCallback] Checkpoint eval notice: {e}")
 
@@ -207,6 +238,15 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
         print(f"\n4. Saving Multi-Agent Model Checkpoint to: {checkpoint_path}...")
         model.save(checkpoint_path)
         print(f"   [OK] Checkpoint saved successfully. File exists: {os.path.exists(checkpoint_path)} (size: {os.path.getsize(checkpoint_path)} bytes)")
+
+        # Preserve best checkpoint: if a better checkpoint was found during training, overwrite the durable name.
+        if callback.best_checkpoint_path and os.path.exists(callback.best_checkpoint_path):
+            import shutil
+            shutil.copy2(callback.best_checkpoint_path, checkpoint_path)
+            print(
+                f"   [OK] Best checkpoint preserved as durable artifact: {checkpoint_path} "
+                f"(from {callback.best_checkpoint_path}, best goal rate: {callback.best_goal_rate:.1f}%)"
+            )
 
         # Persist Trend Snapshots
         if callback.trend_snapshots:

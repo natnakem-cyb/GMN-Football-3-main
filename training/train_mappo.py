@@ -126,8 +126,9 @@ def run_mappo_training(
     trend_snapshots: List[Tuple[int, int, float, float]] = []  # (step, num_eps, mean_rew, goal_rate)
     loss_history: List[Dict[str, Any]] = []
 
-    # Best-checkpoint selection: track highest evaluated goal rate and its checkpoint path.
+    # Best-checkpoint selection: track highest rolling goal rate and its checkpoint path.
     best_goal_rate: float = -1.0
+    best_checkpoint_step: int = 0
     best_checkpoint_path: str = ""
 
     last_check_step = total_steps_elapsed
@@ -192,6 +193,33 @@ def run_mappo_training(
             goal_pct = float(np.mean(recent_goals)) * 100.0
             trend_snapshots.append((total_steps_elapsed, len(episode_rewards), mean_rew, goal_pct))
 
+            # Update best checkpoint based on rolling goal rate (same metric as the console log).
+            if goal_pct > best_goal_rate:
+                best_goal_rate = goal_pct
+                best_checkpoint_step = total_steps_elapsed
+                best_ckpt_name = os.path.join(
+                    models_dir, f"mappo_{scenario}_best.pt"
+                )
+                torch.save(
+                    {
+                        "actor": actor.state_dict(),
+                        "critic": critic.state_dict(),
+                        "actor_opt": actor_opt.state_dict(),
+                        "critic_opt": critic_opt.state_dict(),
+                        "obs_dim": obs_dim,
+                        "global_state_dim": global_state_dim,
+                        "action_dim": action_dim,
+                        "timesteps": total_steps_elapsed,
+                    },
+                    best_ckpt_name,
+                )
+                best_checkpoint_path = best_ckpt_name
+                print(
+                    f"   [OK] New best checkpoint saved: {best_ckpt_name} "
+                    f"(rolling goal rate: {best_goal_rate:.1f}% at step {best_checkpoint_step})",
+                    flush=True,
+                )
+
             print(
                 f"   [Step {total_steps_elapsed:7d} / {timesteps}] Update {update_idx:4d}/{n_updates} | "
                 f"Completed Episodes: {len(episode_rewards):4d} | "
@@ -233,7 +261,6 @@ def run_mappo_training(
                 milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
                 if milestone_goal_rate > best_goal_rate:
                     best_goal_rate = milestone_goal_rate
-                    best_checkpoint_path = milestone_ckpt_path
                     best_ckpt_name = os.path.join(
                         models_dir, f"mappo_{scenario}_best.pt"
                     )
@@ -253,7 +280,7 @@ def run_mappo_training(
                     best_checkpoint_path = best_ckpt_name
                     print(
                         f"   [OK] New best checkpoint saved: {best_ckpt_name} "
-                        f"(goal rate: {best_goal_rate:.1f}%)",
+                        f"(eval goal rate: {best_goal_rate:.1f}%)",
                         flush=True,
                     )
             except Exception as e:
