@@ -128,7 +128,6 @@ Technology Stack
 | ML backend | PyTorch |
 | Browser inference | **`onnxruntime-web`, loading `public/models/mappo_policy.onnx`.** `src/agents/TrainedPolicyAgent.ts` runs real ONNX inference for the in-browser "Neural" controller. The older hand-rolled MLP path (`src/agents/mappo_weights.ts`) is explicitly `@deprecated` in the file itself and retained only for offline reference / test parity, not used in the live decision path. |
 | Deterministic RNG | Mulberry32 (`SeededRNG.ts`) |
-| Optional AI match commentary | `@google/genai` (Gemini API, via `src/services/geminiService.ts`) |
 | License | Apache-2.0 |
 
 Repository Structure
@@ -155,7 +154,6 @@ GMN-Football-3/
 │   │   └── mappo_weights.ts        # @deprecated — offline reference only, not used at runtime
 │   ├── scenarios/          # Scenario/curriculum registry
 │   ├── components/          # React UI
-│   ├── services/           # Gemini-based match commentary (optional)
 │   ├── types/
 │   ├── App.tsx / main.tsx / index.css
 │
@@ -188,7 +186,7 @@ GMN-Football-3/
 ├── package.json
 ├── tsconfig.json             # TypeScript config includes both `src/` and `training/` for strict typechecking
 ├── vite.config.ts / tailwind.config.js / postcss.config.js
-├── .env.example              # GEMINI_API_KEY (optional, for AI match commentary)
+├── .env.example
 ├── LICENSE (Apache-2.0)
 └── CONTRIBUTING.md            # currently generic boilerplate referencing an unrelated project — see Contributing
 ```

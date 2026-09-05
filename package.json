@@ -40,7 +40,6 @@
     "sync:contracts": "tsx scripts/sync_contracts.ts"
   },
   "dependencies": {
-    "@google/genai": "latest",
     "clsx": "^2.1.1",
     "lucide-react": "^0.344.0",
     "onnxruntime-web": "^1.29.0",

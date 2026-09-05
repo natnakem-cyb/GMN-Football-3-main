@@ -123,11 +123,6 @@ Metric: Play/pause state, speed multiplier
 Classification: live-wired
 Evidence: Receives `isPlaying`, `speed` from App.tsx state. Controls only, no metrics display.
 
-Component: GeminiTacticalCoach.tsx
-Metric: Tactical analysis text
-Classification: real-but-stale
-Evidence: Receives `stats`, `teamLeft`, `teamRight`, `score`, `eventsSummary` from App.tsx. Calls `GeminiCoachService.analyzeMatch()` on button click. Analysis is generated on-demand, not live.
-
 Component: ErrorBoundary.tsx
 Metric: Error messages
 Classification: live-wired

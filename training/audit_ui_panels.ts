@@ -138,15 +138,7 @@ audit.push({
   evidence: 'Receives `isPlaying`, `speed` from App.tsx state. Controls only, no metrics display.',
 });
 
-// 12. GeminiTacticalCoach.tsx
-audit.push({
-  component: 'GeminiTacticalCoach.tsx',
-  metric: 'Tactical analysis text',
-  classification: 'real-but-stale',
-  evidence: 'Receives `stats`, `teamLeft`, `teamRight`, `score`, `eventsSummary` from App.tsx. Calls `GeminiCoachService.analyzeMatch()` on button click. Analysis is generated on-demand, not live.',
-});
-
-// 13. ErrorBoundary.tsx
+// 12. ErrorBoundary.tsx
 audit.push({
   component: 'ErrorBoundary.tsx',
   metric: 'Error messages',
@@ -176,7 +168,6 @@ const renderedComponents = [
   'ScenarioSelector',
   'PitchCanvas',
   'MatchControls',
-  'GeminiTacticalCoach',
   'ErrorBoundary',
   'ControlsHelpModal',
 ];

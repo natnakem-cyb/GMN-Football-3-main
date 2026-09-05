@@ -16,7 +16,6 @@ import { ScenarioSelector } from './components/ScenarioSelector';
 import { ReplayAnalyzer } from './components/ReplayAnalyzer';
 import { TacticalAnalytics } from './components/TacticalAnalytics';
 import { RLGymnasiumPanel } from './components/RLGymnasiumPanel';
-import { GeminiTacticalCoach } from './components/GeminiTacticalCoach';
 import { ControlsHelpModal } from './components/ControlsHelpModal';
 import { TrainingTelemetryDashboard } from './components/TrainingTelemetryDashboard';
 import { PolicyActionOverlay } from './components/PolicyActionOverlay';
@@ -30,7 +29,6 @@ import {
   Cpu,
   BarChart3,
   Bot,
-  Sparkles,
   Zap,
   RotateCcw,
   Target,
@@ -40,7 +38,7 @@ import {
   Activity,
 } from 'lucide-react';
 
-type TabType = 'arena' | 'academy' | 'replay' | 'training' | 'gymnasium' | 'analytics' | 'coach';
+type TabType = 'arena' | 'academy' | 'replay' | 'training' | 'gymnasium' | 'analytics';
 
 export default function App() {
   const engineRef = useRef<GameEngine>(new GameEngine());
@@ -470,18 +468,6 @@ export default function App() {
             >
               <BarChart3 className="w-3.5 h-3.5" /> Analytics
             </button>
-
-            <button
-              id="tab-coach"
-              onClick={() => setActiveTab('coach')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                activeTab === 'coach'
-                  ? 'bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" /> AI Coach
-            </button>
           </nav>
         </div>
       </header>
@@ -728,16 +714,6 @@ export default function App() {
             stats={engine.stats}
             teamLeft={engine.teamLeftConfig}
             teamRight={engine.teamRightConfig}
-          />
-        )}
-
-        {activeTab === 'coach' && (
-          <GeminiTacticalCoach
-            stats={engine.stats}
-            teamLeft={engine.teamLeftConfig}
-            teamRight={engine.teamRightConfig}
-            score={engine.score}
-            eventsSummary={engine.events.map((e) => `${e.timeSeconds.toFixed(0)}s: ${e.description}`).join('; ')}
           />
         )}
       </main>
