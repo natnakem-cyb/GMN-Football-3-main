@@ -134,6 +134,7 @@ def run_mappo_training(
     best_deterministic_goal_rate: float = -1.0
     best_deterministic_checkpoint_step: int = 0
     best_deterministic_checkpoint_path: str = ""
+    _has_best_deterministic: bool = False
 
     last_check_step = total_steps_elapsed
     last_checkpoint_step = (total_steps_elapsed // 50_000) * 50_000
@@ -268,11 +269,11 @@ def run_mappo_training(
                     deterministic=True,
                 )
                 milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
-                # Noise guard: deterministic eval must beat the current best by >= 2 percentage points
-                # to replace the exported checkpoint. This prevents transient lucky eval windows from
-                # overwriting a genuinely better deterministic policy.
-                if milestone_goal_rate > best_deterministic_goal_rate + 2.0:
+                # First milestone is accepted unconditionally; subsequent milestones must beat
+                # the current best by >= 2 percentage points to replace the exported checkpoint.
+                if not _has_best_deterministic or milestone_goal_rate > best_deterministic_goal_rate + 2.0:
                     best_deterministic_goal_rate = milestone_goal_rate
+                    _has_best_deterministic = True
                     best_deterministic_checkpoint_step = total_steps_elapsed
                     best_ckpt_name = os.path.join(
                         models_dir, f"mappo_{scenario}_best.pt"
@@ -326,6 +327,47 @@ def run_mappo_training(
         flush=True,
     )
 
+    # End-of-run milestone evaluation — run BEFORE preservation so this eval can become the best.
+    try:
+        eval_row = evaluate_checkpoint_progress(
+            checkpoint_path=checkpoint_path,
+            scenario=scenario,
+            algorithm="MAPPO",
+            step=total_steps_elapsed,
+            learning_rate=3e-4,
+            num_episodes=50,
+            deterministic=True,
+        )
+        end_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
+        if not _has_best_deterministic or end_goal_rate > best_deterministic_goal_rate + 2.0:
+            best_deterministic_goal_rate = end_goal_rate
+            best_deterministic_checkpoint_step = total_steps_elapsed
+            _has_best_deterministic = True
+            best_ckpt_name = os.path.join(
+                models_dir, f"mappo_{scenario}_best.pt"
+            )
+            torch.save(
+                {
+                    "actor": actor.state_dict(),
+                    "critic": critic.state_dict(),
+                    "actor_opt": actor_opt.state_dict(),
+                    "critic_opt": critic_opt.state_dict(),
+                    "obs_dim": obs_dim,
+                    "global_state_dim": global_state_dim,
+                    "action_dim": action_dim,
+                    "timesteps": total_steps_elapsed,
+                },
+                best_ckpt_name,
+            )
+            best_deterministic_checkpoint_path = best_ckpt_name
+            print(
+                f"[OK] End-of-run eval updated best deterministic checkpoint: {best_ckpt_name} "
+                f"(goal rate: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step})",
+                flush=True,
+            )
+    except Exception as e:
+        print(f"[Notice] End-of-run MAPPO eval notice: {e}")
+
     # Preserve best deterministic checkpoint as the durable exported artifact.
     # The deployed browser policy (TrainedPolicyAgent) runs deterministically, so the checkpoint
     # shipped to export_onnx.py / public/models must be selected from deterministic evals,
@@ -342,20 +384,6 @@ def run_mappo_training(
     # Persist trend snapshots
     if trend_snapshots:
         persist_trend_snapshots(trend_snapshots, algorithm="MAPPO", scenario=scenario)
-
-    # End-of-run milestone evaluation
-    try:
-        evaluate_checkpoint_progress(
-            checkpoint_path=checkpoint_path,
-            scenario=scenario,
-            algorithm="MAPPO",
-            step=total_steps_elapsed,
-            learning_rate=3e-4,
-            num_episodes=50,
-            deterministic=True,
-        )
-    except Exception as e:
-        print(f"[Notice] End-of-run MAPPO eval notice: {e}")
 
     # 5. Print Training Reward & Performance Trend Summary
     print("\n5. Training Reward & Performance Trend Summary:", flush=True)
