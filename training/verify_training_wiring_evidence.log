@@ -1,0 +1,163 @@
+Connecting to bridge server at ws://127.0.0.1:5050...
+
+Starting short MAPPO training job (5000 steps)...
+WebSocket connected
+Subscribed to metrics
+[WS] TRAINING_STATUS: {"isRunning":false,"currentJob":{"id":"job_mappo_1788604110260","config":{"algorithm":"mappo","scenario":"academy_3_vs_1_with_keeper","timesteps":5000},"status":"completed","startTime":1788604110285,"
+[WS] TRAINING_STARTED: {"id":"job_mappo_1788604861150","config":{"algorithm":"mappo","scenario":"academy_3_vs_1_with_keeper","timesteps":5000},"status":"running","startTime":1788604861161,"pid":10220,"currentStep":0,"totalS
+Training job started
+[WS] undefined: {}
+Training start response: {"success":true,"message":"Training job started","job":{"id":"job_mappo_1788604861150","config":{"algorithm":"mappo","scenario":"academy_3_vs_1_with_keeper","timesteps":5000},"status":"running","startTime":1788604861161,"pid":10220,"currentStep":0,"totalSteps":5000,"latestMetrics":null,"recentLogs":[]}}
+[WS] hardware_stats: {"cpuPercent":41,"ramPercent":71,"ramUsedMb":5639,"ramTotalMb":7893,"stepsPerSec":199.1}
+[WS] hardware_stats: {"cpuPercent":44,"ramPercent":72,"ramUsedMb":5709,"ramTotalMb":7893,"stepsPerSec":199.1}
+[WS] TRAINING_STDOUT: {"line":"==================================================\r","timestamp":1788604865647,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"==================================================\r","ts":1788604865647}
+[WS] TRAINING_STDOUT: {"line":"GMN FOOTBALL -- MULTI-AGENT PPO (MAPPO) SMOKE TEST\r","timestamp":1788604865647,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"GMN FOOTBALL -- MULTI-AGENT PPO (MAPPO) SMOKE TEST\r","ts":1788604865647}
+[WS] TRAINING_STDOUT: {"line":"Target Scenario: academy_3_vs_1_with_keeper | Timesteps: 5000\r","timestamp":1788604865647,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"Target Scenario: academy_3_vs_1_with_keeper | Timesteps: 5000\r","ts":1788604865647}
+[WS] TRAINING_STDOUT: {"line":"Architecture: SharedActor (Mlp 64x64) + CentralizedCritic (Global State / Set Pooling -> 1)\r","timestamp":1788604865647,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"Architecture: SharedActor (Mlp 64x64) + CentralizedCritic (Global State / Set Pooling -> 1)\r","ts":1788604865647}
+[WS] TRAINING_STDOUT: {"line":"Checkpoint Output: models/mappo_academy_3_vs_1_with_keeper_5000.pt\r","timestamp":1788604865648,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"Checkpoint Output: models/mappo_academy_3_vs_1_with_keeper_5000.pt\r","ts":1788604865648}
+[WS] TRAINING_STDOUT: {"line":"==================================================\r","timestamp":1788604865648,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"==================================================\r","ts":1788604865648}
+[WS] TRAINING_STDOUT: {"line":"1. Initializing Multi-Agent Environment & MAPPO Networks...\r","timestamp":1788604865657,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"1. Initializing Multi-Agent Environment & MAPPO Networks...\r","ts":1788604865658}
+[WS] TRAINING_STDOUT: {"line":"   Controllable Agents (3): ['left_1', 'left_2', 'left_3']\r","timestamp":1788604865672,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   Controllable Agents (3): ['left_1', 'left_2', 'left_3']\r","ts":1788604865672}
+[WS] TRAINING_STDOUT: {"line":"   Local Obs Dim (with Role One-Hot): 127 | Action Dim: 19\r","timestamp":1788604865672,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   Local Obs Dim (with Role One-Hot): 127 | Action Dim: 19\r","ts":1788604865672}
+[WS] TRAINING_STDOUT: {"line":"   Critic Architecture: Permutation-Invariant Deep Sets Pooling (O(1) parameter scaling)\r","timestamp":1788604865672,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   Critic Architecture: Permutation-Invariant Deep Sets Pooling (O(1) parameter scaling)\r","ts":1788604865673}
+[WS] TRAINING_STDOUT: {"line":"2. Configuration:\r","timestamp":1788604868537,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"2. Configuration:\r","ts":1788604868537}
+[WS] TRAINING_STDOUT: {"line":"   Total Updates: 19 (256 steps per rollout)\r","timestamp":1788604868537,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   Total Updates: 19 (256 steps per rollout)\r","ts":1788604868537}
+[WS] TRAINING_STDOUT: {"line":"   Remaining Timesteps: 4864 (Total Target: 5000)\r","timestamp":1788604868537,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   Remaining Timesteps: 4864 (Total Target: 5000)\r","ts":1788604868537}
+[WS] TRAINING_STDOUT: {"line":"   PPO Epochs: 4 | Mini-batch: 256 | LR: 3e-4 | Clip: 0.2\r","timestamp":1788604868538,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   PPO Epochs: 4 | Mini-batch: 256 | LR: 3e-4 | Clip: 0.2\r","ts":1788604868538}
+[WS] TRAINING_STDOUT: {"line":"   GAE: gamma=0.99, lambda=0.95 | Value Coef: 0.5 | Entropy Coef: 0.01\r","timestamp":1788604868539,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   GAE: gamma=0.99, lambda=0.95 | Value Coef: 0.5 | Entropy Coef: 0.01\r","ts":1788604868539}
+[WS] TRAINING_STDOUT: {"line":"3. Starting MAPPO Training for 5000 steps...\r","timestamp":1788604868539,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"3. Starting MAPPO Training for 5000 steps...\r","ts":1788604868540}
+[WS] hardware_stats: {"cpuPercent":49,"ramPercent":73,"ramUsedMb":5774,"ramTotalMb":7893,"stepsPerSec":199.1}
+[WS] hardware_stats: {"cpuPercent":70,"ramPercent":73,"ramUsedMb":5778,"ramTotalMb":7893,"stepsPerSec":199.1}
+[WS] TRAINING_STDOUT: {"line":"   [OK] New best rolling checkpoint saved: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_rolling_best.pt (rolling goal rate: 0.0
+[WS] training_output: {"text":"   [OK] New best rolling checkpoint saved: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_rolling_best.pt (rolling goal rate: 0.0
+[WS] TRAINING_STDOUT: {"line":"   [Step    1024 / 5000] Update    4/19 | Completed Episodes:   36 | Rolling Reward (last 50): +0.0062 | Goal Rate:   0.0% | Val Loss: 0.00238 | Entropy: 2.9071\r","timestamp":1788604872821,"
+[WS] training_output: {"text":"   [Step    1024 / 5000] Update    4/19 | Completed Episodes:   36 | Rolling Reward (last 50): +0.0062 | Goal Rate:   0.0% | Val Loss: 0.00238 | Entropy: 2.9071\r","ts":1788604872821}
+[WS] TRAINING_METRICS: {"step":1024,"totalSteps":5000,"update":4,"totalUpdates":19,"episodes":36,"rollingReward":0.0062,"goalRate":0,"valueLoss":0.00238,"entropy":2.9071,"timestamp":1788604872821}
+[WS] training_metrics: {"step":1024,"update":4,"policyLoss":null,"valueLoss":0.00238,"entropy":2.9071,"approxKl":null,"clipFraction":null,"learningRate":null,"gradNorm":null,"rollingReward":0.0062,"goalRate":0,"timestamp":1
+[WS] hardware_stats: {"cpuPercent":74,"ramPercent":73,"ramUsedMb":5786,"ramTotalMb":7893,"stepsPerSec":-4.2}
+[WS] TRAINING_STDOUT: {"line":"   [Step    2048 / 5000] Update    8/19 | Completed Episodes:   76 | Rolling Reward (last 50): +0.0378 | Goal Rate:   0.0% | Val Loss: 0.00359 | Entropy: 2.8970\r","timestamp":1788604877412,"
+[WS] training_output: {"text":"   [Step    2048 / 5000] Update    8/19 | Completed Episodes:   76 | Rolling Reward (last 50): +0.0378 | Goal Rate:   0.0% | Val Loss: 0.00359 | Entropy: 2.8970\r","ts":1788604877413}
+[WS] TRAINING_METRICS: {"step":2048,"totalSteps":5000,"update":8,"totalUpdates":19,"episodes":76,"rollingReward":0.0378,"goalRate":0,"valueLoss":0.00359,"entropy":2.897,"timestamp":1788604877413}
+[WS] training_metrics: {"step":2048,"update":8,"policyLoss":null,"valueLoss":0.00359,"entropy":2.897,"approxKl":null,"clipFraction":null,"learningRate":null,"gradNorm":null,"rollingReward":0.0378,"goalRate":0,"timestamp":17
+[WS] hardware_stats: {"cpuPercent":79,"ramPercent":74,"ramUsedMb":5811,"ramTotalMb":7893,"stepsPerSec":223}
+[WS] hardware_stats: {"cpuPercent":90,"ramPercent":73,"ramUsedMb":5780,"ramTotalMb":7893,"stepsPerSec":223}
+[WS] TRAINING_STDOUT: {"line":"   [Step    3072 / 5000] Update   12/19 | Completed Episodes:  115 | Rolling Reward (last 50): +0.0470 | Goal Rate:   0.0% | Val Loss: 0.00346 | Entropy: 2.8760\r","timestamp":1788604883168,"
+[WS] training_output: {"text":"   [Step    3072 / 5000] Update   12/19 | Completed Episodes:  115 | Rolling Reward (last 50): +0.0470 | Goal Rate:   0.0% | Val Loss: 0.00346 | Entropy: 2.8760\r","ts":1788604883168}
+[WS] TRAINING_METRICS: {"step":3072,"totalSteps":5000,"update":12,"totalUpdates":19,"episodes":115,"rollingReward":0.047,"goalRate":0,"valueLoss":0.00346,"entropy":2.876,"timestamp":1788604883168}
+[WS] training_metrics: {"step":3072,"update":12,"policyLoss":null,"valueLoss":0.00346,"entropy":2.876,"approxKl":null,"clipFraction":null,"learningRate":null,"gradNorm":null,"rollingReward":0.047,"goalRate":0,"timestamp":17
+[WS] hardware_stats: {"cpuPercent":92,"ramPercent":73,"ramUsedMb":5801,"ramTotalMb":7893,"stepsPerSec":177.9}
+[WS] hardware_stats: {"cpuPercent":91,"ramPercent":73,"ramUsedMb":5789,"ramTotalMb":7893,"stepsPerSec":177.9}
+[WS] TRAINING_STDOUT: {"line":"   [Step    4096 / 5000] Update   16/19 | Completed Episodes:  161 | Rolling Reward (last 50): +0.0286 | Goal Rate:   0.0% | Val Loss: 0.00114 | Entropy: 2.8545\r","timestamp":1788604888444,"
+[WS] training_output: {"text":"   [Step    4096 / 5000] Update   16/19 | Completed Episodes:  161 | Rolling Reward (last 50): +0.0286 | Goal Rate:   0.0% | Val Loss: 0.00114 | Entropy: 2.8545\r","ts":1788604888444}
+[WS] TRAINING_METRICS: {"step":4096,"totalSteps":5000,"update":16,"totalUpdates":19,"episodes":161,"rollingReward":0.0286,"goalRate":0,"valueLoss":0.00114,"entropy":2.8545,"timestamp":1788604888444}
+[WS] training_metrics: {"step":4096,"update":16,"policyLoss":null,"valueLoss":0.00114,"entropy":2.8545,"approxKl":null,"clipFraction":null,"learningRate":null,"gradNorm":null,"rollingReward":0.0286,"goalRate":0,"timestamp":
+[WS] hardware_stats: {"cpuPercent":79,"ramPercent":73,"ramUsedMb":5771,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] TRAINING_STDOUT: {"line":"[OK] MAPPO Training completed in 24.11s (201.7 steps/sec)\r","timestamp":1788604892641,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"[OK] MAPPO Training completed in 24.11s (201.7 steps/sec)\r","ts":1788604892641}
+[WS] TRAINING_STDOUT: {"line":"4. Saving MAPPO Model Checkpoint to: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_5000.pt...\r","timestamp":1788604892641,"jobI
+[WS] training_output: {"text":"4. Saving MAPPO Model Checkpoint to: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_5000.pt...\r","ts":1788604892641}
+[WS] hardware_stats: {"cpuPercent":92,"ramPercent":74,"ramUsedMb":5834,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] TRAINING_STDOUT: {"line":"[OK] Checkpoint saved successfully. File exists: True (size: 430015 bytes)\r","timestamp":1788604892660,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"[OK] Checkpoint saved successfully. File exists: True (size: 430015 bytes)\r","ts":1788604892661}
+[WS] TRAINING_STDOUT: {"line":"[eval_progress] Checkpoint already evaluated for (academy_3_vs_1_with_keeper, MAPPO, step=4864). Goal Rate: 0.0%. Skipping re-evaluation.\r","timestamp":1788604892662,"jobId":"job_mappo_17886
+[WS] training_output: {"text":"[eval_progress] Checkpoint already evaluated for (academy_3_vs_1_with_keeper, MAPPO, step=4864). Goal Rate: 0.0%. Skipping re-evaluation.\r","ts":1788604892662}
+[WS] TRAINING_STDOUT: {"line":"[OK] End-of-run eval updated best deterministic checkpoint: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_best.pt (goal rate: 0.
+[WS] training_output: {"text":"[OK] End-of-run eval updated best deterministic checkpoint: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_best.pt (goal rate: 0.
+[WS] TRAINING_STDOUT: {"line":"[OK] Best deterministic checkpoint preserved as durable artifact: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_5000.pt (from C:
+[WS] training_output: {"text":"[OK] Best deterministic checkpoint preserved as durable artifact: <repo_root>\\training\\models\\mappo_academy_3_vs_1_with_keeper_5000.pt (from C:
+[WS] TRAINING_STDOUT: {"line":"   [OK] Trend snapshots persisted to: <repo_root>\\training\\results\\trend_mappo_academy_3_vs_1_with_keeper.csv\r","timestamp":1788604892713,"job
+[WS] training_output: {"text":"   [OK] Trend snapshots persisted to: <repo_root>\\training\\results\\trend_mappo_academy_3_vs_1_with_keeper.csv\r","ts":1788604892714}
+[WS] TRAINING_STDOUT: {"line":"5. Training Reward & Performance Trend Summary:\r","timestamp":1788604892714,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"5. Training Reward & Performance Trend Summary:\r","ts":1788604892714}
+[WS] TRAINING_STDOUT: {"line":"    Timestep | Episodes |  Rolling Reward |  Rolling Goal Rate\r","timestamp":1788604892714,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"    Timestep | Episodes |  Rolling Reward |  Rolling Goal Rate\r","ts":1788604892714}
+[WS] TRAINING_STDOUT: {"line":"   ----------+----------+-----------------+-------------------\r","timestamp":1788604892714,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   ----------+----------+-----------------+-------------------\r","ts":1788604892715}
+[WS] TRAINING_STDOUT: {"line":"        1024 |       36 |         +0.0062 |               0.0%\r","timestamp":1788604892715,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        1024 |       36 |         +0.0062 |               0.0%\r","ts":1788604892715}
+[WS] TRAINING_STDOUT: {"line":"        2048 |       76 |         +0.0378 |               0.0%\r","timestamp":1788604892715,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        2048 |       76 |         +0.0378 |               0.0%\r","ts":1788604892715}
+[WS] TRAINING_STDOUT: {"line":"        3072 |      115 |         +0.0470 |               0.0%\r","timestamp":1788604892715,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        3072 |      115 |         +0.0470 |               0.0%\r","ts":1788604892715}
+[WS] TRAINING_STDOUT: {"line":"        4096 |      161 |         +0.0286 |               0.0%\r","timestamp":1788604892715,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        4096 |      161 |         +0.0286 |               0.0%\r","ts":1788604892716}
+[WS] TRAINING_STDOUT: {"line":"   Best rolling goal rate: 0.0% at step 1024 | Best deterministic goal rate: 0.0% at step 4864 (exported)\r","timestamp":1788604892716,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   Best rolling goal rate: 0.0% at step 1024 | Best deterministic goal rate: 0.0% at step 4864 (exported)\r","ts":1788604892716}
+[WS] TRAINING_STDOUT: {"line":"6. Sampled Loss & Diagnostic Metrics Progression Across Training:\r","timestamp":1788604892716,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"6. Sampled Loss & Diagnostic Metrics Progression Across Training:\r","ts":1788604892716}
+[WS] TRAINING_STDOUT: {"line":"    Update |  Timestep |  Policy Loss |   Value Loss |    Entropy |   Approx KL\r","timestamp":1788604892716,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"    Update |  Timestep |  Policy Loss |   Value Loss |    Entropy |   Approx KL\r","ts":1788604892716}
+[WS] TRAINING_STDOUT: {"line":"   --------+-----------+--------------+--------------+------------+------------\r","timestamp":1788604892716,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   --------+-----------+--------------+--------------+------------+------------\r","ts":1788604892717}
+[WS] TRAINING_STDOUT: {"line":"         1 |       256 |    -0.014759 |     0.016375 |     2.9199 |   +0.001913\r","timestamp":1788604892717,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"         1 |       256 |    -0.014759 |     0.016375 |     2.9199 |   +0.001913\r","ts":1788604892717}
+[WS] TRAINING_STDOUT: {"line":"         3 |       768 |    -0.005713 |     0.006909 |     2.9115 |   +0.001013\r","timestamp":1788604892717,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"         3 |       768 |    -0.005713 |     0.006909 |     2.9115 |   +0.001013\r","ts":1788604892718}
+[WS] TRAINING_STDOUT: {"line":"         5 |      1280 |    -0.006708 |     0.001804 |     2.9051 |   -0.000978\r","timestamp":1788604892718,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"         5 |      1280 |    -0.006708 |     0.001804 |     2.9051 |   -0.000978\r","ts":1788604892718}
+[WS] TRAINING_STDOUT: {"line":"         7 |      1792 |    -0.006155 |     0.003780 |     2.8964 |   +0.000539\r","timestamp":1788604892718,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"         7 |      1792 |    -0.006155 |     0.003780 |     2.8964 |   +0.000539\r","ts":1788604892718}
+[WS] TRAINING_STDOUT: {"line":"         9 |      2304 |    -0.005736 |     0.002394 |     2.8920 |   -0.000110\r","timestamp":1788604892718,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"         9 |      2304 |    -0.005736 |     0.002394 |     2.8920 |   -0.000110\r","ts":1788604892718}
+[WS] TRAINING_STDOUT: {"line":"        11 |      2816 |    -0.005790 |     0.001691 |     2.8779 |   +0.000274\r","timestamp":1788604892719,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        11 |      2816 |    -0.005790 |     0.001691 |     2.8779 |   +0.000274\r","ts":1788604892719}
+[WS] TRAINING_STDOUT: {"line":"        13 |      3328 |    -0.005782 |     0.003624 |     2.8627 |   +0.000446\r","timestamp":1788604892719,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        13 |      3328 |    -0.005782 |     0.003624 |     2.8627 |   +0.000446\r","ts":1788604892719}
+[WS] TRAINING_STDOUT: {"line":"        15 |      3840 |    -0.006886 |     0.001158 |     2.8652 |   +0.001356\r","timestamp":1788604892719,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        15 |      3840 |    -0.006886 |     0.001158 |     2.8652 |   +0.001356\r","ts":1788604892719}
+[WS] TRAINING_STDOUT: {"line":"        17 |      4352 |    -0.007050 |     0.002710 |     2.8418 |   +0.000717\r","timestamp":1788604892719,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        17 |      4352 |    -0.007050 |     0.002710 |     2.8418 |   +0.000717\r","ts":1788604892720}
+[WS] TRAINING_STDOUT: {"line":"        19 |      4864 |    -0.008078 |     0.000602 |     2.8229 |   +0.000796\r","timestamp":1788604892720,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"        19 |      4864 |    -0.008078 |     0.000602 |     2.8229 |   +0.000796\r","ts":1788604892720}
+[WS] TRAINING_STDOUT: {"line":"7. Verifying Checkpoint Reload Smoke Test...\r","timestamp":1788604892720,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"7. Verifying Checkpoint Reload Smoke Test...\r","ts":1788604892720}
+[WS] TRAINING_STDOUT: {"line":"   [OK] Checkpoint loaded and forward pass executed cleanly (action shape: torch.Size([3]), val: 0.0263).\r","timestamp":1788604892801,"jobId":"job_mappo_1788604861150"}
+[WS] training_output: {"text":"   [OK] Checkpoint loaded and forward pass executed cleanly (action shape: torch.Size([3]), val: 0.0263).\r","ts":1788604892802}
+[WS] training_status: {"isRunning":false,"currentJob":{"id":"job_mappo_1788604861150","config":{"algorithm":"mappo","scenario":"academy_3_vs_1_with_keeper","timesteps":5000},"status":"completed","startTime":1788604861161,"
+[WS] hardware_stats: {"cpuPercent":86,"ramPercent":72,"ramUsedMb":5647,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] hardware_stats: {"cpuPercent":74,"ramPercent":72,"ramUsedMb":5715,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] hardware_stats: {"cpuPercent":53,"ramPercent":73,"ramUsedMb":5727,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] hardware_stats: {"cpuPercent":63,"ramPercent":74,"ramUsedMb":5807,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] hardware_stats: {"cpuPercent":68,"ramPercent":74,"ramUsedMb":5847,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] hardware_stats: {"cpuPercent":64,"ramPercent":74,"ramUsedMb":5879,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] hardware_stats: {"cpuPercent":59,"ramPercent":74,"ramUsedMb":5879,"ramTotalMb":7893,"stepsPerSec":194.1}
+[WS] TRAINING_COMPLETED: {"jobId":"job_mappo_1788604861150","success":true,"exportResult":{"onnxPath":"public/models/mappo_academy_3_vs_1_with_keeper_5000.onnx","sidecarPath":"public/models/mappo_academy_3_vs_1_with_keeper_50
+Training job completed
+
+=== VERIFICATION RESULTS ===
+Training started: true
+Training completed: true
+Metrics messages received: true
+Total WebSocket messages: 133
+
+Training metrics messages: 8
+
+First 5 metrics messages:
+  1. step=1024, policyLoss=undefined, valueLoss=0.00238, entropy=2.9071, goalRate=0
+  2. step=1024, policyLoss=null, valueLoss=0.00238, entropy=2.9071, goalRate=0
+  3. step=2048, policyLoss=undefined, valueLoss=0.00359, entropy=2.897, goalRate=0
+  4. step=2048, policyLoss=null, valueLoss=0.00359, entropy=2.897, goalRate=0
+  5. step=3072, policyLoss=undefined, valueLoss=0.00346, entropy=2.876, goalRate=0
+
+Unique step values: 4
+PASS: Metrics show multiple distinct step values (not frozen).
+PASS: No fabricated fallback values detected in final metrics.
+
+=== END OF VERIFICATION ===
+[WS] training_status: {"isRunning":false,"currentJob":{"id":"job_mappo_1788604861150","config":{"algorithm":"mappo","scenario":"academy_3_vs_1_with_keeper","timesteps":5000},"status":"completed","startTime":1788604861161,"
