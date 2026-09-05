@@ -126,13 +126,17 @@ def run_mappo_training(
     trend_snapshots: List[Tuple[int, int, float, float]] = []  # (step, num_eps, mean_rew, goal_rate)
     loss_history: List[Dict[str, Any]] = []
 
-    # Best-checkpoint selection: track highest rolling goal rate and its checkpoint path.
-    best_goal_rate: float = -1.0
-    best_checkpoint_step: int = 0
-    best_checkpoint_path: str = ""
+    # Best-checkpoint selection: track rolling (stochastic) and deterministic eval goal rates separately.
+    # Rolling stats are cheap/frequent but noisy; deterministic evals match deployed browser behavior.
+    best_rolling_goal_rate: float = -1.0
+    best_rolling_checkpoint_step: int = 0
+    best_rolling_checkpoint_path: str = ""
+    best_deterministic_goal_rate: float = -1.0
+    best_deterministic_checkpoint_step: int = 0
+    best_deterministic_checkpoint_path: str = ""
 
     last_check_step = total_steps_elapsed
-    last_checkpoint_step = (total_steps_elapsed // 100_000) * 100_000
+    last_checkpoint_step = (total_steps_elapsed // 50_000) * 50_000
 
     print(f"\n3. Starting MAPPO Training for {remaining_timesteps} steps...")
     start_time = time.time()
@@ -193,12 +197,14 @@ def run_mappo_training(
             goal_pct = float(np.mean(recent_goals)) * 100.0
             trend_snapshots.append((total_steps_elapsed, len(episode_rewards), mean_rew, goal_pct))
 
-            # Update best checkpoint based on rolling goal rate (same metric as the console log).
-            if goal_pct > best_goal_rate:
-                best_goal_rate = goal_pct
-                best_checkpoint_step = total_steps_elapsed
-                best_ckpt_name = os.path.join(
-                    models_dir, f"mappo_{scenario}_best.pt"
+            # Update best rolling checkpoint based on stochastic rollout goal rate (same metric as the console log).
+            # This is a fast, cheap signal for monitoring/early-stopping, but it does NOT reflect deterministic
+            # deployed behavior and therefore should NOT be used for the exported ONNX policy.
+            if goal_pct > best_rolling_goal_rate:
+                best_rolling_goal_rate = goal_pct
+                best_rolling_checkpoint_step = total_steps_elapsed
+                best_rolling_ckpt_name = os.path.join(
+                    models_dir, f"mappo_{scenario}_rolling_best.pt"
                 )
                 torch.save(
                     {
@@ -211,12 +217,12 @@ def run_mappo_training(
                         "action_dim": action_dim,
                         "timesteps": total_steps_elapsed,
                     },
-                    best_ckpt_name,
+                    best_rolling_ckpt_name,
                 )
-                best_checkpoint_path = best_ckpt_name
+                best_rolling_checkpoint_path = best_rolling_ckpt_name
                 print(
-                    f"   [OK] New best checkpoint saved: {best_ckpt_name} "
-                    f"(rolling goal rate: {best_goal_rate:.1f}% at step {best_checkpoint_step})",
+                    f"   [OK] New best rolling checkpoint saved: {best_rolling_ckpt_name} "
+                    f"(rolling goal rate: {best_rolling_goal_rate:.1f}% at step {best_rolling_checkpoint_step})",
                     flush=True,
                 )
 
@@ -230,8 +236,8 @@ def run_mappo_training(
                 flush=True,
             )
 
-        # 100k-interval checkpoint saving and milestone evaluation
-        if total_steps_elapsed - last_checkpoint_step >= 100_000:
+        # 50k-interval checkpoint saving and milestone evaluation (cheaper, more frequent deterministic eval)
+        if total_steps_elapsed - last_checkpoint_step >= 50_000:
             last_checkpoint_step = total_steps_elapsed
             milestone_ckpt_name = f"mappo_{scenario}_{total_steps_elapsed}.pt"
             milestone_ckpt_path = os.path.join(models_dir, milestone_ckpt_name)
@@ -255,12 +261,16 @@ def run_mappo_training(
                     algorithm="MAPPO",
                     step=total_steps_elapsed,
                     learning_rate=3e-4,
-                    num_episodes=50,
+                    num_episodes=30,
                     deterministic=True,
                 )
                 milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
-                if milestone_goal_rate > best_goal_rate:
-                    best_goal_rate = milestone_goal_rate
+                # Noise guard: deterministic eval must beat the current best by >= 2 percentage points
+                # to replace the exported checkpoint. This prevents transient lucky eval windows from
+                # overwriting a genuinely better deterministic policy.
+                if milestone_goal_rate > best_deterministic_goal_rate + 2.0:
+                    best_deterministic_goal_rate = milestone_goal_rate
+                    best_deterministic_checkpoint_step = total_steps_elapsed
                     best_ckpt_name = os.path.join(
                         models_dir, f"mappo_{scenario}_best.pt"
                     )
@@ -277,10 +287,10 @@ def run_mappo_training(
                         },
                         best_ckpt_name,
                     )
-                    best_checkpoint_path = best_ckpt_name
+                    best_deterministic_checkpoint_path = best_ckpt_name
                     print(
-                        f"   [OK] New best checkpoint saved: {best_ckpt_name} "
-                        f"(eval goal rate: {best_goal_rate:.1f}%)",
+                        f"   [OK] New best deterministic checkpoint saved: {best_ckpt_name} "
+                        f"(eval goal rate: {best_deterministic_goal_rate:.1f}%)",
                         flush=True,
                     )
             except Exception as e:
@@ -312,13 +322,16 @@ def run_mappo_training(
         flush=True,
     )
 
-    # Preserve best checkpoint: if a better checkpoint was found during training, overwrite the durable name.
-    if best_checkpoint_path and os.path.exists(best_checkpoint_path):
+    # Preserve best deterministic checkpoint as the durable exported artifact.
+    # The deployed browser policy (TrainedPolicyAgent) runs deterministically, so the checkpoint
+    # shipped to export_onnx.py / public/models must be selected from deterministic evals,
+    # NOT from stochastic rollout stats. The rolling best is tracked separately for monitoring.
+    if best_deterministic_checkpoint_path and os.path.exists(best_deterministic_checkpoint_path):
         import shutil
-        shutil.copy2(best_checkpoint_path, checkpoint_path)
+        shutil.copy2(best_deterministic_checkpoint_path, checkpoint_path)
         print(
-            f"[OK] Best checkpoint preserved as durable artifact: {checkpoint_path} "
-            f"(from {best_checkpoint_path}, best goal rate: {best_goal_rate:.1f}%)",
+            f"[OK] Best deterministic checkpoint preserved as durable artifact: {checkpoint_path} "
+            f"(from {best_deterministic_checkpoint_path}, best deterministic goal rate: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step})",
             flush=True,
         )
 
@@ -354,6 +367,12 @@ def run_mappo_training(
         print(f"   Total Episodes Completed: {total_eps}", flush=True)
         print(f"   Overall Mean Reward: {overall_rew:+.4f}", flush=True)
         print(f"   Overall Goal Rate: {overall_goals:.1f}%", flush=True)
+
+    print(
+        f"\n   Best rolling goal rate: {best_rolling_goal_rate:.1f}% at step {best_rolling_checkpoint_step} "
+        f"| Best deterministic goal rate: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step} (exported)",
+        flush=True,
+    )
 
     # 6. Sampled Loss Metrics Progression Across Training
     print("\n6. Sampled Loss & Diagnostic Metrics Progression Across Training:", flush=True)

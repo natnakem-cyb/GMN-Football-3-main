@@ -49,10 +49,14 @@ class IPPORewardLoggingCallback(BaseCallback):
         self.current_lengths: List[int] = []
         self.trend_snapshots: List[Tuple[int, int, float, float]] = []  # (step, ep_count, mean_rew, goal_rate)
 
-        # Best-checkpoint selection: track highest rolling goal rate and its checkpoint path.
-        self.best_goal_rate: float = -1.0
-        self.best_checkpoint_step: int = 0
-        self.best_checkpoint_path: str = ""
+        # Best-checkpoint selection: track rolling (stochastic) and deterministic eval goal rates separately.
+        # Rolling stats are cheap/frequent but noisy; deterministic evals match deployed browser behavior.
+        self.best_rolling_goal_rate: float = -1.0
+        self.best_rolling_checkpoint_step: int = 0
+        self.best_rolling_checkpoint_path: str = ""
+        self.best_deterministic_goal_rate: float = -1.0
+        self.best_deterministic_checkpoint_step: int = 0
+        self.best_deterministic_checkpoint_path: str = ""
 
     def _on_training_start(self) -> None:
         num_envs = self.training_env.num_envs
@@ -90,18 +94,20 @@ class IPPORewardLoggingCallback(BaseCallback):
             goal_pct = float(np.mean(recent_goals)) * 100.0
             self.trend_snapshots.append((current_step, len(self.episode_rewards), mean_rew, goal_pct))
 
-            # Update best checkpoint based on rolling goal rate (same metric as the console log).
-            if goal_pct > self.best_goal_rate:
-                self.best_goal_rate = goal_pct
-                self.best_checkpoint_step = current_step
-                best_ckpt_name = f"ippo_{self.scenario}_best.zip"
-                best_ckpt_path = os.path.join(self.models_dir, best_ckpt_name)
-                self.model.save(best_ckpt_path)
-                self.best_checkpoint_path = best_ckpt_path
+            # Update best rolling checkpoint based on stochastic rollout goal rate (same metric as the console log).
+            # This is a fast, cheap signal for monitoring/early-stopping, but it does NOT reflect deterministic
+            # deployed behavior and therefore should NOT be used for the exported policy.
+            if goal_pct > self.best_rolling_goal_rate:
+                self.best_rolling_goal_rate = goal_pct
+                self.best_rolling_checkpoint_step = current_step
+                best_rolling_ckpt_name = f"ippo_{self.scenario}_rolling_best.zip"
+                best_rolling_ckpt_path = os.path.join(self.models_dir, best_rolling_ckpt_name)
+                self.model.save(best_rolling_ckpt_path)
+                self.best_rolling_checkpoint_path = best_rolling_ckpt_path
                 if self.verbose > 0:
                     print(
-                        f"   [OK] New best checkpoint saved: {best_ckpt_path} "
-                        f"(rolling goal rate: {self.best_goal_rate:.1f}% at step {self.best_checkpoint_step})"
+                        f"   [OK] New best rolling checkpoint saved: {best_rolling_ckpt_path} "
+                        f"(rolling goal rate: {self.best_rolling_goal_rate:.1f}% at step {self.best_rolling_checkpoint_step})"
                     )
 
             if self.verbose > 0:
@@ -111,7 +117,7 @@ class IPPORewardLoggingCallback(BaseCallback):
                     f"Rolling Goal Rate: {goal_pct:5.1f}%"
                 )
 
-        # 100k Milestone checkpoint save & persistent evaluation
+        # 50k Milestone checkpoint save & persistent evaluation (cheaper, more frequent deterministic eval)
         if current_step - self.last_milestone_step >= self.milestone_freq_steps:
             self.last_milestone_step = current_step
             ckpt_name = f"ippo_{self.scenario}_{current_step}_steps.zip"
@@ -124,20 +130,24 @@ class IPPORewardLoggingCallback(BaseCallback):
                     algorithm="IPPO",
                     step=current_step,
                     learning_rate=3e-4,
-                    num_episodes=50,
+                    num_episodes=30,
                     deterministic=True,
                 )
                 milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
-                if milestone_goal_rate > self.best_goal_rate:
-                    self.best_goal_rate = milestone_goal_rate
+                # Noise guard: deterministic eval must beat the current best by >= 2 percentage points
+                # to replace the exported checkpoint. This prevents transient lucky eval windows from
+                # overwriting a genuinely better deterministic policy.
+                if milestone_goal_rate > self.best_deterministic_goal_rate + 2.0:
+                    self.best_deterministic_goal_rate = milestone_goal_rate
+                    self.best_deterministic_checkpoint_step = current_step
                     best_ckpt_name = f"ippo_{self.scenario}_best.zip"
                     best_ckpt_path = os.path.join(self.models_dir, best_ckpt_name)
                     self.model.save(best_ckpt_path)
-                    self.best_checkpoint_path = best_ckpt_path
+                    self.best_deterministic_checkpoint_path = best_ckpt_path
                     if self.verbose > 0:
                         print(
-                            f"   [OK] New best checkpoint saved: {best_ckpt_path} "
-                            f"(eval goal rate: {self.best_goal_rate:.1f}%)"
+                            f"   [OK] New best deterministic checkpoint saved: {best_ckpt_path} "
+                            f"(eval goal rate: {self.best_deterministic_goal_rate:.1f}%)"
                         )
             except Exception as e:
                 print(f"[IPPORewardLoggingCallback] Checkpoint eval notice: {e}")
@@ -210,7 +220,7 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
         check_freq = 1000 if is_smoke_test else 10000
         callback = IPPORewardLoggingCallback(
             check_freq_steps=check_freq,
-            milestone_freq_steps=100000,
+            milestone_freq_steps=50000,
             scenario="academy_3_vs_1_with_keeper",
             models_dir=models_dir,
             verbose=1,
@@ -239,13 +249,15 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
         model.save(checkpoint_path)
         print(f"   [OK] Checkpoint saved successfully. File exists: {os.path.exists(checkpoint_path)} (size: {os.path.getsize(checkpoint_path)} bytes)")
 
-        # Preserve best checkpoint: if a better checkpoint was found during training, overwrite the durable name.
-        if callback.best_checkpoint_path and os.path.exists(callback.best_checkpoint_path):
+        # Preserve best deterministic checkpoint as the durable exported artifact.
+        # The deployed browser policy runs deterministically, so the checkpoint shipped for export
+        # must be selected from deterministic evals, NOT from stochastic rollout stats.
+        if callback.best_deterministic_checkpoint_path and os.path.exists(callback.best_deterministic_checkpoint_path):
             import shutil
-            shutil.copy2(callback.best_checkpoint_path, checkpoint_path)
+            shutil.copy2(callback.best_deterministic_checkpoint_path, checkpoint_path)
             print(
-                f"   [OK] Best checkpoint preserved as durable artifact: {checkpoint_path} "
-                f"(from {callback.best_checkpoint_path}, best goal rate: {callback.best_goal_rate:.1f}%)"
+                f"   [OK] Best deterministic checkpoint preserved as durable artifact: {checkpoint_path} "
+                f"(from {callback.best_deterministic_checkpoint_path}, best deterministic goal rate: {callback.best_deterministic_goal_rate:.1f}% at step {callback.best_deterministic_checkpoint_step})"
             )
 
         # Persist Trend Snapshots
@@ -284,6 +296,11 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
             print(f"   Total Episodes Completed: {total_eps}")
             print(f"   Overall Mean Reward: {overall_rew:+.4f}")
             print(f"   Overall Goal Rate: {overall_goals:.1f}%")
+
+        print(
+            f"\n   Best rolling goal rate: {callback.best_rolling_goal_rate:.1f}% at step {callback.best_rolling_checkpoint_step} "
+            f"| Best deterministic goal rate: {callback.best_deterministic_goal_rate:.1f}% at step {callback.best_deterministic_checkpoint_step} (exported)"
+        )
 
         # Verify loading model
         print("\n6. Testing Model Loading from Checkpoint...")
