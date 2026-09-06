@@ -532,7 +532,9 @@ export class GameEngine {
       goalScoredThisTick,
       'left',
       shotTakenByLeft,
-      this.maxBallProgressX
+      this.maxBallProgressX,
+      this.ball.position,
+      this.ball.velocity
     );
     this.maxBallProgressX = newMaxBallProgressX;
 

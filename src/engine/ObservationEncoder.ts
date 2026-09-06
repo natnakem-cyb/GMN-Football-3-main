@@ -182,7 +182,9 @@ export class ObservationEncoder {
    * +1.0 for scoring a goal
    * -1.0 for conceding a goal
    * Checkpoint reward for monotonically advancing ball closer to opponent goal (up to +0.05)
-   * +0.005 shot-attempt shaping bonus (reduced from 0.03 to discourage indiscriminate shot-spamming)
+   * Shot-attempt shaping bonus conditioned on trajectory quality:
+   *   +0.03 if the shot projects onto the goal mouth (on-target threat)
+   *   +0.001 if the shot is off-target or too weak to threaten the goal
    */
   static computeReward(
     prevBallX: number,
@@ -190,7 +192,9 @@ export class ObservationEncoder {
     goalScoredTeam: TeamSide | null,
     targetTeam: TeamSide = 'left',
     shotTakenByTargetTeam = false,
-    maxBallProgressX?: number
+    maxBallProgressX?: number,
+    ballPosition?: { x: number; y: number; z: number },
+    ballVelocity?: { x: number; y: number; z: number }
   ): { reward: number; checkpoint: number; newMaxBallProgressX: number } {
     let reward = 0;
     let checkpoint = 0;
@@ -224,11 +228,27 @@ export class ObservationEncoder {
       }
     }
 
-    // Shot-attempt shaping bonus — encourages discovering the act of
-    // shooting, distinct from and much smaller than the goal reward itself.
-    const SHOT_ATTEMPT_BONUS = 0.005;
+    // Shot-quality conditioned bonus — encourages aiming at the goal mouth.
     if (shotTakenByTargetTeam) {
-      reward += SHOT_ATTEMPT_BONUS;
+      const ON_TARGET_BONUS = 0.03;
+      const OFF_TARGET_BONUS = 0.001;
+
+      let shotQualityBonus = OFF_TARGET_BONUS;
+      if (
+        ballPosition &&
+        ballVelocity &&
+        Math.abs(ballVelocity.x) > 0.05
+      ) {
+        const opponentGoalX = targetTeam === 'left' ? PITCH.maxX : PITCH.minX;
+        const distToGoalLine = Math.abs(opponentGoalX - ballPosition.x);
+        const timeToGoal = distToGoalLine / Math.max(0.01, Math.abs(ballVelocity.x));
+        const projectedY = ballPosition.y + ballVelocity.y * timeToGoal;
+
+        if (projectedY >= PITCH.goalMinY && projectedY <= PITCH.goalMaxY) {
+          shotQualityBonus = ON_TARGET_BONUS;
+        }
+      }
+      reward += shotQualityBonus;
     }
 
     return { reward, checkpoint, newMaxBallProgressX };

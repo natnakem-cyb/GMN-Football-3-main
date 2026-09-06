@@ -1,11 +1,11 @@
 {
   "scenario": "academy_3_vs_1_with_keeper",
   "algorithm": "MAPPO",
-  "timesteps": 50176,
-  "createdAt": "2026-09-06T04:17:18.943330+00:00",
-  "sourceCheckpoint": "mappo_academy_3_vs_1_with_keeper_500k.pt",
-  "checkpointSha256": "c40b4d909b5d99b5b88aaa2c5d1a08e6591e0e64b654cce4e95c463be63b9234",
-  "weightsSha256": "56603d705671a02242bcfbcda1df05aa7cdfa24b71b3876a0b5bdc33165ce0b0",
+  "timesteps": 100352,
+  "createdAt": "2026-09-06T05:32:55.312412+00:00",
+  "sourceCheckpoint": "mappo_academy_3_vs_1_with_keeper_100352.pt",
+  "checkpointSha256": "afdc7528a2687fe4fde0bbb1e5c84e37517c8e9f5468139e794ea0b2614e3ac8",
+  "weightsSha256": "0b65778fe0e08c460e9d86039ffbceaa23858d7b32c6c80e0ec2286b12b12108",
   "obsDim": 127,
   "actionDim": 19,
   "hidden": 64
