@@ -216,7 +216,7 @@ def run_mappo_training(
                 best_rolling_goal_rate = goal_pct
                 best_rolling_checkpoint_step = total_steps_elapsed
                 best_rolling_ckpt_name = os.path.join(
-                    models_dir, f"mappo_{scenario}_rolling_best.pt"
+                    models_dir, f"mappo_{scenario}_seed{seed}_rolling_best.pt"
                 )
                 torch.save(
                     {
@@ -252,7 +252,7 @@ def run_mappo_training(
         # 50k-interval checkpoint saving and milestone evaluation (cheaper, more frequent deterministic eval)
         if total_steps_elapsed - last_checkpoint_step >= 50_000:
             last_checkpoint_step = total_steps_elapsed
-            milestone_ckpt_name = f"mappo_{scenario}_{total_steps_elapsed}.pt"
+            milestone_ckpt_name = f"mappo_{scenario}_seed{seed}_{total_steps_elapsed}.pt"
             milestone_ckpt_path = os.path.join(models_dir, milestone_ckpt_name)
             torch.save(
                 {
@@ -283,32 +283,32 @@ def run_mappo_training(
                 # First milestone is accepted unconditionally; subsequent milestones must beat
                 # the current best by >= 2 percentage points to replace the exported checkpoint.
                 if not _has_best_deterministic or milestone_goal_rate > best_deterministic_goal_rate + 2.0:
-                     best_deterministic_goal_rate = milestone_goal_rate
-                     _has_best_deterministic = True
-                     best_deterministic_checkpoint_step = total_steps_elapsed
-                     best_ckpt_name = os.path.join(
-                         models_dir, f"mappo_{scenario}_best.pt"
-                     )
-                     torch.save(
-                         {
-                             "actor": actor.state_dict(),
-                             "critic": critic.state_dict(),
-                             "actor_opt": actor_opt.state_dict(),
-                             "critic_opt": critic_opt.state_dict(),
-                             "obs_dim": obs_dim,
-                             "global_state_dim": global_state_dim,
-                             "action_dim": action_dim,
-                             "timesteps": total_steps_elapsed,
-                         },
-                         best_ckpt_name,
-                     )
-                     best_deterministic_checkpoint_path = best_ckpt_name
-                     print(
-                         f"   [OK] New best deterministic checkpoint saved: {best_ckpt_name} "
-                         f"(eval goal rate: {best_deterministic_goal_rate:.1f}%, "
-                         f"evaluation_id={milestone_eval_id}, checkpoint_sha256={milestone_ckpt_sha})",
-                         flush=True,
-                     )
+                    best_deterministic_goal_rate = milestone_goal_rate
+                    _has_best_deterministic = True
+                    best_deterministic_checkpoint_step = total_steps_elapsed
+                    best_ckpt_name = os.path.join(
+                        models_dir, f"mappo_{scenario}_seed{seed}_best.pt"
+                    )
+                    torch.save(
+                        {
+                            "actor": actor.state_dict(),
+                            "critic": critic.state_dict(),
+                            "actor_opt": actor_opt.state_dict(),
+                            "critic_opt": critic_opt.state_dict(),
+                            "obs_dim": obs_dim,
+                            "global_state_dim": global_state_dim,
+                            "action_dim": action_dim,
+                            "timesteps": total_steps_elapsed,
+                        },
+                        best_ckpt_name,
+                    )
+                    best_deterministic_checkpoint_path = best_ckpt_name
+                    print(
+                        f"   [OK] New best deterministic checkpoint saved: {best_ckpt_name} "
+                        f"(eval goal rate: {best_deterministic_goal_rate:.1f}%, "
+                        f"evaluation_id={milestone_eval_id}, checkpoint_sha256={milestone_ckpt_sha})",
+                        flush=True,
+                    )
             except Exception as e:
                 print(f"[Notice] MAPPO milestone eval notice: {e}")
 
@@ -358,7 +358,7 @@ def run_mappo_training(
             best_deterministic_checkpoint_step = total_steps_elapsed
             _has_best_deterministic = True
             best_ckpt_name = os.path.join(
-                models_dir, f"mappo_{scenario}_best.pt"
+                models_dir, f"mappo_{scenario}_seed{seed}_best.pt"
             )
             torch.save(
                 {
