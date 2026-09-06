@@ -53,6 +53,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [speedMultiplier, setSpeedMultiplier] = useState(1.0);
   const [showRadar, setShowRadar] = useState(true);
+  const [showFormationOverlay, setShowFormationOverlay] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isReplayMode, setIsReplayMode] = useState(false);
   const [replayFrameIndex, setReplayFrameIndex] = useState(0);
@@ -503,6 +504,7 @@ export default function App() {
             controlledPlayerId={engine.controlledPlayerId}
             cameraMode="full"
             showRadar={showRadar}
+            showFormationOverlay={showFormationOverlay}
             policyDistribution={policyDistribution}
             showAttentionVectors={showAttentionVectors}
             onPlayerClick={(id) => {
@@ -575,6 +577,8 @@ export default function App() {
             onSpeedChange={setSpeedMultiplier}
             showRadar={showRadar}
             onToggleRadar={() => setShowRadar(!showRadar)}
+            showFormationOverlay={showFormationOverlay}
+            onToggleFormationOverlay={() => setShowFormationOverlay(!showFormationOverlay)}
             onOpenHelp={() => setIsHelpOpen(true)}
             isHumanControlled={engine.teamLeftConfig.controller === 'human'}
           />

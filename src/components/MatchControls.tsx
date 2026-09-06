@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, StepForward, RotateCcw, Zap, Compass, Keyboard, ShieldAlert } from 'lucide-react';
+import { Play, Pause, StepForward, RotateCcw, Zap, Compass, Keyboard, ShieldAlert, Grid3x3 } from 'lucide-react';
 
 interface MatchControlsProps {
   isPlaying: boolean;
@@ -10,6 +10,8 @@ interface MatchControlsProps {
   onSpeedChange: (speed: number) => void;
   showRadar: boolean;
   onToggleRadar: () => void;
+  showFormationOverlay: boolean;
+  onToggleFormationOverlay: () => void;
   onOpenHelp: () => void;
   isHumanControlled: boolean;
 }
@@ -23,6 +25,8 @@ export const MatchControls: React.FC<MatchControlsProps> = ({
   onSpeedChange,
   showRadar,
   onToggleRadar,
+  showFormationOverlay,
+  onToggleFormationOverlay,
   onOpenHelp,
   isHumanControlled,
 }) => {
@@ -106,6 +110,19 @@ export const MatchControls: React.FC<MatchControlsProps> = ({
         >
           <Compass className="w-4 h-4" />
           <span className="hidden sm:inline">Radar Minimap</span>
+        </button>
+
+        <button
+          id="btn-toggle-formation"
+          onClick={onToggleFormationOverlay}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
+            showFormationOverlay
+              ? 'bg-slate-800 border-purple-500/50 text-purple-400'
+              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Grid3x3 className="w-4 h-4" />
+          <span className="hidden sm:inline">Formation</span>
         </button>
 
         <button

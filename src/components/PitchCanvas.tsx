@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Ball, Player, TeamConfig, TeamSide, Vector2D } from '../types/football';
-import { PITCH } from '../engine/Rules';
+import { PITCH, FORMATIONS, computeOffsideLineX } from '../engine/Rules';
 import { PolicyActionDistribution } from '../types/telemetry';
 
 interface PitchCanvasProps {
@@ -15,6 +15,7 @@ interface PitchCanvasProps {
   showRadar?: boolean;
   policyDistribution?: PolicyActionDistribution | null;
   showAttentionVectors?: boolean;
+  showFormationOverlay?: boolean;
 }
 
 export const PitchCanvas: React.FC<PitchCanvasProps> = ({
@@ -29,6 +30,7 @@ export const PitchCanvas: React.FC<PitchCanvasProps> = ({
   showRadar = true,
   policyDistribution,
   showAttentionVectors = false,
+  showFormationOverlay = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -405,6 +407,60 @@ export const PitchCanvas: React.FC<PitchCanvasProps> = ({
     ctx.beginPath();
     ctx.arc(ballX, renderBallY, ballRadiusPx * 0.45, 0, Math.PI * 2);
     ctx.fill();
+
+    // 7.5 Formation & Offside Overlay
+    if (showFormationOverlay) {
+      const drawFormation = (config: TeamConfig, team: TeamSide, color: string) => {
+        const formation = FORMATIONS[config.formation];
+        if (!formation) return;
+
+        formation.forEach((node) => {
+          const fx = team === 'left'
+            ? PITCH.minX + node.xRatio * (PITCH.maxX - PITCH.minX) / 2
+            : PITCH.maxX - node.xRatio * (PITCH.maxX - PITCH.minX) / 2;
+          const fy = PITCH.minY + node.yRatio * (PITCH.maxY - PITCH.minY);
+
+          const px = toCanvasX(fx);
+          const py = toCanvasY(fy);
+
+          ctx.save();
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(px, py, 10, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 8px "Plus Jakarta Sans", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(node.role, px, py);
+          ctx.restore();
+        });
+      };
+
+      const leftOffsideX = computeOffsideLineX(players.filter((p) => p.team === 'left'), 'left');
+      const rightOffsideX = computeOffsideLineX(players.filter((p) => p.team === 'right'), 'right');
+
+      [leftOffsideX, rightOffsideX].forEach((offX, idx) => {
+        const px = toCanvasX(offX);
+        ctx.save();
+        ctx.strokeStyle = idx === 0 ? teamLeftConfig.color : teamRightConfig.color;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(px, padY);
+        ctx.lineTo(px, padY + pitchPixelH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      });
+
+      drawFormation(teamLeftConfig, 'left', teamLeftConfig.color);
+      drawFormation(teamRightConfig, 'right', teamRightConfig.color);
+    }
 
     // 8. Mini-Radar (Optional Overlay in Bottom-Right)
     if (showRadar) {
