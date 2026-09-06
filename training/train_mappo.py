@@ -10,7 +10,7 @@ Hyperparameters:
 - Learning rate: 3e-4 (Adam)
 - Discount (gamma): 0.99
 - GAE lambda: 0.95
-- PPO Clip range: 0.2
+- PPO Clip range: 0.15
 - Value coefficient: 0.5
 - Entropy coefficient: 0.01
 """
@@ -111,12 +111,14 @@ def run_mappo_training(
     n_steps = 256
     remaining_timesteps = max(0, timesteps - total_steps_elapsed)
     n_updates = remaining_timesteps // n_steps
+    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(actor_opt, T_max=n_updates, eta_min=3e-5)
+    critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(critic_opt, T_max=n_updates, eta_min=3e-5)
     check_freq_steps = 1000 if is_smoke_test else 10000
 
     print(f"\n2. Configuration:")
     print(f"   Total Updates: {n_updates} ({n_steps} steps per rollout)")
     print(f"   Remaining Timesteps: {n_updates * n_steps} (Total Target: {timesteps})")
-    print(f"   PPO Epochs: 4 | Mini-batch: 256 | LR: 3e-4 | Clip: 0.2")
+    print(f"   PPO Epochs: 4 | Mini-batch: 256 | LR: 3e-4 (cosine anneal to 3e-5) | Clip: 0.15")
     print(f"   GAE: gamma=0.99, lambda=0.95 | Value Coef: 0.5 | Entropy Coef: 0.01")
 
     # Metrics tracking
@@ -167,8 +169,8 @@ def run_mappo_training(
         )
 
         # 3. PPO Update Step
-        # Linear entropy schedule: decays from 0.01 to 0.001 over the full training run.
-        entropy_coef = 0.01 - (0.01 - 0.001) * min(total_steps_elapsed / timesteps, 1.0)
+        # Linear entropy schedule: decays from 0.01 to 0.005 over the full training run.
+        entropy_coef = 0.01 - (0.01 - 0.005) * min(total_steps_elapsed / timesteps, 1.0)
         metrics = ppo_update(
             actor=actor,
             critic=critic,
@@ -177,15 +179,19 @@ def run_mappo_training(
             buffer=buffer,
             advantages=advantages,
             returns=returns,
-            clip_range=0.2,
+            clip_range=0.15,
             n_epochs=4,
             batch_size=256,
             value_coef=0.5,
             entropy_coef=entropy_coef,
             max_grad_norm=0.5,
         )
+        actor_scheduler.step()
+        critic_scheduler.step()
         metrics["step"] = total_steps_elapsed
         metrics["update"] = update_idx
+        metrics["entropy_coef"] = entropy_coef
+        metrics["learning_rate"] = float(actor_opt.param_groups[0]["lr"])
         loss_history.append(metrics)
 
         # Diagnostics check for numerical instability
@@ -238,7 +244,8 @@ def run_mappo_training(
                 f"Rolling Reward (last 50): {mean_rew:+.4f} | "
                 f"Goal Rate: {goal_pct:5.1f}% | "
                 f"Val Loss: {metrics['value_loss']:.5f} | "
-                f"Entropy: {metrics['entropy']:.4f}",
+                f"Entropy: {metrics['entropy']:.4f} | "
+                f"EntropyCoef: {entropy_coef:.5f} | LR: {float(actor_opt.param_groups[0]['lr']):.6f}",
                 flush=True,
             )
 
@@ -266,7 +273,7 @@ def run_mappo_training(
                     scenario=scenario,
                     algorithm="MAPPO",
                     step=total_steps_elapsed,
-                    learning_rate=3e-4,
+                    learning_rate=float(actor_opt.param_groups[0]["lr"]),
                     num_episodes=30,
                     deterministic=True,
                 )
@@ -339,7 +346,7 @@ def run_mappo_training(
             scenario=scenario,
             algorithm="MAPPO",
             step=total_steps_elapsed,
-            learning_rate=3e-4,
+            learning_rate=float(actor_opt.param_groups[0]["lr"]),
             num_episodes=50,
             deterministic=True,
         )
