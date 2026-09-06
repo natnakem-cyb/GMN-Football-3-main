@@ -126,7 +126,7 @@ Technology Stack
 | RL API (multi-agent) | PettingZoo, with **SuperSuit vectorization actually wired up for IPPO training** (`train_ippo.py` builds a real multi-sub-environment `SuperSuit` vec-env; PPO and MAPPO training still run a single environment instance per process) |
 | RL algorithms | Stable-Baselines3 PPO; custom IPPO and MAPPO implementations |
 | ML backend | PyTorch |
-| Browser inference | **`onnxruntime-web`, loading `public/models/mappo_policy.onnx`.** `src/agents/TrainedPolicyAgent.ts` runs real ONNX inference for the in-browser "Neural" controller. The older hand-rolled MLP path (`src/agents/mappo_weights.ts`) is explicitly `@deprecated` in the file itself and retained only for offline reference / test parity, not used in the live decision path. |
+| Browser inference | **`onnxruntime-web`, loading `public/models/mappo_policy.onnx`.** `src/agents/TrainedPolicyAgent.ts` runs real ONNX inference for the in-browser "Neural" controller. The older hand-rolled MLP path (`src/agents/mappo_weights.ts`) is explicitly `@deprecated` in the file itself and retained only for offline reference / test parity, not used in the live decision path. The `RLGymnasiumPanel` supports hot-swapping `.onnx` models at runtime without restarting the app. |
 | Deterministic RNG | Mulberry32 (`SeededRNG.ts`) |
 | License | Apache-2.0 |
 
@@ -266,7 +266,7 @@ Defined in `src/scenarios/ScenarioRegistry.ts`. Currently registered (11 total):
 | `5_vs_5` | Small-sided full match |
 | `11_vs_11` | Full-pitch full match |
 
-Only the `academy_3_vs_1_with_keeper` drill currently has completed (non-smoke) training checkpoints — see [Current Status](#current-status).
+Only the `academy_3_vs_1_with_keeper` and `academy_empty_goal` drills currently have completed (non-smoke) training checkpoints — see [Current Status](#current-status). `5_vs_5` has early experimental checkpoints but has not yet produced a converged policy.
 
 Testing & Validation
 ----------------------
@@ -290,10 +290,10 @@ npm run test:validation   # rl_validation_suite.py
 Current Status
 --------------
 **Neural Policy Checkpoint Status:**
-- The MAPPO checkpoint the browser actually loads (via `public/models/mappo_policy.onnx`, exported from `training/models/mappo_academy_3_vs_1_with_keeper_trained.pt`) is a 200,000-step run on `academy_3_vs_1_with_keeper` under the 127-dim role-aware contract.
-- This is the checkpoint actively used by the in-browser "Neural" controller (`TrainedPolicyAgent`) — it is **not** a fallback to `RuleBasedAgent`. It has not been trained on any scenario beyond `academy_3_vs_1_with_keeper`.
-- Smoke-test-only checkpoints also exist for PPO (`academy_empty_goal`) and IPPO (`academy_3_vs_1_with_keeper`), alongside a completed (non-smoke) IPPO run on the same scenario.
-- Nothing has been trained on `5_vs_5` or `11_vs_11`.
+- The MAPPO checkpoint the browser actually loads (via `public/models/mappo_policy.onnx`, exported from `training/models/mappo_academy_3_vs_1_with_keeper_trained.pt`) is a ~200k-step run on `academy_3_vs_1_with_keeper` under the 127-dim role-aware contract.
+- This is the checkpoint actively used by the in-browser "Neural" controller (`TrainedPolicyAgent`) — it is **not** a fallback to `RuleBasedAgent`.
+- IPPO has a completed (non-smoke) 200k-step run on `academy_3_vs_1_with_keeper` with ~68% goal rate. PPO has a completed run on `academy_empty_goal` with ~96% goal rate.
+- `5_vs_5` has early MAPPO checkpoints (~20k steps, ~2% goal rate) but no converged policy yet. `11_vs_11` has no training checkpoints.
 
 **Implemented:**
 - Deterministic, seeded (Mulberry32) TypeScript simulation shared by browser and headless paths
@@ -304,17 +304,21 @@ Current Status
 - Stable-Baselines3 PPO integration, plus custom IPPO and MAPPO implementations
 - **Real vectorized rollout collection for IPPO via SuperSuit** (PPO and MAPPO are not yet vectorized)
 - ONNX export and browser-side ONNX inference for the trained MAPPO policy, actively used by the live match UI
+- Runtime ONNX hot-swap in `RLGymnasiumPanel` (file picker loads a new `.onnx` and reloads `TrainedPolicyAgent` without restarting)
+- Formation overlay toggle on pitch view (`PitchCanvas.tsx`) showing role labels and offside lines
+- Shot-location scatter plot in `TacticalAnalytics.tsx` rendered from in-engine `shotLocations` telemetry
+- Scenario objective progress bar in `ScenarioSelector.tsx`
 - Scenario registry from 1v0 drills through 5v5 and 11v11
 - Determinism, transport-parity, and observation/action audit test suites
 
 **Not yet done — read before assuming a fully "trained agent" exists:**
-- No policy has been trained end-to-end on anything beyond the `academy_3_vs_1_with_keeper` drill. `training/results/comparison_table.md` has no filled-in rows yet.
+- The MAPPO browser policy on `academy_3_vs_1_with_keeper` has been trained to ~200k steps but has not yet reached the task-brief target of `success_rate >= 40%` over 100 eval episodes. IPPO on the same scenario has reached ~68% goal rate.
 - PPO and MAPPO training still run a single environment instance per process, each step a blocking round-trip to a single Node bridge process — throughput for those two algorithms is well below what's typically needed for full-match RL training. (IPPO's SuperSuit vectorization is a partial exception — verify whether its vectorized sub-environments still each open their own bridge connection before assuming this fully removes the bottleneck.)
 - Training is single-sided: only the left team is ever the learning agent; the opponent is always a fixed-difficulty `RuleBasedAgent`. There is no self-play or opponent-checkpoint pool wired into training yet, though references to self-play exist in `training/modular_networks.py` — its current functional status should be verified rather than assumed.
 - No confirmed automatic curriculum scheduler across the scenario registry, though `training/train_stage2_ppo.py` and `src/components/ScenarioSelector.tsx` reference curriculum-related concepts — verify their actual behavior before relying on them.
 - No spatial/SMM/CNN observation path — the contract is a flat 127-float vector, despite "SMM"/"CNN" appearing as comparative references in a few files.
 
-GMN-Football-3 should currently be described as an RL-ready football simulation and research platform with one real deployed policy for one drill scenario — not as a system that already plays professional-level football.
+GMN-Football-3 should currently be described as an RL-ready football simulation and research platform with one real deployed browser policy for one drill scenario, plus additional non-browser-trained checkpoints for other scenarios — not as a system that already plays professional-level football.
 
 Known Limitations
 -------------------
