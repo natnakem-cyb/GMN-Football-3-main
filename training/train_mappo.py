@@ -395,7 +395,7 @@ def run_mappo_training(
 
     # Persist trend snapshots
     if trend_snapshots:
-        persist_trend_snapshots(trend_snapshots, algorithm="MAPPO", scenario=scenario)
+        persist_trend_snapshots(trend_snapshots, algorithm="MAPPO", scenario=scenario, seed=seed)
 
     # 5. Print Training Reward & Performance Trend Summary
     print("\n5. Training Reward & Performance Trend Summary:", flush=True)

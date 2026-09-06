@@ -584,13 +584,17 @@ def persist_trend_snapshots(
     algorithm: str,
     scenario: str,
     output_dir: str = os.path.join(os.path.dirname(__file__), "results"),
+    seed: int = None,
 ) -> str:
     """
     Persists in-training trend snapshots to training/results/trend_<algorithm>_<scenario>.csv.
+    When a seed is provided, the filename is suffixed with _seed<seed> to avoid
+    write-mode races between concurrent training runs.
     """
     os.makedirs(output_dir, exist_ok=True)
     algo_lower = algorithm.lower()
-    filename = f"trend_{algo_lower}_{scenario}.csv"
+    seed_suffix = f"_seed{seed}" if seed is not None else ""
+    filename = f"trend_{algo_lower}_{scenario}{seed_suffix}.csv"
     csv_path = os.path.join(output_dir, filename)
 
     with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
