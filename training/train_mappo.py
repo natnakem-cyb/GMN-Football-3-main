@@ -162,7 +162,7 @@ def run_mappo_training(
             gamma=0.99,
             lam=0.95,
             bootstrap_value=0.0,
-            next_obs=buffer["next_obs"],
+            next_local_obs=buffer["next_local_obs"],
             critic=critic,
         )
 
@@ -271,34 +271,37 @@ def run_mappo_training(
                     deterministic=True,
                 )
                 milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
+                milestone_eval_id = eval_row.get("evaluation_id", "N/A")
+                milestone_ckpt_sha = eval_row.get("checkpoint_sha256", "N/A")
                 # First milestone is accepted unconditionally; subsequent milestones must beat
                 # the current best by >= 2 percentage points to replace the exported checkpoint.
                 if not _has_best_deterministic or milestone_goal_rate > best_deterministic_goal_rate + 2.0:
-                    best_deterministic_goal_rate = milestone_goal_rate
-                    _has_best_deterministic = True
-                    best_deterministic_checkpoint_step = total_steps_elapsed
-                    best_ckpt_name = os.path.join(
-                        models_dir, f"mappo_{scenario}_best.pt"
-                    )
-                    torch.save(
-                        {
-                            "actor": actor.state_dict(),
-                            "critic": critic.state_dict(),
-                            "actor_opt": actor_opt.state_dict(),
-                            "critic_opt": critic_opt.state_dict(),
-                            "obs_dim": obs_dim,
-                            "global_state_dim": global_state_dim,
-                            "action_dim": action_dim,
-                            "timesteps": total_steps_elapsed,
-                        },
-                        best_ckpt_name,
-                    )
-                    best_deterministic_checkpoint_path = best_ckpt_name
-                    print(
-                        f"   [OK] New best deterministic checkpoint saved: {best_ckpt_name} "
-                        f"(eval goal rate: {best_deterministic_goal_rate:.1f}%)",
-                        flush=True,
-                    )
+                     best_deterministic_goal_rate = milestone_goal_rate
+                     _has_best_deterministic = True
+                     best_deterministic_checkpoint_step = total_steps_elapsed
+                     best_ckpt_name = os.path.join(
+                         models_dir, f"mappo_{scenario}_best.pt"
+                     )
+                     torch.save(
+                         {
+                             "actor": actor.state_dict(),
+                             "critic": critic.state_dict(),
+                             "actor_opt": actor_opt.state_dict(),
+                             "critic_opt": critic_opt.state_dict(),
+                             "obs_dim": obs_dim,
+                             "global_state_dim": global_state_dim,
+                             "action_dim": action_dim,
+                             "timesteps": total_steps_elapsed,
+                         },
+                         best_ckpt_name,
+                     )
+                     best_deterministic_checkpoint_path = best_ckpt_name
+                     print(
+                         f"   [OK] New best deterministic checkpoint saved: {best_ckpt_name} "
+                         f"(eval goal rate: {best_deterministic_goal_rate:.1f}%, "
+                         f"evaluation_id={milestone_eval_id}, checkpoint_sha256={milestone_ckpt_sha})",
+                         flush=True,
+                     )
             except Exception as e:
                 print(f"[Notice] MAPPO milestone eval notice: {e}")
 
@@ -341,6 +344,8 @@ def run_mappo_training(
             deterministic=True,
         )
         end_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
+        end_eval_id = eval_row.get("evaluation_id", "N/A")
+        end_ckpt_sha = eval_row.get("checkpoint_sha256", "N/A")
         if not _has_best_deterministic or end_goal_rate > best_deterministic_goal_rate + 2.0:
             best_deterministic_goal_rate = end_goal_rate
             best_deterministic_checkpoint_step = total_steps_elapsed
@@ -364,7 +369,8 @@ def run_mappo_training(
             best_deterministic_checkpoint_path = best_ckpt_name
             print(
                 f"[OK] End-of-run eval updated best deterministic checkpoint: {best_ckpt_name} "
-                f"(goal rate: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step})",
+                f"(goal rate: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step}, "
+                f"evaluation_id={end_eval_id}, checkpoint_sha256={end_ckpt_sha})",
                 flush=True,
             )
     except Exception as e:

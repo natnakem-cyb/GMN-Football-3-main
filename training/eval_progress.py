@@ -1,10 +1,11 @@
 """
 GMN-Football-3 -- Persistent Checkpoint Evaluation & Progress Logging
 Shared module to evaluate Single-Agent PPO, Multi-Agent IPPO, and Centralized-Critic MAPPO
-at 100k milestone increments, appending deterministic evaluation metrics to win_rate_progress.csv.
+at milestone increments, appending deterministic evaluation metrics to win_rate_progress.csv.
 """
 
 import hashlib
+import json
 import os
 import sys
 import csv
@@ -30,9 +31,14 @@ ENV_HASH_FILES = [
 ]
 
 CSV_FIELDNAMES = [
+    "evaluation_id",
+    "checkpoint_sha256",
     "scenario",
     "algorithm",
     "step",
+    "env_version",
+    "observation_schema_version",
+    "action_schema_version",
     "learning_rate",
     "goal_rate_pct",
     "mean_reward",
@@ -45,6 +51,23 @@ CSV_FIELDNAMES = [
     "provenance",
     "env_hash",
 ]
+
+
+def sha256_file(path: str, chunk_size: int = 1024 * 1024) -> str:
+    """
+    Computes the lowercase hex SHA256 of a file, reading in chunks.
+    Raises FileNotFoundError if the path does not exist.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Checkpoint file not found: {path}")
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def compute_env_hash() -> str:
@@ -62,12 +85,93 @@ def compute_env_hash() -> str:
     return hasher.hexdigest()[:12]
 
 
+def load_contract_versions() -> Dict[str, str]:
+    """
+    Loads version strings from the authoritative TypeScript contract file.
+    Falls back to safe defaults if the file cannot be read.
+    """
+    contract_path = os.path.join(sys.path[0], "src", "engine", "Contract.ts")
+    versions = {
+        "env_version": "3.1.0",
+        "observation_schema_version": "simple115_v3_role",
+        "action_schema_version": "discrete19_v1",
+    }
+    if not os.path.exists(contract_path):
+        return versions
+    try:
+        with open(contract_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        for key, var_name in [
+            ("env_version", "GMN_ENV_VERSION"),
+            ("observation_schema_version", "OBSERVATION_SCHEMA_VERSION"),
+            ("action_schema_version", "ACTION_SCHEMA_VERSION"),
+        ]:
+            marker = f"export const {var_name} = '"
+            idx = text.find(marker)
+            if idx != -1:
+                start = idx + len(marker)
+                end = text.find("'", start)
+                if end != -1:
+                    versions[key] = text[start:end]
+    except Exception:
+        pass
+    return versions
+
+
+def compute_evaluation_identity(
+    checkpoint_path: str,
+    scenario: str,
+    algorithm: str,
+    step: int,
+    base_seed: int,
+    num_episodes: int,
+    deterministic: bool,
+    env_hash: str,
+) -> Dict[str, Any]:
+    """
+    Builds a canonical evaluation identity dict and derives a stable evaluation_id.
+    """
+    contract = load_contract_versions()
+    checkpoint_sha256 = sha256_file(checkpoint_path)
+    identity = {
+        "checkpoint_sha256": checkpoint_sha256,
+        "scenario": scenario,
+        "algorithm": algorithm.upper(),
+        "env_version": contract["env_version"],
+        "observation_schema_version": contract["observation_schema_version"],
+        "action_schema_version": contract["action_schema_version"],
+        "step": step,
+        "base_seed": base_seed,
+        "num_episodes": num_episodes,
+        "deterministic": deterministic,
+        "env_hash": env_hash,
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    evaluation_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return {
+        "evaluation_id": evaluation_id,
+        "checkpoint_sha256": checkpoint_sha256,
+        "scenario": scenario,
+        "algorithm": algorithm.upper(),
+        "env_version": contract["env_version"],
+        "observation_schema_version": contract["observation_schema_version"],
+        "action_schema_version": contract["action_schema_version"],
+        "step": step,
+        "base_seed": base_seed,
+        "num_episodes": num_episodes,
+        "deterministic": deterministic,
+        "env_hash": env_hash,
+    }
+
+
 def check_existing_evaluation(
-    csv_path: str, scenario: str, algorithm: str, step: int, env_hash: str
+    csv_path: str, evaluation_id: str
 ) -> Optional[Dict[str, Any]]:
     """
-    Checks whether an evaluation for (scenario, algorithm, step, env_hash) is already present in the CSV.
+    Checks whether an evaluation with the exact evaluation_id is already present in the CSV.
     Returns the parsed row dict if found, else None.
+
+    Legacy CSV entries without an evaluation_id column are treated as non-matching.
     """
     if not os.path.exists(csv_path):
         return None
@@ -75,13 +179,11 @@ def check_existing_evaluation(
     try:
         with open(csv_path, mode="r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+            if not reader.fieldnames or "evaluation_id" not in reader.fieldnames:
+                # Legacy CSV without evaluation_id column - no exact matches possible
+                return None
             for row in reader:
-                if (
-                    row.get("scenario") == scenario
-                    and row.get("algorithm", "").upper() == algorithm.upper()
-                    and int(float(row.get("step", -1))) == step
-                    and row.get("env_hash") == env_hash
-                ):
+                if row.get("evaluation_id") == evaluation_id:
                     return row
     except Exception as e:
         print(f"[eval_progress] Warning: failed reading CSV {csv_path}: {e}")
@@ -372,24 +474,40 @@ def evaluate_checkpoint_progress(
 ) -> Dict[str, Any]:
     """
     Loads checkpoint, runs deterministic evaluation rollout, and appends row to CSV.
-    Cache key is (scenario, algorithm, step, env_hash). Skips re-evaluating if a matching
-    entry exists unless force_reeval=True.
+    Cache key is a canonical evaluation_id derived from checkpoint SHA256, scenario,
+    algorithm, step, env_hash, and evaluation config. Skips re-evaluating if an exact
+    matching entry exists unless force_reeval=True.
     """
     algo_upper = algorithm.upper()
     env_hash = compute_env_hash()
+    identity = compute_evaluation_identity(
+        checkpoint_path=checkpoint_path,
+        scenario=scenario,
+        algorithm=algo_upper,
+        step=step,
+        base_seed=base_seed,
+        num_episodes=num_episodes,
+        deterministic=deterministic,
+        env_hash=env_hash,
+    )
+    evaluation_id = identity["evaluation_id"]
+    checkpoint_sha256 = identity["checkpoint_sha256"]
 
     if not force_reeval:
-        existing = check_existing_evaluation(csv_path, scenario, algo_upper, step, env_hash)
+        existing = check_existing_evaluation(csv_path, evaluation_id)
         if existing is not None:
             print(
-                f"[eval_progress] Checkpoint already evaluated for ({scenario}, {algo_upper}, step={step}, env_hash={env_hash}). "
+                f"[eval_progress] Cache hit for evaluation_id={evaluation_id} "
+                f"(scenario={scenario}, algorithm={algo_upper}, step={step}, "
+                f"checkpoint_sha256={checkpoint_sha256}). "
                 f"Goal Rate: {float(existing.get('goal_rate_pct', 0.0)):.1f}%. Skipping re-evaluation."
             )
             return existing
 
     print(
         f"\n[eval_progress] >>> Evaluating Checkpoint Milestone: {algo_upper} | Scenario: {scenario} | "
-        f"Step: {step:,} | LR: {learning_rate:g} | Episodes: {num_episodes} <<<"
+        f"Step: {step:,} | LR: {learning_rate:g} | Episodes: {num_episodes} | "
+        f"checkpoint_sha256={checkpoint_sha256} <<<"
     )
 
     if not os.path.exists(checkpoint_path):
@@ -429,8 +547,13 @@ def evaluate_checkpoint_progress(
     provenance_str = f"host={provenance_host}|user={provenance_user}|date={provenance_date}|cmd={provenance_cmd}"
 
     row = {
+        "evaluation_id": evaluation_id,
+        "checkpoint_sha256": checkpoint_sha256,
         "scenario": scenario,
         "algorithm": algo_upper,
+        "env_version": identity["env_version"],
+        "observation_schema_version": identity["observation_schema_version"],
+        "action_schema_version": identity["action_schema_version"],
         "step": step,
         "learning_rate": f"{learning_rate:g}",
         "goal_rate_pct": f"{eval_metrics['goal_rate_pct']:.2f}",
@@ -449,6 +572,7 @@ def evaluate_checkpoint_progress(
     print(
         f"[eval_progress] [OK] Milestone logged -> Goal Rate: {eval_metrics['goal_rate_pct']:.1f}% | "
         f"Mean Reward: {eval_metrics['mean_reward']:+.4f} | Shots/Ep: {eval_metrics['shots_per_ep']:.2f} | "
+        f"evaluation_id={evaluation_id} | checkpoint_sha256={checkpoint_sha256} | "
         f"CSV: {csv_path}\n"
     )
     return row

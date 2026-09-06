@@ -31,7 +31,8 @@ def collect_rollout(
     - rewards: shape (num_steps,) float32
     - dones: shape (num_steps,) bool — genuine terminations only (not truncations)
     - terminated: shape (num_steps,) bool — genuine terminations only
-    - next_obs: shape (obs_dim,) float32 — observation after the last rollout step
+    - truncated: shape (num_steps,) bool — time-limit truncations only
+    - next_local_obs: shape (num_agents, obs_dim) float32 — joint observation after the last rollout step
     - completed_episodes: list of dicts with {"reward": float, "length": int, "goal": int}
     """
     buffer: Dict[str, list] = {
@@ -43,6 +44,7 @@ def collect_rollout(
         "rewards": [],        # shape (num_steps,) — shared team reward
         "dones": [],          # shape (num_steps,) — genuine terminations only (not truncations)
         "terminated": [],     # shape (num_steps,) — genuine terminations only
+        "truncated": [],      # shape (num_steps,) — time-limit truncations only
     }
     completed_episodes = []
 
@@ -100,6 +102,7 @@ def collect_rollout(
         buffer["rewards"].append(shared_reward)
         buffer["dones"].append(bool(terminated))
         buffer["terminated"].append(bool(terminated))
+        buffer["truncated"].append(bool(truncated))
 
         if done:
             # Check if left team scored a goal in the terminal step
@@ -130,7 +133,9 @@ def collect_rollout(
         "rewards": np.array(buffer["rewards"], dtype=np.float32),
         "dones": np.array(buffer["dones"], dtype=np.bool_),
         "terminated": np.array(buffer["terminated"], dtype=np.bool_),
-        "next_obs": np.array(obs_dict[agent_order[0]], dtype=np.float32),
+        "truncated": np.array(buffer["truncated"], dtype=np.bool_),
+        "next_local_obs": np.stack([obs_dict[a] for a in agent_order], axis=0).astype(np.float32),
+        "agent_order": agent_order,
         "completed_episodes": completed_episodes,
     }
 
@@ -159,8 +164,11 @@ def collect_rollout(
     assert res_buffer["terminated"].shape == (num_steps,), (
         f"terminated shape mismatch: expected {(num_steps,)}, got {res_buffer['terminated'].shape}"
     )
-    assert res_buffer["next_obs"].shape == (obs_dim,), (
-        f"next_obs shape mismatch: expected {(obs_dim,)}, got {res_buffer['next_obs'].shape}"
+    assert res_buffer["truncated"].shape == (num_steps,), (
+        f"truncated shape mismatch: expected {(num_steps,)}, got {res_buffer['truncated'].shape}"
+    )
+    assert res_buffer["next_local_obs"].shape == (num_agents, obs_dim), (
+        f"next_local_obs shape mismatch: expected {(num_agents, obs_dim)}, got {res_buffer['next_local_obs'].shape}"
     )
 
     return res_buffer
@@ -173,7 +181,7 @@ def compute_gae(
     gamma: float = 0.99,
     lam: float = 0.95,
     bootstrap_value: float = 0.0,
-    next_obs: np.ndarray = None,
+    next_local_obs: np.ndarray = None,
     critic = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -185,28 +193,32 @@ def compute_gae(
         dones: shape (T,) — genuine terminations only (not truncations)
         gamma: discount factor (default 0.99)
         lam: GAE lambda parameter (default 0.95)
-        bootstrap_value: value estimate of state at T when terminated (default 0.0)
-        next_obs: shape (obs_dim,) — observation after the last rollout step, used to
-            compute bootstrap_value when the rollout was truncated mid-episode.
-        critic: CentralizedCritic instance. If provided and next_obs is given and the
+        bootstrap_value: value estimate of state at T when truly terminated (default 0.0)
+        next_local_obs: shape (num_agents, obs_dim) — joint observation after the last rollout step,
+            used to compute bootstrap_value when the rollout was truncated mid-episode.
+        critic: CentralizedCritic instance. If provided and next_local_obs is given and the
             final step was not a termination, bootstrap_value is computed as
-            critic(next_obs). Otherwise the provided bootstrap_value is used.
+            critic(next_local_obs). Otherwise the provided bootstrap_value is used.
 
     Returns:
         advantages: shape (T,)
         returns: shape (T,)
     """
-    # If the rollout was truncated mid-episode and we have a critic + next_obs,
+    # If the rollout was truncated mid-episode and we have a critic + next_local_obs,
     # compute the real bootstrap value instead of defaulting to 0.0.
     effective_bootstrap = bootstrap_value
     if (
         critic is not None
-        and next_obs is not None
+        and next_local_obs is not None
         and len(rewards) > 0
         and not dones[-1]
     ):
         with torch.no_grad():
-            obs_tensor = torch.tensor(next_obs, dtype=torch.float32).unsqueeze(0)
+            # next_local_obs shape: (num_agents, obs_dim) -> (1, num_agents, obs_dim)
+            assert next_local_obs.ndim == 2, (
+                f"Expected next_local_obs shape (num_agents, obs_dim), got {next_local_obs.shape}"
+            )
+            obs_tensor = torch.tensor(next_local_obs, dtype=torch.float32).unsqueeze(0)
             effective_bootstrap = float(critic(obs_tensor).item())
 
     advantages = np.zeros_like(rewards, dtype=np.float32)
