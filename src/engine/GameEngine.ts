@@ -100,6 +100,11 @@ export class GameEngine {
     offsideReceiverIds: Set<string>;
   } | null = null;
 
+  // Prevents emitting scenario_complete / scenario_failed more than once per
+  // scenario episode (the end-of-match resolution fires on the first tick the
+  // time limit is reached; it must not re-fire on subsequent ticks).
+  private lastScenarioResolutionEmitted = false;
+
   constructor() {
     this.ball = this.createDefaultBall();
     this.initDefaultMatch('4-3-3', '4-3-3', 11);
@@ -258,6 +263,7 @@ export class GameEngine {
     this.possessionTicks = { left: 0, right: 0 };
     this.stats = this.createDefaultStats();
     this.currentPassTracking = null;
+    this.lastScenarioResolutionEmitted = false;
     this.gameMode = scenario.id.startsWith('academy') ? GameMode.Normal : GameMode.KickOff;
 
     const jitter = scenario.setup.positionJitter ?? 0;
@@ -1127,27 +1133,23 @@ export class GameEngine {
   private evaluateScenarioConditions(): void {
     if (!this.activeScenario) return;
 
-    // Check time limit
-    if (this.matchTimeSeconds >= this.activeScenario.timeLimitSeconds) {
-      const timeObj = this.activeScenario.objectives.find((o) => o.id === 'within_time');
-      if (timeObj && !timeObj.isCompleted) {
-        timeObj.isFailed = true;
-      }
-    }
+    const timeLimitReached = this.matchTimeSeconds >= this.activeScenario.timeLimitSeconds;
 
-    // Goal scoring objective
+    // Drill / step objectives — evaluated live as the player achieves them.
+    // Goal-scoring drills complete the moment the LEFT team scores; the match-type
+    // `win_match` objective is intentionally NOT resolved here (see below).
     if (this.score.left > 0) {
-      const scoreObj = this.activeScenario.objectives.find((o) => o.id === 'score_goal' || o.id === 'win_match');
+      const scoreObj = this.activeScenario.objectives.find((o) => o.id === 'score_goal');
       if (scoreObj) {
         scoreObj.isCompleted = true;
       }
-      const timeObj = this.activeScenario.objectives.find((o) => o.id === 'within_time');
-      if (timeObj && this.matchTimeSeconds <= this.activeScenario.timeLimitSeconds) {
-        timeObj.isCompleted = true;
+      const withinObj = this.activeScenario.objectives.find((o) => o.id === 'within_time');
+      if (withinObj && !withinObj.isCompleted && this.matchTimeSeconds <= this.activeScenario.timeLimitSeconds) {
+        withinObj.isCompleted = true;
       }
     }
 
-    // Passing objective
+    // Passing objectives
     if (this.stats.completedPasses.left >= 1) {
       const passObj = this.activeScenario.objectives.find((o) => o.id === 'complete_pass');
       if (passObj) passObj.isCompleted = true;
@@ -1156,6 +1158,73 @@ export class GameEngine {
       const triObj = this.activeScenario.objectives.find((o) => o.id === 'create_triangle');
       if (triObj) triObj.isCompleted = true;
     }
+
+    // Time-limit failure for timed drills (score within N seconds).
+    if (timeLimitReached) {
+      const timeObj = this.activeScenario.objectives.find((o) => o.id === 'within_time');
+      if (timeObj && !timeObj.isCompleted) {
+        timeObj.isFailed = true;
+      }
+    }
+
+    // Match-type objectives (5v5 / 11v11) are resolved only when the match has
+    // actually concluded (time limit reached). `win_match` must reflect a real
+    // lead, not merely "left team scored once".
+    if (timeLimitReached) {
+      this.resolveMatchObjectives();
+    }
+  }
+
+  /**
+   * Resolves competitive match objectives (used by 5_vs_5 and 11_vs_11) at the
+   * end of the match:
+   *   - win_match:          LEFT must be AHEAD on the scoreboard (a draw is not a win)
+   *   - control_possession: LEFT must hold > 50% possession
+   *   - clean_sheet:        LEFT must not concede (score.right === 0)
+   * Emits a single scenario_complete / scenario_failed resolution event.
+   */
+  private resolveMatchObjectives(): void {
+    const sc = this.activeScenario;
+    if (!sc) return;
+
+    for (const obj of sc.objectives) {
+      switch (obj.id) {
+        case 'win_match':
+          if (this.score.left > this.score.right) obj.isCompleted = true;
+          else obj.isFailed = true;
+          break;
+        case 'control_possession':
+          if (this.stats.possession.left > 50) obj.isCompleted = true;
+          else obj.isFailed = true;
+          break;
+        case 'clean_sheet':
+          if (this.score.right === 0) obj.isCompleted = true;
+          else obj.isFailed = true;
+          break;
+        default:
+          break;
+      }
+    }
+
+    this.recordScenarioResolution();
+  }
+
+  /**
+   * Emits scenario_complete / scenario_failed exactly once per episode, based
+   * on whether every scenario objective was completed.
+   */
+  private recordScenarioResolution(): void {
+    if (this.lastScenarioResolutionEmitted || !this.activeScenario) return;
+    this.lastScenarioResolutionEmitted = true;
+
+    const allCompleted = this.activeScenario.objectives.every((o) => o.isCompleted);
+    this.recordEvent(
+      allCompleted ? 'scenario_complete' : 'scenario_failed',
+      allCompleted
+        ? `Scenario '${this.activeScenario.id}' completed.`
+        : `Scenario '${this.activeScenario.id}' not completed.`,
+      { x: this.ball.position.x, y: this.ball.position.y }
+    );
   }
 
   private updateStatistics(): void {

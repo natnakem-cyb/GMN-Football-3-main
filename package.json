@@ -15,6 +15,7 @@
     "benchmark:ws": "python3 training/benchmark_bridge_ws.py",
     "test": "tsx training/test_scenarios.ts && tsx training/test_determinism.ts",
     "test:stabilization": "tsx training/test_stabilization.ts",
+    "test:scenario-completion": "tsx training/test_scenario_completion.ts",
     "test:reward-equivalence": "tsx training/test_reward_equivalence.ts",
     "test:bridge-protocol": "tsx training/test_telemetry_bridge.ts",
     "test:gym-safety": "python training/test_gym_safety.py",
