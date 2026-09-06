@@ -37,6 +37,11 @@ BASE_OBSERVATION_DIM = 115
 OBSERVATION_DIM = 127
 ACTION_SPACE_SIZE = 19
 
+def _npx_cmd() -> list:
+    if sys.platform == "win32":
+        return ["npx.cmd"]
+    return ["npx"]
+
 EVENT_CODE_MAP = [
     None,
     "goal",
@@ -127,7 +132,7 @@ class GMNMultiAgentEnv(ParallelEnv):
                 print(f"[GMN-PettingZoo] Launching Headless Bridge Server on {self.base_url}...")
                 bridge_script = os.path.join(os.path.dirname(__file__), "bridge_server.ts")
                 self.bridge_process = subprocess.Popen(
-                    ["npx", "tsx", bridge_script],
+                    _npx_cmd() + ["tsx", bridge_script],
                     env=dict(os.environ, GMN_BRIDGE_PORT=str(self.port)),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

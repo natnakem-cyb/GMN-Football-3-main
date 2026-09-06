@@ -17,14 +17,15 @@ NUM_AGENTS = 3
 TOTAL_STEPS = 250
 SEED = 424242
 
-EXPECTED_RESPONSE_BYTES = 17 + 460 * NUM_AGENTS  # 17 + 1380 = 1397 bytes
+EXPECTED_RESPONSE_BYTES = 17 + OBSERVATION_DIM * 4 * NUM_AGENTS  # 17 + 127*4*3 = 1541 bytes
 
 
 def start_bridge_server(port: int) -> subprocess.Popen:
     import urllib.request
     bridge_script = os.path.join(os.path.dirname(__file__), "bridge_server.ts")
+    npx = "npx.cmd" if sys.platform == "win32" else "npx"
     proc = subprocess.Popen(
-        ["npx", "tsx", bridge_script],
+        [npx, "tsx", bridge_script],
         env=dict(os.environ, GMN_BRIDGE_PORT=str(port)),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -44,10 +45,21 @@ def run_multiagent_ws_trajectory(port: int, scenario: str, seed: int, steps: int
     ws_url = f"ws://127.0.0.1:{port}"
     ws = websockets.sync.client.connect(ws_url, max_size=None, ping_interval=None)
 
-    # 1. Reset
+    # 1. Reset (skip unsolicited broadcast frames)
     reset_payload = {"type": "reset", "scenario": scenario, "seed": seed}
     ws.send(json.dumps(reset_payload))
-    reset_resp = json.loads(ws.recv())
+    reset_resp = None
+    for _ in range(60):
+        frame = ws.recv()
+        if isinstance(frame, str):
+            candidate = json.loads(frame)
+            if isinstance(candidate, dict) and ("observation" in candidate or "observations" in candidate):
+                reset_resp = candidate
+                break
+        # skip unsolicited broadcast / malformed frame
+
+    if reset_resp is None:
+        raise RuntimeError("Did not receive reset response from bridge")
 
     controllable_ids = reset_resp.get("info", {}).get("controllableAgentIds", [])
     if len(controllable_ids) != NUM_AGENTS:
@@ -92,9 +104,9 @@ def run_multiagent_ws_trajectory(port: int, scenario: str, seed: int, steps: int
         truncations.append(bool(trunc))
         scores.append((int(score_l), int(score_r)))
 
-        # Unpack NUM_AGENTS observations (115 floats = 460 bytes each)
+        # Unpack NUM_AGENTS observations (OBSERVATION_DIM floats = OBSERVATION_DIM*4 bytes each)
         for agent_idx in range(NUM_AGENTS):
-            offset = 17 + agent_idx * 460
+            offset = 17 + agent_idx * OBSERVATION_DIM * 4
             obs = np.frombuffer(resp_data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
             observations_per_agent[agent_idx].append(obs)
 
