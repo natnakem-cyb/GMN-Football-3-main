@@ -43,11 +43,8 @@ def run_mappo_training(
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
-        checkpoint_name = (
-            "mappo_academy_3_vs_1_with_keeper_smoke.pt"
-            if is_smoke_test
-            else "mappo_academy_3_vs_1_with_keeper_trained.pt"
-        )
+        suffix = "smoke" if is_smoke_test else "trained"
+        checkpoint_name = f"mappo_{scenario}_seed{seed}_{suffix}.pt"
 
     print("==================================================")
     print(f"GMN FOOTBALL -- MULTI-AGENT PPO (MAPPO) {'SMOKE TEST' if is_smoke_test else 'REAL TRAINING RUN'}")
