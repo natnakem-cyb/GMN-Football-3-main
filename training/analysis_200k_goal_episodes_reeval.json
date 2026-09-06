@@ -1,136 +1,113 @@
 {
   "source_checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_best.pt",
   "scenario": "academy_3_vs_1_with_keeper",
-  "note": "Fresh evaluation after clearing stale cache. Checkpoint is from step 150528 of new 200k run (original 200k checkpoint was overwritten by training script due to stale eval cache bug).",
   "action_mapping_source": "src/engine/ActionMapping.ts",
   "num_episodes": 30,
-  "num_goals": 0,
-  "goal_rate_pct": 0.0,
-  "total_shots": 116,
-  "shots_per_ep": 3.87,
-  "max_ball_speed_observed": 3.0687,
+  "num_goals": 2,
+  "goal_rate_pct": 6.666666666666667,
+  "total_shots": 90,
+  "shots_per_ep": 3.0,
+  "max_ball_speed_observed": 3.0687292823100947,
   "within_physics_limits": true,
-  "turnover_rate_pct": 100.0,
-  "training_steps_elapsed": 200000,
-  "best_checkpoint_step": 150528,
-  "goal_episodes": [],
-  "sample_episodes": [
+  "goal_episodes": [
     {
-      "episode": 0,
-      "seed": 500000,
-      "steps": 82,
-      "score_left": 0,
-      "action_distribution": {
-        "SPRINT": 189,
-        "TACKLE": 57
-      },
-      "summary": "Dribbled forward with RIGHT actions, ball possessed from step 36-64 at ~0.84 units/step. CB tackled around step 64-65 at x=0.992, ball reset to x=0.890 with zero velocity. No goal.",
-      "key_events": [
+      "episode": 9,
+      "seed": 509081,
+      "steps": 60,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [
         {
-          "step": 36,
-          "event": "ball_possessed",
-          "ball_x": 0.604,
-          "ball_y": 0.135
-        },
-        {
-          "step": 64,
-          "event": "near_goal_before_tackle",
-          "ball_x": 0.992,
-          "ball_y": 0.149
-        },
-        {
-          "step": 65,
-          "event": "tackle_lost_possession",
-          "ball_x": 0.89,
-          "ball_y": 0.0,
-          "owned": 0
-        }
-      ]
-    },
-    {
-      "episode": 1,
-      "seed": 501009,
-      "steps": 20,
-      "score_left": 0,
-      "action_distribution": {
-        "TACKLE": 39,
-        "SHOT_POWERED": 13,
-        "SPRINT": 8
-      },
-      "summary": "Mixed TACKLE and SHOT actions. No goal scored."
-    },
-    {
-      "episode": 2,
-      "seed": 502018,
-      "steps": 22,
-      "score_left": 0,
-      "action_distribution": {
-        "TACKLE": 45,
-        "SHOT_POWERED": 12,
-        "SPRINT": 9
-      },
-      "summary": "Mixed TACKLE and SHOT actions. No goal scored."
-    },
-    {
-      "episode": 3,
-      "seed": 503027,
-      "steps": 77,
-      "score_left": 0,
-      "action_distribution": {
-        "SPRINT": 190,
-        "TACKLE": 41
-      },
-      "summary": "Similar to episode 0: dribbled forward, ball possessed from step 49-59. CB tackled around step 59-60 at x=0.995. Ball reset to x=0.890. No goal.",
-      "key_events": [
-        {
-          "step": 49,
-          "event": "near_goal_before_tackle",
-          "ball_x": 0.854,
-          "ball_y": 0.164
-        },
-        {
-          "step": 59,
-          "event": "near_goal_before_tackle",
-          "ball_x": 0.995,
-          "ball_y": 0.164
+          "step": 48,
+          "ball_x": 0.8083791136741638,
+          "ball_y": 0.04096316173672676,
+          "ball_z": 0.0,
+          "ball_vx": 0.8447779083251953,
+          "ball_vy": 2.1215551532804967e-05,
+          "ball_vz": 0.0,
+          "ball_speed": 0.8447779085915964,
+          "ball_owned": 1,
+          "actions": {
+            "left_1": "action_right",
+            "left_2": "action_right",
+            "left_3": "action_shot"
+          },
+          "action_indices": {
+            "left_1": 5,
+            "left_2": 5,
+            "left_3": 12
+          },
+          "event": null,
+          "reward": 0.007039816118776798
         },
         {
           "step": 60,
-          "event": "tackle_lost_possession",
-          "ball_x": 0.89,
-          "ball_y": 0.0,
-          "owned": 0
+          "ball_x": 1.0063925981521606,
+          "ball_y": 0.012345527298748493,
+          "ball_z": 0.0031349998898804188,
+          "ball_vx": 2.557015228271484,
+          "ball_vy": -1.696513671875,
+          "ball_vz": 0.024766666889190672,
+          "ball_speed": 3.06872920021625,
+          "ball_owned": 0,
+          "actions": {
+            "left_1": "action_shot",
+            "left_2": "action_shot",
+            "left_3": "action_shot"
+          },
+          "action_indices": {
+            "left_1": 12,
+            "left_2": 12,
+            "left_3": 12
+          },
+          "event": null,
+          "reward": 1.0265672206878662
         }
-      ]
+      ],
+      "action_distribution": {
+        "action_right": 173,
+        "action_bottom": 3,
+        "action_shot": 4
+      }
     },
     {
-      "episode": 4,
-      "seed": 504036,
-      "steps": 27,
-      "score_left": 0,
-      "action_distribution": {
-        "TACKLE": 66,
-        "SPRINT": 9,
-        "SHOT_POWERED": 3,
-        "HIGH_PASS": 3
-      },
-      "summary": "Mostly TACKLE actions with some SPRINT. Ball became unpossessed near goal line. No goal.",
-      "key_events": [
+      "episode": 18,
+      "seed": 518162,
+      "steps": 58,
+      "score_left": 1,
+      "final_event": null,
+      "goal_step": null,
+      "shot_steps": [
         {
-          "step": 25,
-          "event": "near_goal_unpossessed",
-          "ball_x": 0.864,
-          "ball_y": 0.037,
-          "owned": 0
-        },
-        {
-          "step": 27,
-          "event": "ball_reset_by_defender",
-          "ball_x": 0.943,
-          "ball_y": 0.023,
-          "owned": 2
+          "step": 58,
+          "ball_x": 1.0014679431915283,
+          "ball_y": 0.010865435935556889,
+          "ball_z": 0.0031349998898804188,
+          "ball_vx": 2.785989074707031,
+          "ball_vy": -1.2863711547851562,
+          "ball_vz": 0.024766666889190672,
+          "ball_speed": 3.068729258184735,
+          "ball_owned": 0,
+          "actions": {
+            "left_1": "action_shot",
+            "left_2": "action_shot",
+            "left_3": "action_shot"
+          },
+          "action_indices": {
+            "left_1": 12,
+            "left_2": 12,
+            "left_3": 12
+          },
+          "event": null,
+          "reward": 1.0284985303878784
         }
-      ]
+      ],
+      "action_distribution": {
+        "action_right": 168,
+        "action_bottom": 3,
+        "action_shot": 3
+      }
     }
   ]
 }
