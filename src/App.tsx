@@ -710,6 +710,13 @@ export default function App() {
               setRenderTrigger((prev) => prev + 1);
             }}
             stepCount={engine.tickCount}
+            onSwitchModel={async (buffer, filename) => {
+              if (trainedAgentRef.current) {
+                await trainedAgentRef.current.switchModel(buffer);
+                setRenderTrigger((p) => p + 1);
+              }
+            }}
+            activeModelName={trainedAgentRef.current?.activeModelPath?.split('/').pop()}
           />
         )}
 

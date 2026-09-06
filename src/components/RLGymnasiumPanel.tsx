@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ActionType, AgentAction, RLObservation, RLStepResult } from '../types/football';
-import { Cpu, Terminal, Play, RotateCcw, Activity, Award, CheckSquare, Layers } from 'lucide-react';
+import { Cpu, Terminal, Play, RotateCcw, Activity, Award, CheckSquare, Layers, UploadCloud } from 'lucide-react';
 import { OBSERVATION_DIM, BASE_OBSERVATION_DIM, ROLE_DIM } from '../engine/Contract';
 
 interface RLGymnasiumPanelProps {
@@ -8,6 +8,8 @@ interface RLGymnasiumPanelProps {
   onEnvReset: () => void;
   onEnvStepAction: (action: AgentAction) => void;
   stepCount: number;
+  onSwitchModel?: (buffer: ArrayBuffer, filename: string) => Promise<void> | void;
+  activeModelName?: string;
 }
 
 export const RLGymnasiumPanel: React.FC<RLGymnasiumPanelProps> = ({
@@ -15,8 +17,29 @@ export const RLGymnasiumPanel: React.FC<RLGymnasiumPanelProps> = ({
   onEnvReset,
   onEnvStepAction,
   stepCount,
+  onSwitchModel,
+  activeModelName,
 }) => {
   const [vectorViewFilter, setVectorViewFilter] = useState<'all' | 'players' | 'ball' | 'match'>('all');
+  const [modelUploadStatus, setModelUploadStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleModelFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onSwitchModel) return;
+    setModelUploadStatus(`Loading ${file.name}...`);
+    try {
+      const buffer = await file.arrayBuffer();
+      await onSwitchModel(buffer, file.name);
+      setModelUploadStatus(`Swapped to ${file.name}`);
+      setTimeout(() => setModelUploadStatus(null), 3000);
+    } catch (err: any) {
+      setModelUploadStatus(`Failed: ${err?.message || err}`);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const obs = lastStepResult?.observation;
   const rawVector = obs?.rawVector || [];
@@ -33,6 +56,12 @@ export const RLGymnasiumPanel: React.FC<RLGymnasiumPanelProps> = ({
           </p>
         </div>
 
+        {modelUploadStatus && (
+          <div className="text-xs text-cyan-300 font-mono bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5">
+            {modelUploadStatus}
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <button
             onClick={onEnvReset}
@@ -40,6 +69,29 @@ export const RLGymnasiumPanel: React.FC<RLGymnasiumPanelProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5" /> env.reset()
           </button>
+
+          {onSwitchModel && (
+            <>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-xs font-semibold text-white border border-emerald-600"
+              >
+                <UploadCloud className="w-3.5 h-3.5" /> Hot-Swap ONNX
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".onnx"
+                className="hidden"
+                onChange={handleModelFileChange}
+              />
+              {activeModelName && (
+                <span className="text-[10px] font-mono text-slate-400 border border-slate-700 rounded-md px-2 py-1">
+                  {activeModelName}
+                </span>
+              )}
+            </>
+          )}
         </div>
       </div>
 
