@@ -48,11 +48,19 @@ function main(): void {
   assertApprox(result.checkpoint, 0.0, 1e-9, 'regression checkpoint');
   console.log('   ✓ Ball regression: reward=0.0 (no checkpoint paid)');
 
-  // Test 6: Right team checkpoint (negative X progress)
-  result = ObservationEncoder.computeReward(-0.3, -0.35, null, 'right', false, -0.3);
-  assertApprox(result.reward, 0.025, 1e-9, 'right team checkpoint');
-  assertApprox(result.checkpoint, 0.025, 1e-9, 'right team checkpoint value');
-  console.log('   ✓ Right-team checkpoint advance: reward=+0.025');
+  // Test 6: Controlled-team invariant (stabilization release #7) — the reward
+  // shaping is only valid for the left-controlled team; right-team target must
+  // fail LOUDLY instead of silently producing meaningless rewards.
+  let invariantThrew = false;
+  try {
+    ObservationEncoder.computeReward(-0.3, -0.35, null, 'right', false, -0.3);
+  } catch (err: any) {
+    invariantThrew = String(err.message).includes('GMN Reward Invariant Violation');
+  }
+  if (!invariantThrew) {
+    throw new Error('Reward invariant: computeReward(targetTeam="right") must throw [GMN Reward Invariant Violation]');
+  }
+  console.log('   ✓ Controlled-team invariant enforced (right-team target throws)');
 
   // Test 7: Small movement below threshold
   result = ObservationEncoder.computeReward(0.5, 0.502, null, 'left', false, 0.5);
@@ -93,19 +101,8 @@ function main(): void {
   assertApprox(result.reward, 0.026, 1e-9, 'off-target shot total');
   console.log('   ✓ Off-target shot (projected Y outside goal): reward=+0.026');
 
-  // Test 11: On-target shot for right team (attacking left goal)
-  // For right team, progress is toward more negative X (from -0.75 to -0.8)
-  result = ObservationEncoder.computeReward(
-    -0.75, -0.8, null, 'right', true, -0.75,
-    { x: -0.8, y: -0.02, z: 0.0 },
-    { x: -0.8, y: 0.01, z: 0.0 }
-  );
-  // deltaX = 0.05 -> checkpoint = 0.025
-  // on-target -> +0.03
-  // total = 0.025 + 0.03 = 0.055
-  assertApprox(result.checkpoint, 0.025, 1e-9, 'right team on-target checkpoint');
-  assertApprox(result.reward, 0.055, 1e-9, 'right team on-target shot total');
-  console.log('   ✓ Right-team on-target shot: reward=+0.055');
+  // Test 11: (removed — right-team rewards are now guarded by the
+  // controlled-team invariant; see Test 6).
 
   console.log('\n====================================================');
   console.log('✓ ALL REWARD SHAPING CHECKS PASSED');

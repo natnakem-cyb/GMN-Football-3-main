@@ -1,12 +1,14 @@
 import { Ball, GameMode, MatchScore, Player, RLObservation, TeamSide } from '../types/football';
-import { PITCH } from './Rules';
+import { PITCH, isGoalMouthPoint } from './Rules';
 import { Vec2 } from './Vector';
+import { PhysicsEngine } from './Physics';
 import {
   OBSERVATION_DIM,
   OBSERVATION_SCHEMA_VERSION,
   BASE_OBSERVATION_DIM,
   ROLE_DIM,
   ROLE_VOCABULARY,
+  CONTROLLED_TRAINING_TEAM,
   inferPlayerRole,
   validateObservationVector,
 } from './Contract';
@@ -190,25 +192,40 @@ export class ObservationEncoder {
     prevBallX: number,
     currBallX: number,
     goalScoredTeam: TeamSide | null,
-    targetTeam: TeamSide = 'left',
+    targetTeam: TeamSide = CONTROLLED_TRAINING_TEAM,
     shotTakenByTargetTeam = false,
     maxBallProgressX?: number,
     ballPosition?: { x: number; y: number; z: number },
     ballVelocity?: { x: number; y: number; z: number }
   ): { reward: number; checkpoint: number; newMaxBallProgressX: number } {
+    // Controlled-team invariant (stabilization release #7): the reward shaping,
+    // shot-quality bonus and bridge metrics assume the controlled team is LEFT
+    // and the attacking goal is RIGHT. Guard explicitly so a future right-team
+    // experiment fails loudly instead of silently receiving meaningless rewards.
+    if (targetTeam !== CONTROLLED_TRAINING_TEAM) {
+      throw new Error(
+        `[GMN Reward Invariant Violation] computeReward targetTeam='${targetTeam}' but ` +
+          `CONTROLLED_TRAINING_TEAM='${CONTROLLED_TRAINING_TEAM}'. The current reward ` +
+          `shaping and bridge metrics are only valid for the left-controlled team. ` +
+          `Right-team training requires an explicit reward-orientation redesign.`
+      );
+    }
+
     let reward = 0;
     let checkpoint = 0;
     let newMaxBallProgressX = maxBallProgressX !== undefined ? maxBallProgressX : prevBallX;
 
-    if (goalScoredTeam === targetTeam) {
+    if (goalScoredTeam === CONTROLLED_TRAINING_TEAM) {
       reward += 1.0;
-    } else if (goalScoredTeam && goalScoredTeam !== targetTeam) {
+    } else if (goalScoredTeam) {
       reward -= 1.0;
     }
 
     // Monotonic checkpoint reward: only pays when exceeding the episode high-water mark
-    // (for left team, progress is positive X; for right team, progress is negative X)
-    if (targetTeam === 'left') {
+    // (for left team, progress is positive X). The controlled-team invariant above
+    // guarantees targetTeam === 'left' here; use a non-narrowed flag for the branch.
+    const isLeftControlled = targetTeam === CONTROLLED_TRAINING_TEAM;
+    if (isLeftControlled) {
       if (currBallX > newMaxBallProgressX) {
         const deltaX = currBallX - newMaxBallProgressX;
         if (deltaX > 0.005) {
@@ -217,7 +234,7 @@ export class ObservationEncoder {
         }
         newMaxBallProgressX = currBallX;
       }
-    } else if (targetTeam === 'right') {
+    } else {
       if (currBallX < newMaxBallProgressX) {
         const deltaX = newMaxBallProgressX - currBallX;
         if (deltaX > 0.005) {
@@ -229,22 +246,24 @@ export class ObservationEncoder {
     }
 
     // Shot-quality conditioned bonus — encourages aiming at the goal mouth.
+    // Uses the authoritative goal-mouth geometry (isGoalMouthPoint) with a
+    // discrete ballistic projection of the shot trajectory onto the goal line,
+    // so a shot that would cross the goal line above the crossbar is NOT
+    // considered on-target (consistency with goal detection).
     if (shotTakenByTargetTeam) {
       const ON_TARGET_BONUS = 0.03;
       const OFF_TARGET_BONUS = 0.001;
 
       let shotQualityBonus = OFF_TARGET_BONUS;
-      if (
-        ballPosition &&
-        ballVelocity &&
-        Math.abs(ballVelocity.x) > 0.05
-      ) {
-        const opponentGoalX = targetTeam === 'left' ? PITCH.maxX : PITCH.minX;
-        const distToGoalLine = Math.abs(opponentGoalX - ballPosition.x);
-        const timeToGoal = distToGoalLine / Math.max(0.01, Math.abs(ballVelocity.x));
-        const projectedY = ballPosition.y + ballVelocity.y * timeToGoal;
-
-        if (projectedY >= PITCH.goalMinY && projectedY <= PITCH.goalMaxY) {
+      if (ballPosition && ballVelocity && Math.abs(ballVelocity.x) > 0.05) {
+        // Controlled team = LEFT attacks the RIGHT goal (contract invariant).
+        const opponentGoalX = PITCH.maxX;
+        const crossing = PhysicsEngine.projectShotAtGoalLine(
+          ballPosition,
+          ballVelocity,
+          opponentGoalX
+        );
+        if (crossing && isGoalMouthPoint(crossing.y, crossing.z)) {
           shotQualityBonus = ON_TARGET_BONUS;
         }
       }

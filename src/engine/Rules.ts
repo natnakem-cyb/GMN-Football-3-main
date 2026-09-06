@@ -27,11 +27,43 @@ export const PITCH = {
   centerCircleRadius: 0.18,
   cornerArcRadius: 0.03,
 
+  // Corner restart inset: corners are awarded at the goal-line corner, but the ball
+  // must be repositioned strictly INSIDE the boundary so the next physics tick does
+  // not re-satisfy the out-of-bounds condition (event-loop prevention). Mirrors the
+  // throw-in inset convention (0.05).
+  cornerRestartInset: 0.05,
+
   // Physics constants
   ballRadius: 0.015,
   playerRadius: 0.022,
   goalkeeperCatchRadius: 0.05,
 };
+
+export const GOAL_MOUTH_EPSILON = 1e-9;
+
+/**
+ * Authoritative goal-mouth geometry predicate (single source of truth).
+ *
+ * A point (on the goal line plane) is inside the goal mouth when:
+ *   1. Lateral coordinate: goalMinY <= y <= goalMaxY (inclusive).
+ *   2. Vertical coordinate (when provided): z <= goalHeight (inclusive),
+ *      i.e. at or below the crossbar.
+ *
+ * Floating-point tolerance: comparisons are inclusive with a tolerance of
+ * GOAL_MOUTH_EPSILON (1e-9). Boundary values are therefore treated as INSIDE:
+ *   y == goalMinY / y == goalMaxY / z == goalHeight  ->  true (goal).
+ * Callers MUST use this helper instead of ad-hoc y-range/z-range checks so that
+ * goal detection, shot quality, isOnTarget and reward shaping share one geometry.
+ */
+export function isGoalMouthPoint(y: number, z?: number): boolean {
+  const withinLateral =
+    y >= PITCH.goalMinY - GOAL_MOUTH_EPSILON && y <= PITCH.goalMaxY + GOAL_MOUTH_EPSILON;
+  if (!withinLateral) return false;
+  if (z !== undefined) {
+    return z <= PITCH.goalHeight + GOAL_MOUTH_EPSILON;
+  }
+  return true;
+}
 
 export const FORMATIONS: Record<FormationType, FormationNode[]> = {
   '4-3-3': [

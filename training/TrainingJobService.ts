@@ -59,7 +59,7 @@ export class TrainingJobService {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(
         JSON.stringify({
-          type: 'TRAINING_STATUS',
+          type: 'training_status',
           data: this.getStatus(),
         })
       );
@@ -164,7 +164,7 @@ export class TrainingJobService {
     this.sb3Buffer = {};
 
     this.broadcast({
-      type: 'TRAINING_STARTED',
+      type: 'training_started',
       data: jobInfo,
     });
     metricsBroadcaster.broadcastStatus(this.getStatus());
@@ -187,7 +187,7 @@ export class TrainingJobService {
 
         // Stream raw stdout line to RL clients
         this.broadcast({
-          type: 'TRAINING_STDOUT',
+          type: 'training_output',
           data: {
             line,
             timestamp: Date.now(),
@@ -204,7 +204,7 @@ export class TrainingJobService {
           jobInfo.latestMetrics = parsedMetrics;
           // Push to RL clients
           this.broadcast({
-            type: 'TRAINING_METRICS',
+            type: 'training_metrics',
             data: parsedMetrics,
             jobId,
           });
@@ -246,7 +246,7 @@ export class TrainingJobService {
         this.handleAutomaticExport(jobInfo)
           .then((exportResult) => {
             this.broadcast({
-              type: 'TRAINING_COMPLETED',
+              type: 'training_completed',
               data: {
                 jobId,
                 success: true,
@@ -258,7 +258,7 @@ export class TrainingJobService {
           .catch((err) => {
             console.error('[TrainingJobService] ONNX export failed on completion:', err);
             this.broadcast({
-              type: 'TRAINING_COMPLETED',
+              type: 'training_completed',
               data: {
                 jobId,
                 success: true,
@@ -270,7 +270,7 @@ export class TrainingJobService {
       } else {
         jobInfo.status = jobInfo.status === 'stopped' ? 'stopped' : 'failed';
         this.broadcast({
-          type: 'TRAINING_FAILED',
+          type: 'training_failed',
           data: {
             jobId,
             exitCode: code,
@@ -286,7 +286,7 @@ export class TrainingJobService {
       jobInfo.status = 'failed';
       this.activeProcess = null;
       this.broadcast({
-        type: 'TRAINING_FAILED',
+        type: 'training_failed',
         data: {
           jobId,
           error: err.message,
@@ -323,7 +323,7 @@ export class TrainingJobService {
     }
 
     this.broadcast({
-      type: 'TRAINING_STOPPED',
+      type: 'training_stopped',
       data: { jobId: this.currentJob.id },
     });
     metricsBroadcaster.broadcastStatus(this.getStatus());

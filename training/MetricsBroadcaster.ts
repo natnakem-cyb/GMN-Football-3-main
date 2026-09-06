@@ -85,19 +85,19 @@ export class MetricsBroadcaster {
   }
 
   broadcastMetrics(snapshot: TrainingMetricsSnapshot) {
-    this.send({ type: 'training_metrics', payload: snapshot });
+    this.send({ type: 'training_metrics', data: snapshot });
   }
 
   broadcastHardware(stats: HardwareStats) {
-    this.send({ type: 'hardware_stats', payload: stats });
+    this.send({ type: 'hardware_stats', data: stats });
   }
 
   broadcastOutput(text: string) {
-    this.send({ type: 'training_output', payload: { text, ts: Date.now() } });
+    this.send({ type: 'training_output', data: { line: text, ts: Date.now() } });
   }
 
   broadcastCheckpoints(list: CheckpointInfo[]) {
-    this.send({ type: 'checkpoints_updated', payload: list });
+    this.send({ type: 'checkpoint_update', data: { checkpoints: list } });
   }
 
   broadcastStatus(status: {
@@ -106,7 +106,7 @@ export class MetricsBroadcaster {
     latestMetrics: TrainingMetricsSnapshot | { step: number; timestamp: number } | null;
     recentLogs?: string[];
   }) {
-    this.send({ type: 'training_status', payload: status });
+    this.send({ type: 'training_status', data: status });
   }
 
   /**

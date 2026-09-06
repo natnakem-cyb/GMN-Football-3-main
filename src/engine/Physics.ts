@@ -4,6 +4,19 @@ import { Vec2, Vec3 } from './Vector';
 import { SeededRNG } from './SeededRNG';
 
 export class PhysicsEngine {
+  /**
+   * FIXED SIMULATION TIMESTEP (60 Hz).
+   *
+   * The physics integration below is a FIXED-TIMESTEP simulation: drag, friction
+   * and velocity smoothing are applied as per-tick multiplicative factors, NOT as
+   * continuous dt-scaled terms. The API accepts a `dt` parameter but only
+   * dt === FIXED_DT (1/60) is supported and verified. The training bridge always
+   * steps with dt = 1/60. Callers passing any other dt will get physically
+   * incorrect (tick-rate-dependent) results — do not treat this API as
+   * dt-independent. See `training/TELEMETRY_PROTOCOL.md` and section 16 of the
+   * stabilization notes.
+   */
+  static readonly FIXED_DT = 1 / 60;
   static GRAVITY = 9.8;
   static AIR_DRAG = 0.988;
   static GROUND_FRICTION = 0.965;
@@ -138,6 +151,94 @@ export class PhysicsEngine {
     player.position.y = Math.max(PITCH.minY - 0.05, Math.min(PITCH.maxY + 0.05, player.position.y));
   }
 
+  /**
+   * Computes the ball velocity a kick produces, given a player, direction, power
+   * and loft. Single source of truth for kick speed semantics — used by
+   * `kickBall` and by the SHOT on-target projection so that shot-quality checks
+   * simulate exactly the velocity the ball will actually receive.
+   */
+  static computeKickVelocity(
+    player: Player,
+    direction: Vector2D,
+    power: number,
+    loft = 0
+  ): Vector3D {
+    const dir = Vec2.normalize(direction);
+    const kickSpeed = 0.9 + (player.stats.kickPower / 100) * 2.7 * Math.min(1, Math.max(0.1, power));
+    return {
+      x: dir.x * kickSpeed,
+      y: dir.y * kickSpeed,
+      z: loft * 1.32 * power,
+    };
+  }
+
+  /**
+   * Authoritative ballistic projection of a ball trajectory onto a goal-line
+   * plane x = goalX. Simulates the same discrete per-tick integration used by
+   * `updateBall` (air drag when airborne, ground friction when grounded, gravity,
+   * bounces) at the FIXED_DT timestep, returning the (y, z) point at which the
+   * ball first reaches the goal-line plane — or null if it never reaches it
+   * within `maxTicks` (i.e. the shot cannot reach the goal).
+   *
+   * Used by goal-boundary-aware shot-quality logic (see `isGoalMouthPoint`).
+   */
+  static projectShotAtGoalLine(
+    position: { x: number; y: number; z: number },
+    velocity: { x: number; y: number; z: number },
+    goalX: number,
+    maxTicks = 600
+  ): { y: number; z: number } | null {
+    const dt = PhysicsEngine.FIXED_DT;
+    let { x, y, z } = position;
+    let vx = velocity.x;
+    let vy = velocity.y;
+    let vz = velocity.z;
+    const travelingTowardLine = (goalX - x) * vx > 0;
+    if (!travelingTowardLine && Math.abs(vx) < 1e-9) return null;
+
+    for (let tick = 0; tick < maxTicks; tick++) {
+      const prevX = x;
+      // Horizontal integration (matches updateBall: drag only while airborne,
+      // ground friction while grounded).
+      const airborne = z > 0 || vz !== 0;
+      if (airborne) {
+        vx *= PhysicsEngine.AIR_DRAG;
+        vy *= PhysicsEngine.AIR_DRAG;
+      } else {
+        vx *= PhysicsEngine.GROUND_FRICTION;
+        vy *= PhysicsEngine.GROUND_FRICTION;
+      }
+      x += vx * dt;
+      y += vy * dt;
+
+      // Vertical integration (matches updateBall gravity + bounce semantics).
+      if (z > 0 || vz !== 0) {
+        vz -= PhysicsEngine.GRAVITY * dt;
+      }
+      z += vz * dt;
+      if (z <= 0) {
+        z = 0;
+        if (Math.abs(vz) > 0.3) {
+          vz = -vz * PhysicsEngine.BOUNCE_RESTITUTION;
+        } else {
+          vz = 0;
+        }
+      }
+
+      // Goal-line plane crossing this tick?
+      const crossed =
+        (prevX < goalX && x >= goalX) || (prevX > goalX && x <= goalX) || x === goalX;
+      if (crossed) {
+        // Linear interpolation of y at the exact crossing point within the tick.
+        const span = x - prevX;
+        const frac = span !== 0 ? (goalX - prevX) / span : 1;
+        const yAtLine = y - vy * dt * (1 - frac);
+        return { y: yAtLine, z };
+      }
+    }
+    return null;
+  }
+
   // Kick ball in direction with power and loft
   static kickBall(
     ball: Ball,
@@ -146,19 +247,12 @@ export class PhysicsEngine {
     power: number,
     loft = 0
   ): void {
-    const dir = Vec2.normalize(direction);
-    const kickSpeed = 0.9 + (player.stats.kickPower / 100) * 2.7 * Math.min(1, Math.max(0.1, power));
-    
     ball.ownerId = null;
     player.hasBall = false;
     ball.lastOwnerId = player.id;
     ball.lastOwnerTeam = player.team;
 
-    ball.velocity = {
-      x: dir.x * kickSpeed,
-      y: dir.y * kickSpeed,
-      z: loft * 1.32 * power,
-    };
+    ball.velocity = PhysicsEngine.computeKickVelocity(player, direction, power, loft);
   }
 
   // Slide tackle

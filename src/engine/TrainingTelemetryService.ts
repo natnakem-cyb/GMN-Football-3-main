@@ -188,15 +188,36 @@ export class TrainingTelemetryService {
   public isRefreshingCheckpoints: boolean = false;
 
   /**
-   * Connects to the local Python RL Training Bridge over WebSocket (via /ws proxy or ws://127.0.0.1:5050)
-   * to stream live MAPPO/PPO/IPPO training telemetry and logs from PyTorch scripts into the UI.
+   * Resolves the telemetry WebSocket endpoint.
+   *
+   * Priority:
+   *   1. `VITE_WS_URL` build-time env (production / remote bridge deployments).
+   *   2. Same-origin `/ws` path — served by the Vite dev proxy in development
+   *      (vite.config.ts proxies `/ws` -> ws://127.0.0.1:5050) and by any
+   *      production reverse proxy that forwards `/ws` to the bridge.
+   *
+   * No hardcoded deployment-specific hostnames.
+   */
+  private resolveWsUrl(): string {
+    const env = (import.meta as any)?.env ?? {};
+    if (env.VITE_WS_URL) return String(env.VITE_WS_URL);
+    if (typeof window !== 'undefined' && window.location) {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${window.location.host}/ws`;
+    }
+    // Non-browser fallback (tests / SSR): local bridge default.
+    return 'ws://127.0.0.1:5050';
+  }
+
+  /**
+   * Connects to the GMN bridge telemetry stream over WebSocket and subscribes
+   * to live training telemetry. `subscribe_training` is explicitly handled by
+   * the bridge (see training/bridge_server.ts).
    */
   public connectWebSocket(url?: string): void {
     if (typeof window === 'undefined') return;
 
-    if (url) {
-      this.wsUrl = url;
-    }
+    this.wsUrl = url ?? this.resolveWsUrl();
 
     if (this.ws) {
       try {
@@ -226,7 +247,9 @@ export class TrainingTelemetryService {
             const parsed = JSON.parse(event.data);
             const msgType = parsed.type;
 
-            if (msgType === 'TRAINING_STATUS') {
+            // Canonical telemetry protocol: every message is { type, data }.
+            // Schema documented in training/TELEMETRY_PROTOCOL.md.
+            if (msgType === 'training_status') {
               this.activeJob = parsed.data?.currentJob || null;
               if (parsed.data?.isRunning) {
                 this.isTrainingActive = true;
@@ -238,11 +261,11 @@ export class TrainingTelemetryService {
                 this.ingestSnapshot(parsed.data.latestMetrics);
               }
               this.notify();
-            } else if (msgType === 'TRAINING_STARTED') {
+            } else if (msgType === 'training_started') {
               this.activeJob = parsed.data;
               this.isTrainingActive = true;
               this.notify();
-            } else if (msgType === 'TRAINING_STDOUT') {
+            } else if (msgType === 'training_output') {
               const line = parsed.data?.line;
               if (line) {
                 this.liveLogs.push(line);
@@ -251,18 +274,41 @@ export class TrainingTelemetryService {
                 }
                 this.notify();
               }
-            } else if (msgType === 'TRAINING_METRICS' || msgType === 'telemetry_metrics' || msgType === 'training_metrics') {
+            } else if (msgType === 'training_metrics' || msgType === 'episode_metrics') {
               const metrics = parsed.data || parsed.snapshot || parsed;
               this.ingestSnapshot(metrics, parsed.hardware);
-            } else if (msgType === 'TRAINING_COMPLETED') {
+            } else if (msgType === 'hardware_stats') {
+              // P1 #10: hardware statistics reach the dashboard.
+              const hw = parsed.data || {};
+              this.hardware = {
+                ...this.hardware,
+                sps: hw.stepsPerSec ?? this.hardware.sps,
+                cpuUtilizationPct: hw.cpuPercent ?? this.hardware.cpuUtilizationPct,
+                gpuVramUsedMb: hw.ramUsedMb ?? this.hardware.gpuVramUsedMb,
+                gpuVramTotalMb: hw.ramTotalMb ?? this.hardware.gpuVramTotalMb,
+              };
+              this.notify();
+            } else if (msgType === 'checkpoint_update') {
+              this.checkpoints = parsed.data?.checkpoints || [];
+              this.notify();
+            } else if (msgType === 'training_completed') {
               this.isTrainingActive = false;
               this.activeJob = null;
               this.refreshCheckpoints();
               this.notify();
-            } else if (msgType === 'TRAINING_STOPPED' || msgType === 'TRAINING_FAILED') {
+            } else if (msgType === 'training_stopped' || msgType === 'training_failed') {
               this.isTrainingActive = false;
+              if (msgType === 'training_failed' && parsed.data?.error) {
+                this.liveLogs.push(`[ERROR] ${parsed.data.error}`);
+              }
+              this.notify();
+            } else if (msgType === 'error') {
+              // Bridge-reported error: log it; never crash the connection.
+              this.liveLogs.push(`[BRIDGE ERROR] ${parsed.data?.message || parsed.error || 'unknown error'}`);
               this.notify();
             }
+            // Unknown/unsupported message types are ignored — telemetry must
+            // never crash the connection.
           }
         } catch (err) {
           console.warn('[TrainingTelemetryService] WS message parse error:', err);

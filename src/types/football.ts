@@ -131,7 +131,7 @@ export interface AgentAction {
 export interface MatchEvent {
   id: string;
   timeSeconds: number;
-  type: 'goal' | 'shot' | 'shot_saved' | 'shot_missed' | 'pass' | 'interception' | 'tackle' | 'foul' | 'kickoff' | 'out_of_bounds' | 'scenario_complete' | 'scenario_failed';
+  type: 'goal' | 'shot' | 'shot_saved' | 'shot_missed' | 'pass' | 'interception' | 'tackle' | 'foul' | 'offside' | 'kickoff' | 'out_of_bounds' | 'scenario_complete' | 'scenario_failed';
   team?: TeamSide;
   playerId?: string;
   playerName?: string;

@@ -19,10 +19,11 @@ import {
   Vector2D,
   Vector3D,
 } from '../types/football';
-import { PITCH, getFormationPositions, computeOffsideLineX } from './Rules';
+import { PITCH, getFormationPositions, computeOffsideLineX, isGoalMouthPoint } from './Rules';
 import { PhysicsEngine } from './Physics';
 import { Vec2, Vec3 } from './Vector';
 import { ObservationEncoder } from './ObservationEncoder';
+import { CONTROLLED_TRAINING_TEAM } from './Contract';
 import { SeededRNG } from './SeededRNG';
 
 export class GameEngine {
@@ -530,7 +531,7 @@ export class GameEngine {
       prevBallX,
       this.ball.position.x,
       goalScoredThisTick,
-      'left',
+      CONTROLLED_TRAINING_TEAM,
       shotTakenByLeft,
       this.maxBallProgressX,
       this.ball.position,
@@ -683,15 +684,21 @@ export class GameEngine {
 
           this.stats.shots[player.team]++;
 
-          // Check if shot trajectory intersects the opponent goal line within goal mouth [goalMinY, goalMaxY]
+          // Shot-target check (P0): project the ACTUAL kick velocity (same
+          // velocity the ball now carries) ballistically onto the opponent goal
+          // line using the authoritative geometry (`isGoalMouthPoint`), so a
+          // trajectory crossing above the crossbar or wide of the goal mouth is
+          // NOT counted as on-target. Shared with the shot-quality reward.
           let isOnTarget = false;
           if (dir.x !== 0 && ((player.team === 'left' && dir.x > 0) || (player.team === 'right' && dir.x < 0))) {
-            const t = (opponentGoalX - player.position.x) / dir.x;
-            if (t > 0) {
-              const intersectY = player.position.y + dir.y * t;
-              if (intersectY >= PITCH.goalMinY && intersectY <= PITCH.goalMaxY) {
-                isOnTarget = true;
-              }
+            const shotVelocity = PhysicsEngine.computeKickVelocity(player, dir, power, 0.15);
+            const crossing = PhysicsEngine.projectShotAtGoalLine(
+              { ...player.position, z: this.ball.position.z },
+              shotVelocity,
+              opponentGoalX
+            );
+            if (crossing && isGoalMouthPoint(crossing.y, crossing.z)) {
+              isOnTarget = true;
             }
           }
           if (isOnTarget) {
@@ -929,7 +936,7 @@ export class GameEngine {
                 this.ball.isShotInFlight = false;
                 this.players.forEach((p) => (p.hasBall = false));
                 this.recordEvent(
-                  'foul',
+                  'offside',
                   `${player.name} was offside! Free kick awarded to Team ${defendingTeamLabel}.`,
                   player.position,
                   player.team
@@ -971,8 +978,13 @@ export class GameEngine {
 
     // Check Right Goal (Left team scores / right endline)
     if (x >= PITCH.maxX) {
+      // Capture shot-in-flight BEFORE clearing, so a shot crossing the goal line
+      // outside the goal mouth is recorded exactly once as `shot_missed`.
+      const wasShotInFlight = this.ball.isShotInFlight;
       this.ball.isShotInFlight = false;
-      if (y >= PITCH.goalMinY && y <= PITCH.goalMaxY) {
+      // Authoritative goal geometry (P0): lateral goal-mouth range AND crossbar
+      // height (z <= goalHeight). A ball above the crossbar is NOT a goal.
+      if (isGoalMouthPoint(y, this.ball.position.z)) {
         this.score.left++;
         this.stats.goals.left++;
         if (this.stats.shotLocations.length > 0) {
@@ -983,13 +995,24 @@ export class GameEngine {
         this.goalResetTimer = 100; // ~1.6s pause
         return 'left';
       } else {
+        if (wasShotInFlight) {
+          this.recordEvent(
+            'shot_missed',
+            `Shot missed the goal (above crossbar or outside goal mouth).`,
+            this.ball.position,
+            this.ball.lastOwnerTeam ?? undefined
+          );
+        }
         // Right goal line: left attacks (x=1.0), right defends (x=1.0).
         if (this.ball.lastOwnerTeam === 'right') {
           // Defender touched last -> Corner kick awarded to Left
           this.gameMode = GameMode.Corner;
           this.status = 'corner';
           const cornerY = y >= 0 ? PITCH.maxY : PITCH.minY;
-          this.ball.position = { x: PITCH.maxX, y: cornerY, z: 0 };
+          // Inset the restart position strictly inside the goal line so the next
+          // physics tick cannot re-satisfy the out-of-bounds condition (prevents
+          // repeated corner events). Mirrors the throw-in inset convention.
+          this.ball.position = { x: PITCH.maxX - PITCH.cornerRestartInset, y: cornerY, z: 0 };
           this.ball.velocity = { x: 0, y: 0, z: 0 };
           this.ball.ownerId = null;
           this.recordEvent('out_of_bounds', 'Corner Kick awarded to Team Left', this.ball.position, 'left');
@@ -1007,8 +1030,11 @@ export class GameEngine {
 
     // Check Left Goal (Right team scores / left endline)
     if (x <= PITCH.minX) {
+      const wasShotInFlight = this.ball.isShotInFlight;
       this.ball.isShotInFlight = false;
-      if (y >= PITCH.goalMinY && y <= PITCH.goalMaxY) {
+      // Authoritative goal geometry (P0): lateral goal-mouth range AND crossbar
+      // height (z <= goalHeight). A ball above the crossbar is NOT a goal.
+      if (isGoalMouthPoint(y, this.ball.position.z)) {
         this.score.right++;
         this.stats.goals.right++;
         if (this.stats.shotLocations.length > 0) {
@@ -1019,13 +1045,22 @@ export class GameEngine {
         this.goalResetTimer = 100;
         return 'right';
       } else {
+        if (wasShotInFlight) {
+          this.recordEvent(
+            'shot_missed',
+            `Shot missed the goal (above crossbar or outside goal mouth).`,
+            this.ball.position,
+            this.ball.lastOwnerTeam ?? undefined
+          );
+        }
         // Left goal line: right attacks (x=-1.0), left defends (x=-1.0).
         if (this.ball.lastOwnerTeam === 'left') {
           // Defender touched last -> Corner kick awarded to Right
           this.gameMode = GameMode.Corner;
           this.status = 'corner';
           const cornerY = y >= 0 ? PITCH.maxY : PITCH.minY;
-          this.ball.position = { x: PITCH.minX, y: cornerY, z: 0 };
+          // Restart inset (see right-goal branch) to prevent event loops.
+          this.ball.position = { x: PITCH.minX + PITCH.cornerRestartInset, y: cornerY, z: 0 };
           this.ball.velocity = { x: 0, y: 0, z: 0 };
           this.ball.ownerId = null;
           this.recordEvent('out_of_bounds', 'Corner Kick awarded to Team Right', this.ball.position, 'right');

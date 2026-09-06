@@ -515,6 +515,22 @@ export function encodeMultiStepBinary(multiResult: ReturnType<typeof bridge.step
   return buf;
 }
 
+/**
+ * Deterministic binary error frame (P0 #5): same layout/length as a normal
+ * step frame so Python clients can decode it without hanging. Carries a
+ * sentinel reward of -999.0 and terminated=true.
+ *   nAgents = 1 -> single-agent frame length (17 + 127*4)
+ *   nAgents = N -> multi-agent frame length (17 + N*127*4)
+ */
+export function encodeErrorStepBinary(nAgents = 1): Buffer {
+  const obsBytes = OBSERVATION_DIM * 4;
+  const buf = Buffer.allocUnsafe(17 + obsBytes * Math.max(1, nAgents));
+  buf.fill(0);
+  buf.writeFloatLE(-999.0, 0); // sentinel reward: error indicator
+  buf.writeUInt8(1, 4);        // terminated = true
+  return buf;
+}
+
 // Attach WebSocket Server to the same HTTP Server instance
 const wss = new WebSocketServer({ server });
 
@@ -528,11 +544,11 @@ wss.on('connection', (ws: WebSocket, req) => {
   const url = req.url || '';
   if (url.includes('type=metrics') || url.includes('type=Metrics')) {
     metricsBroadcaster.subscribe(ws);
-    // Send initial status
+    // Send initial status (canonical telemetry schema: { type, data })
     const status = TrainingJobService.getStatus();
     ws.send(JSON.stringify({
       type: 'training_status',
-      payload: {
+      data: {
         isRunning: status.isRunning,
         currentJob: status.currentJob,
         latestMetrics: status.latestMetrics,
@@ -549,12 +565,24 @@ wss.on('connection', (ws: WebSocket, req) => {
         if (buf.length === 1) {
           // existing single-agent path — unchanged
           const actionIdx = buf.readUInt8(0);
-          if (actionIdx >= ACTION_SPACE_SIZE) return;
+          if (actionIdx >= ACTION_SPACE_SIZE) {
+            // P0 #5: NEVER silently drop — send a deterministic binary error
+            // frame so Python clients cannot hang waiting for a response.
+            ws.send(encodeErrorStepBinary(1), { binary: true });
+            return;
+          }
           const stepResult = bridge.step(actionIdx);
           ws.send(encodeStepBinary(stepResult), { binary: true });
         } else if (buf.length > 1) {
           // new multi-agent path
           const actionIndices = Array.from(buf); // one uint8 per controlled agent, in controllableAgentIds order
+          const invalidIdx = actionIndices.findIndex((a) => a >= ACTION_SPACE_SIZE);
+          if (invalidIdx >= 0) {
+            // P0 #5: deterministic multi-agent error frame (same length as a
+            // normal multi-agent response for this agent count).
+            ws.send(encodeErrorStepBinary(actionIndices.length), { binary: true });
+            return;
+          }
           const multiResult = bridge.stepMulti(actionIndices);
           ws.send(encodeMultiStepBinary(multiResult), { binary: true });
         }
@@ -575,10 +603,12 @@ wss.on('connection', (ws: WebSocket, req) => {
           const multiResult = bridge.stepMulti(parsed.actions);
           ws.send(JSON.stringify(multiResult));
         } else if (parsed.type === 'telemetry_metrics') {
-          // Broadcast training telemetry to all dashboard subscribers
+          // Deprecated relay (no Python producers remain). Normalizes the
+          // forwarded payload to the canonical training_metrics frame.
+          const canonical = JSON.stringify({ type: 'training_metrics', data: parsed.data ?? parsed });
           wss.clients.forEach((client) => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify(parsed));
+              client.send(canonical);
             }
           });
           ws.send(JSON.stringify({ status: 'broadcast_ok' }));
@@ -589,20 +619,34 @@ wss.on('connection', (ws: WebSocket, req) => {
         } else if (parsed.type === 'unsubscribe_metrics') {
           metricsBroadcaster.unsubscribe(ws);
           ws.send(JSON.stringify({ status: 'unsubscribed_metrics' }));
+        } else if (parsed.type === 'subscribe_training') {
+          // P1 #9: explicit dashboard subscription (previously silently ignored
+          // and only worked via accidental registration). Subscribes this
+          // socket to the MetricsBroadcaster stream (training_status,
+          // hardware_stats, training_metrics, checkpoint_update,
+          // training_output) AND keeps it in the TrainingJobService RL-client
+          // set (already registered at connection time). Replies with the
+          // canonical initial training_status.
+          metricsBroadcaster.subscribe(ws);
+          const status = TrainingJobService.getStatus();
+          ws.send(JSON.stringify({ type: 'training_status', data: status }));
+          ws.send(JSON.stringify({ type: 'checkpoint_update', data: { checkpoints: CheckpointService.listCheckpoints() } }));
+        } else if (parsed.type === 'unsubscribe_training') {
+          metricsBroadcaster.unsubscribe(ws);
+          ws.send(JSON.stringify({ status: 'unsubscribed_training' }));
         }
       }
     } catch (err: any) {
       console.error('[WS Error]', err);
       try {
         if (isBinary) {
-          // Send a zeroed-out binary frame with error sentinel so the client doesn't hang
-          const errBuf = Buffer.allocUnsafe(17 + OBSERVATION_DIM * 4);
-          errBuf.fill(0);
-          errBuf.writeFloatLE(-999.0, 0); // sentinel reward
-          errBuf.writeUInt8(1, 4);        // terminated = true
-          ws.send(errBuf, { binary: true });
+          // Deterministic binary error frame sized to the request's agent count
+          // (single-agent: 1 byte request; multi-agent: N bytes request) so the
+          // client can decode it without hanging. Canonical helper P0 #5.
+          const nAgents = Buffer.isBuffer(data) ? Math.max(1, data.length) : 1;
+          ws.send(encodeErrorStepBinary(nAgents), { binary: true });
         } else {
-          ws.send(JSON.stringify({ error: err.message || 'Internal bridge error' }));
+          ws.send(JSON.stringify({ type: 'error', error: err.message || 'Internal bridge error', data: { message: err.message || 'Internal bridge error' } }));
         }
       } catch (sendErr) {
         console.error('[WS Error] Failed to send error response:', sendErr);
