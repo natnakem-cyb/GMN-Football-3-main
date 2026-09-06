@@ -96,6 +96,31 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
                 ))}
               </div>
 
+              {/* Objective Progress Bar */}
+              {isSelected && (
+                <div className="mb-3">
+                  {(() => {
+                    const total = scenario.objectives.length;
+                    const completed = scenario.objectives.filter((o) => o.isCompleted).length;
+                    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                    return (
+                      <div className="w-full">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                          <span>Objectives Progress</span>
+                          <span className="font-mono font-semibold text-slate-200">{completed}/{total} ({pct}%)</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-800 border border-slate-700 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {/* Footer status / Action */}
               <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
                 <span className="flex items-center gap-1">

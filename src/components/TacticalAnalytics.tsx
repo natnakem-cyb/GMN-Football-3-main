@@ -3,13 +3,17 @@ import { MatchStats, TeamConfig } from '../types/football';
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
+  Legend,
+  ScatterChart,
+  Scatter,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  Legend,
+  CartesianGrid,
+  ZAxis,
 } from 'recharts';
 import { BarChart3, TrendingUp, Target, Activity, Zap } from 'lucide-react';
 
@@ -139,6 +143,102 @@ export const TacticalAnalytics: React.FC<TacticalAnalyticsProps> = ({
           </div>
         </div>
       </div>
-    </div>
+
+      {/* Shot Location Scatter Plot */}
+      <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+            <Target className="w-4 h-4 text-amber-400" /> Shot Location Heatmap
+          </h4>
+          <span className="text-xs text-slate-400">
+            <strong className="text-blue-400">{stats.shotLocations.filter((s) => s.team === 'left').length}</strong> left /{' '}
+            <strong className="text-red-400">{stats.shotLocations.filter((s) => s.team === 'right').length}</strong> right shots
+          </span>
+        </div>
+
+        <div className="h-56 w-full">
+          {stats.shotLocations.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  domain={[-1.1, 1.1]}
+                  stroke="#64748b"
+                  tick={{ fontSize: 10 }}
+                  label={{ value: 'Pitch X', position: 'insideBottom', offset: -10, fontSize: 10, fill: '#94a3b8' }}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  domain={[-0.5, 0.5]}
+                  stroke="#64748b"
+                  tick={{ fontSize: 10 }}
+                  label={{ value: 'Pitch Y', angle: -90, position: 'insideLeft', offset: 10, fontSize: 10, fill: '#94a3b8' }}
+                />
+                <Tooltip
+                  formatter={(value: any, name: any, props: any) => {
+                    const payload = props.payload;
+                    if (!payload) return [value, name];
+                    return [`x: ${payload.x.toFixed(2)}, y: ${payload.y.toFixed(2)}`, payload.isGoal ? 'Goal' : 'Shot'];
+                  }}
+                  contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }}
+                  cursor={{ strokeDasharray: '3 3' }}
+                />
+                <Scatter
+                  name="Left Shots"
+                  data={stats.shotLocations.filter((s) => s.team === 'left')}
+                  fill="#3b82f6"
+                  shape={(props: any) => {
+                    const { cx, cy, payload } = props;
+                    if (cx == null || cy == null || !payload) {
+                      return <circle cx={0} cy={0} r={0} />;
+                    }
+                    return (
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={payload.isGoal ? 7 : 5}
+                        fill={payload.isGoal ? '#facc15' : '#3b82f6'}
+                        fillOpacity={0.85}
+                        stroke={payload.isGoal ? '#f59e0b' : '#60a5fa'}
+                        strokeWidth={1.5}
+                      />
+                    );
+                  }}
+                />
+                <Scatter
+                  name="Right Shots"
+                  data={stats.shotLocations.filter((s) => s.team === 'right')}
+                  fill="#ef4444"
+                  shape={(props: any) => {
+                    const { cx, cy, payload } = props;
+                    if (cx == null || cy == null || !payload) {
+                      return <circle cx={0} cy={0} r={0} />;
+                    }
+                    return (
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={payload.isGoal ? 7 : 5}
+                        fill={payload.isGoal ? '#facc15' : '#ef4444'}
+                        fillOpacity={0.85}
+                        stroke={payload.isGoal ? '#f59e0b' : '#f87171'}
+                        strokeWidth={1.5}
+                      />
+                    );
+                  }}
+                />
+              </ScatterChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-xs text-slate-500">
+              No shots recorded yet. Play a match to plot shot locations.
+            </div>
+          )}
+        </div>
+       </div>
+     </div>
   );
 };
