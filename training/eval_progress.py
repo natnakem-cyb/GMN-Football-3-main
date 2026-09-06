@@ -28,6 +28,7 @@ ENV_HASH_FILES = [
     os.path.join("src", "engine", "Physics.ts"),
     os.path.join("src", "engine", "ObservationEncoder.ts"),
     os.path.join("src", "scenarios", "ScenarioRegistry.ts"),
+    os.path.join("src", "agents", "RuleBasedAgent.ts"),
 ]
 
 CSV_FIELDNAMES = [
