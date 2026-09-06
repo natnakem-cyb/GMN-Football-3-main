@@ -114,6 +114,7 @@ export class GameEngine {
     return {
       position: { x: 0, y: 0, z: 0 },
       velocity: { x: 0, y: 0, z: 0 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       ownerId: null,
       lastOwnerId: null,
@@ -541,7 +542,8 @@ export class GameEngine {
       shotTakenByLeft,
       this.maxBallProgressX,
       this.ball.position,
-      this.ball.velocity
+      this.ball.velocity,
+      this.ball.angularVelocity
     );
     this.maxBallProgressX = newMaxBallProgressX;
 
@@ -701,7 +703,9 @@ export class GameEngine {
             const crossing = PhysicsEngine.projectShotAtGoalLine(
               { ...player.position, z: this.ball.position.z },
               shotVelocity,
-              opponentGoalX
+              opponentGoalX,
+              600,
+              this.ball.angularVelocity
             );
             if (crossing && isGoalMouthPoint(crossing.y, crossing.z)) {
               isOnTarget = true;

@@ -196,7 +196,8 @@ export class ObservationEncoder {
     shotTakenByTargetTeam = false,
     maxBallProgressX?: number,
     ballPosition?: { x: number; y: number; z: number },
-    ballVelocity?: { x: number; y: number; z: number }
+    ballVelocity?: { x: number; y: number; z: number },
+    ballAngularVelocity?: { x: number; y: number; z: number }
   ): { reward: number; checkpoint: number; newMaxBallProgressX: number } {
     // Controlled-team invariant (stabilization release #7): the reward shaping,
     // shot-quality bonus and bridge metrics assume the controlled team is LEFT
@@ -261,7 +262,9 @@ export class ObservationEncoder {
         const crossing = PhysicsEngine.projectShotAtGoalLine(
           ballPosition,
           ballVelocity,
-          opponentGoalX
+          opponentGoalX,
+          600,
+          ballAngularVelocity
         );
         if (crossing && isGoalMouthPoint(crossing.y, crossing.z)) {
           shotQualityBonus = ON_TARGET_BONUS;

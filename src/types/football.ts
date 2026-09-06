@@ -60,6 +60,10 @@ export interface Player {
 export interface Ball {
   position: Vector3D;
   velocity: Vector3D;
+  // Spin / angular velocity (rad/s, axis by right-hand rule), used by the
+  // Magnus effect. Absent/undefined = no spin (straight, no curve). This is a
+  // deterministic function of the kick (backspin from loft), never RNG-based.
+  angularVelocity?: Vector3D;
   rotation: Vector3D;
   ownerId: string | null;
   lastOwnerId: string | null;
