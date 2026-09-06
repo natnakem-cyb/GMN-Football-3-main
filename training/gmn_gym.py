@@ -52,7 +52,7 @@ class GMNFootballEnv(gym.Env):
     Communicates with the headless TypeScript GameEngine via binary WebSocket or HTTP Bridge.
 
     Authoritative Contract:
-    - Observation Space: Box(-5.0, 5.0, shape=(115,), dtype=np.float32)
+    - Observation Space: Box(-100.0, 100.0, shape=(127,), dtype=np.float32)
     - Action Space: Discrete(19)
     """
 
@@ -82,11 +82,10 @@ class GMNFootballEnv(gym.Env):
         adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=3)
         self.session.mount("http://", adapter)
         self.ws_client = None
-
-        # 1. Observation Space: Exactly 115-float SMM Vector
+        # 1. Observation Space: Exactly 127-float SMM Vector
         self.observation_space = spaces.Box(
-            low=-5.0,
-            high=5.0,
+            low=-100.0,
+            high=100.0,
             shape=(OBSERVATION_DIM,),
             dtype=np.float32,
         )

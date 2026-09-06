@@ -96,8 +96,8 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         # Observation and action spaces (identical across all agents)
         self._obs_space = spaces.Box(
-            low=-5.0,
-            high=5.0,
+            low=-100.0,
+            high=100.0,
             shape=(OBSERVATION_DIM,),
             dtype=np.float32,
         )
