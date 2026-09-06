@@ -2,10 +2,10 @@
   "scenario": "academy_3_vs_1_with_keeper",
   "algorithm": "MAPPO",
   "timesteps": 4864,
-  "createdAt": "2026-09-05T10:29:21.601963+00:00",
+  "createdAt": "2026-09-05T10:41:52.929668+00:00",
   "sourceCheckpoint": "mappo_academy_3_vs_1_with_keeper_5000.pt",
-  "checkpointSha256": "60784851770c8e31c929403aa19ef193613909e3d31146ffeb5f02363ce0e6be",
-  "weightsSha256": "1caa128480587c8664a4358dddc641df576bd2b4a4dd8d289570b0baa5b55c5f",
+  "checkpointSha256": "5269cdefdbd6e518ffd1903a70ed7508ba3f2681f2cf8c82a039b5068ab28e44",
+  "weightsSha256": "d337a7b509f8aba4f3635b0ebc025586b38e3e3d92cf70a40c5b04b962a38912",
   "obsDim": 127,
   "actionDim": 19,
   "hidden": 64
