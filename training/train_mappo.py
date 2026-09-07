@@ -125,6 +125,8 @@ def run_mappo_training(
     trend_snapshots: List[Tuple[int, int, float, float]] = []  # (step, num_eps, mean_rew, goal_rate)
     loss_history: List[Dict[str, Any]] = []
 
+    is_rondo_scenario = scenario == "academy_rondo_4v1"
+
     # Best-checkpoint selection: track rolling (stochastic) and deterministic eval goal rates separately.
     # Rolling stats are cheap/frequent but noisy; deterministic evals match deployed browser behavior.
     best_rolling_goal_rate: float = -1.0
@@ -204,6 +206,16 @@ def run_mappo_training(
             recent_goals = episode_goals[-50:] if episode_goals else [0]
             mean_rew = float(np.mean(recent_ep))
             goal_pct = float(np.mean(recent_goals)) * 100.0
+
+            # For rondo, report possession retention rate instead of goal rate.
+            # We approximate retention by episodes whose reward exceeds a
+            # "minimum viable possession" threshold derived from the dense reward
+            # structure (~0.01/tick for full 20s = ~12.0 baseline).
+            if is_rondo_scenario:
+                retention_threshold = 10.0
+                recent_retention = [1 if r > retention_threshold else 0 for r in recent_ep]
+                goal_pct = float(np.mean(recent_retention)) * 100.0
+
             trend_snapshots.append((total_steps_elapsed, len(episode_rewards), mean_rew, goal_pct))
 
             # Update best rolling checkpoint based on stochastic rollout goal rate (same metric as the console log).
@@ -231,15 +243,16 @@ def run_mappo_training(
                 best_rolling_checkpoint_path = best_rolling_ckpt_name
                 print(
                     f"   [OK] New best rolling checkpoint saved: {best_rolling_ckpt_name} "
-                    f"(rolling goal rate: {best_rolling_goal_rate:.1f}% at step {best_rolling_checkpoint_step})",
+                    f"(rolling {'possession retention' if is_rondo_scenario else 'goal rate'}: {best_rolling_goal_rate:.1f}% at step {best_rolling_checkpoint_step})",
                     flush=True,
                 )
 
+            metric_label = "Possession Retention" if is_rondo_scenario else "Goal Rate"
             print(
                 f"   [Step {total_steps_elapsed:7d} / {timesteps}] Update {update_idx:4d}/{n_updates} | "
                 f"Completed Episodes: {len(episode_rewards):4d} | "
                 f"Rolling Reward (last 50): {mean_rew:+.4f} | "
-                f"Goal Rate: {goal_pct:5.1f}% | "
+                f"{metric_label}: {goal_pct:5.1f}% | "
                 f"Val Loss: {metrics['value_loss']:.5f} | "
                 f"Entropy: {metrics['entropy']:.4f} | "
                 f"EntropyCoef: {entropy_coef:.5f} | LR: {float(actor_opt.param_groups[0]['lr']):.6f}",
@@ -400,21 +413,29 @@ def run_mappo_training(
     # 5. Print Training Reward & Performance Trend Summary
     print("\n5. Training Reward & Performance Trend Summary:", flush=True)
     if trend_snapshots:
-        print(f"   {'Timestep':>9} | {'Episodes':>8} | {'Rolling Reward':>15} | {'Rolling Goal Rate':>18}", flush=True)
-        print(f"   {'-'*9}-+-{'-'*8}-+-{'-'*15}-+-{'-'*18}", flush=True)
+        metric_label = "Rolling Possession Retention" if is_rondo_scenario else "Rolling Goal Rate"
+        print(f"   {'Timestep':>9} | {'Episodes':>8} | {'Rolling Reward':>15} | {metric_label:>25}", flush=True)
+        print(f"   {'-'*9}-+-{'-'*8}-+-{'-'*15}-+-{'-'*25}", flush=True)
         for step, num_eps, rew, goal_rt in trend_snapshots:
-            print(f"   {step:9d} | {num_eps:8d} | {rew:+15.4f} | {goal_rt:17.1f}%", flush=True)
+            print(f"   {step:9d} | {num_eps:8d} | {rew:+15.4f} | {goal_rt:25.1f}%", flush=True)
     else:
         total_eps = len(episode_rewards)
         overall_rew = float(np.mean(episode_rewards)) if episode_rewards else 0.0
         overall_goals = float(np.mean(episode_goals)) * 100.0 if episode_goals else 0.0
         print(f"   Total Episodes Completed: {total_eps}", flush=True)
         print(f"   Overall Mean Reward: {overall_rew:+.4f}", flush=True)
-        print(f"   Overall Goal Rate: {overall_goals:.1f}%", flush=True)
+        if is_rondo_scenario:
+            retention_threshold = 10.0
+            recent_retention = [1 if r > retention_threshold else 0 for r in episode_rewards[-50:]]
+            retention_pct = float(np.mean(recent_retention)) * 100.0 if recent_retention else 0.0
+            print(f"   Possession Retention Rate (last 50): {retention_pct:.1f}%", flush=True)
+        else:
+            print(f"   Overall Goal Rate: {overall_goals:.1f}%", flush=True)
 
+    best_metric_label = "possession retention" if is_rondo_scenario else "goal rate"
     print(
-        f"\n   Best rolling goal rate: {best_rolling_goal_rate:.1f}% at step {best_rolling_checkpoint_step} "
-        f"| Best deterministic goal rate: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step} (exported)",
+        f"\n   Best rolling {best_metric_label}: {best_rolling_goal_rate:.1f}% at step {best_rolling_checkpoint_step} "
+        f"| Best deterministic {best_metric_label}: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step} (exported)",
         flush=True,
     )
 

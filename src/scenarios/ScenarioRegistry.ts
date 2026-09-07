@@ -310,9 +310,45 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
       { id: 'score_goal', text: 'Score past defender and goalkeeper under random jitter', isCompleted: false, isFailed: false },
     ],
     terminateOnOpponentPossession: true,
-    rewards: {
+      rewards: {
       scoring: 1.0,
       completion: 500,
+    },
+  },
+  {
+    id: 'academy_rondo_4v1',
+    stage: 3,
+    name: 'Academy: Rondo 4v1 (Keep-Ball Drill)',
+    codeName: 'academy_rondo_4v1',
+    description: 'Maintain possession under pressure in a 4v1 keep-ball drill. Focus on quick passing, movement, and defensive anticipation. No goal — pure possession play.',
+    instructions: 'Keep the ball moving between your 4 players. Avoid the lone defender. Pass [J] and move to create space. Do not shoot.',
+    difficulty: 'Intermediate',
+    teamLeftPlayers: 4,
+    teamRightPlayers: 1,
+    hasGoalkeeperLeft: false,
+    hasGoalkeeperRight: false,
+    timeLimitSeconds: 20,
+    setup: {
+      ball: { x: 0.25, y: 0, z: 0 },
+      leftPlayers: [
+        { role: 'CM', pos: { x: 0.25, y: 0 }, isControlled: true },
+        { role: 'CM', pos: { x: -0.25, y: 0 } },
+        { role: 'LW', pos: { x: 0, y: 0.25 } },
+        { role: 'RW', pos: { x: 0, y: -0.25 } },
+      ],
+      rightPlayers: [
+        { role: 'CB', pos: { x: 0, y: 0 } },
+      ],
+      positionJitter: 0.02,
+    },
+    objectives: [
+      { id: 'retain_possession', text: 'Retain possession for the full 20 seconds', isCompleted: false, isFailed: false },
+      { id: 'complete_passes', text: 'Complete 10+ passes', isCompleted: false, isFailed: false },
+    ],
+    terminateOnOpponentPossession: false,
+    rewards: {
+      scoring: 0,
+      completion: 0,
     },
   },
   {

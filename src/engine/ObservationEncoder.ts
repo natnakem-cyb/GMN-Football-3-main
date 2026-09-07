@@ -275,4 +275,72 @@ export class ObservationEncoder {
 
     return { reward, checkpoint, newMaxBallProgressX };
   }
+
+  /**
+   * Isolated dense reward for the Rondo 4v1 keep-ball drill.
+   * No goal-scoring logic, no terminal bonus — fully dense.
+   *
+   * Shared across all agents (4 attackers + 1 defender) so a single
+   * MAPPO policy learns behaviors useful for both sides.
+   *
+   * Reward components:
+   * - Attacker possession in drill area: +0.01 per tick
+   * - Completed attacker-to-attacker pass: +0.1
+   * - Defender interception/tackle: +0.2
+   *
+   * @param prevBallX previous ball x position (unused but kept for signature stability)
+   * @param currBallX current ball x position
+   * @param ballOwnerTeam team that currently possesses the ball, or null
+   * @param lastPassTeam team that completed the most recent pass
+   * @param lastPassCompleted whether a pass was completed this tick
+   * @param defenderDistToBall current defender-to-ball distance
+   * @param prevDefenderDistToBall previous defender-to-ball distance
+   * @param drillRadius radius of the drill area around center pitch
+   */
+  static computeRondoReward({
+    prevBallX,
+    currBallX,
+    ballOwnerTeam,
+    lastPassTeam,
+    lastPassCompleted,
+    defenderDistToBall,
+    prevDefenderDistToBall,
+    drillRadius = 0.35,
+  }: {
+    prevBallX: number;
+    currBallX: number;
+    ballOwnerTeam: TeamSide | null;
+    lastPassTeam: TeamSide | null;
+    lastPassCompleted: boolean;
+    defenderDistToBall: number;
+    prevDefenderDistToBall: number;
+    drillRadius?: number;
+  }): number {
+    let reward = 0;
+
+    // Attackers: small per-tick reward for possession inside the drill area
+    if (ballOwnerTeam === 'left') {
+      if (Math.abs(currBallX) <= drillRadius && Math.abs(currBallX) <= drillRadius) {
+        reward += 0.01;
+      }
+    }
+
+    // Completed attacker pass bonus
+    if (lastPassCompleted && lastPassTeam === 'left') {
+      reward += 0.1;
+    }
+
+    // Defender: reward for winning possession via interception/tackle
+    if (ballOwnerTeam === 'right') {
+      reward += 0.2;
+
+      // Shaping: reward defender for closing distance to ball
+      const distDelta = prevDefenderDistToBall - defenderDistToBall;
+      if (distDelta > 0) {
+        reward += Math.min(0.05, distDelta * 0.5);
+      }
+    }
+
+    return reward;
+  }
 }

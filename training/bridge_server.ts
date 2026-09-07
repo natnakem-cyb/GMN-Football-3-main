@@ -80,9 +80,12 @@ export class GMNBridgeService {
     // Pure initial observation without stepping physics
     const initialObs = this.engine.getObservation();
 
-    const controllableAgentIds = this.engine.players
-      .filter((p) => p.team === 'left')
-      .map((p) => p.id);
+    const isRondoScenario = this.engine.activeScenario?.id === 'academy_rondo_4v1';
+    const controllableAgentIds = isRondoScenario
+      ? this.engine.players.map((p) => p.id)
+      : this.engine.players
+          .filter((p) => p.team === 'left')
+          .map((p) => p.id);
 
     const perAgentObservations = controllableAgentIds.map((id) =>
       ObservationEncoder.encode(
@@ -168,9 +171,12 @@ export class GMNBridgeService {
   }
 
   public stepMulti(actionIndices: number[]) {
-    const controllableIds = this.engine.players
-      .filter((p) => p.team === 'left')
-      .map((p) => p.id);
+    const isRondoScenario = this.engine.activeScenario?.id === 'academy_rondo_4v1';
+    const controllableIds = isRondoScenario
+      ? this.engine.players.map((p) => p.id)
+      : this.engine.players
+          .filter((p) => p.team === 'left')
+          .map((p) => p.id);
 
     if (actionIndices.length !== controllableIds.length) {
       throw new Error(
@@ -180,36 +186,38 @@ export class GMNBridgeService {
 
     const actionMap = new Map<string, AgentAction>();
 
-    // 1. Controlled agents (left team), in fixed order
+    // 1. Controlled agents (all players for rondo, left team otherwise), in fixed order
     controllableIds.forEach((id, i) => {
       actionMap.set(id, mapDiscreteAction(actionIndices[i]));
     });
 
-    // 2. Automated bots for other players (if any)
-    this.engine.players.forEach((player) => {
-      if (controllableIds.includes(player.id)) return;
-      if (!this.botAgents.has(player.id)) {
-        this.botAgents.set(
+    // 2. Automated bots for other players (if any) — skipped for rondo
+    if (!isRondoScenario) {
+      this.engine.players.forEach((player) => {
+        if (controllableIds.includes(player.id)) return;
+        if (!this.botAgents.has(player.id)) {
+          this.botAgents.set(
+            player.id,
+            new RuleBasedAgent(`bot_${player.id}`, player.name, 'medium')
+          );
+        }
+        const bot = this.botAgents.get(player.id)!;
+        actionMap.set(
           player.id,
-          new RuleBasedAgent(`bot_${player.id}`, player.name, 'medium')
+          bot.decide({
+            player,
+            teammates: this.engine.players.filter((p) => p.team === player.team),
+            opponents: this.engine.players.filter((p) => p.team !== player.team),
+            ball: this.engine.ball,
+            allPlayers: this.engine.players,
+            teamSide: player.team,
+            controlledPlayerId: this.engine.controlledPlayerId,
+            matchTime: this.engine.matchTimeSeconds,
+            rng: this.engine.rng,
+          })
         );
-      }
-      const bot = this.botAgents.get(player.id)!;
-      actionMap.set(
-        player.id,
-        bot.decide({
-          player,
-          teammates: this.engine.players.filter((p) => p.team === player.team),
-          opponents: this.engine.players.filter((p) => p.team !== player.team),
-          ball: this.engine.ball,
-          allPlayers: this.engine.players,
-          teamSide: player.team,
-          controlledPlayerId: this.engine.controlledPlayerId,
-          matchTime: this.engine.matchTimeSeconds,
-          rng: this.engine.rng,
-        })
-      );
-    });
+      });
+    }
 
     // 3. Execute deterministic physics tick (1/60s)
     const result = this.engine.step(actionMap, 1 / 60);
