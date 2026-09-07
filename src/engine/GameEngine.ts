@@ -110,6 +110,9 @@ export class GameEngine {
   private rondoLastPassCompleted = false;
   private rondoLastPassTeam: TeamSide | null = null;
   private rondoPrevDefenderDistToBall = 0;
+  private rondoConsecutivePossessionTime = 0;
+  private rondoLastPossessionTeam: TeamSide | null = null;
+  private rondoBallOutOfAreaTime = 0;
 
   constructor() {
     this.ball = this.createDefaultBall();
@@ -275,6 +278,9 @@ export class GameEngine {
     this.rondoLastPassCompleted = false;
     this.rondoLastPassTeam = null;
     this.rondoPrevDefenderDistToBall = 0;
+    this.rondoConsecutivePossessionTime = 0;
+    this.rondoLastPossessionTeam = null;
+    this.rondoBallOutOfAreaTime = 0;
     this.gameMode = scenario.id.startsWith('academy') ? GameMode.Normal : GameMode.KickOff;
 
     const jitter = scenario.setup.positionJitter ?? 0;
@@ -544,6 +550,36 @@ export class GameEngine {
           } else {
             this.rondoDefenderPossessionTime = 0;
           }
+
+          // Consecutive possession timer for retention bonus
+          const currentPossessionTeam = this.ball.ownerId
+            ? this.players.find((p) => p.id === this.ball.ownerId)?.team ?? null
+            : null;
+          if (currentPossessionTeam === 'left') {
+            if (this.rondoLastPossessionTeam === 'left') {
+              this.rondoConsecutivePossessionTime += dt;
+            } else {
+              this.rondoConsecutivePossessionTime = 0;
+            }
+            this.rondoLastPossessionTeam = 'left';
+            this.rondoBallOutOfAreaTime = 0;
+          } else {
+            this.rondoConsecutivePossessionTime = 0;
+            this.rondoLastPossessionTeam = currentPossessionTeam;
+            if (currentPossessionTeam === 'right') {
+              this.rondoBallOutOfAreaTime = 0;
+            }
+          }
+
+          // Ball-out-of-drill-area timer for early termination
+          const ballX = this.ball.position.x;
+          const ballY = this.ball.position.y;
+          const inDrillArea = Math.abs(ballX) <= 0.35 && Math.abs(ballY) <= 0.35;
+          if (!inDrillArea) {
+            this.rondoBallOutOfAreaTime += dt;
+          } else {
+            this.rondoBallOutOfAreaTime = 0;
+          }
         }
 
         // 5. Goal & boundary checks (skipped for rondo — no goal objective)
@@ -610,6 +646,7 @@ export class GameEngine {
         defenderDistToBall: this.rondoPrevDefenderDistToBall,
         prevDefenderDistToBall: this.rondoPrevDefenderDistToBall,
         drillRadius: 0.35,
+        consecutivePossessionTime: this.rondoConsecutivePossessionTime,
       });
       reward += rondoReward;
     }
@@ -627,7 +664,10 @@ export class GameEngine {
     const isRondoDefenderPossession = Boolean(
       isRondoScenario && this.rondoDefenderPossessionTime >= 2.0
     );
-    const isTerminated = this.status === 'fulltime' || isAcademyGoal || isOpponentPossession || isRondoDefenderPossession;
+    const isRondoBallOutOfArea = Boolean(
+      isRondoScenario && this.rondoBallOutOfAreaTime >= 1.5
+    );
+    const isTerminated = this.status === 'fulltime' || isAcademyGoal || isOpponentPossession || isRondoDefenderPossession || isRondoBallOutOfArea;
     const isTruncated = this.activeScenario ? this.matchTimeSeconds >= this.activeScenario.timeLimitSeconds : false;
 
     return {

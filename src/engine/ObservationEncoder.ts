@@ -287,6 +287,7 @@ export class ObservationEncoder {
    * - Attacker possession in drill area: +0.01 per tick
    * - Completed attacker-to-attacker pass: +0.1
    * - Defender interception/tackle: +0.2
+   * - Consecutive possession retention bonuses at 5s/10s/15s/20s
    *
    * @param prevBallX previous ball x position (unused but kept for signature stability)
    * @param currBallX current ball x position
@@ -296,6 +297,7 @@ export class ObservationEncoder {
    * @param defenderDistToBall current defender-to-ball distance
    * @param prevDefenderDistToBall previous defender-to-ball distance
    * @param drillRadius radius of the drill area around center pitch
+   * @param consecutivePossessionTime seconds of continuous left-team possession
    */
   static computeRondoReward({
     prevBallX,
@@ -306,6 +308,7 @@ export class ObservationEncoder {
     defenderDistToBall,
     prevDefenderDistToBall,
     drillRadius = 0.35,
+    consecutivePossessionTime = 0,
   }: {
     prevBallX: number;
     currBallX: number;
@@ -315,6 +318,7 @@ export class ObservationEncoder {
     defenderDistToBall: number;
     prevDefenderDistToBall: number;
     drillRadius?: number;
+    consecutivePossessionTime?: number;
   }): number {
     let reward = 0;
 
@@ -338,6 +342,19 @@ export class ObservationEncoder {
       const distDelta = prevDefenderDistToBall - defenderDistToBall;
       if (distDelta > 0) {
         reward += Math.min(0.05, distDelta * 0.5);
+      }
+    }
+
+    // Temporal possession-retention bonuses for the attacking side
+    if (ballOwnerTeam === 'left' && consecutivePossessionTime > 0) {
+      if (consecutivePossessionTime >= 20.0) {
+        reward += 1.0;
+      } else if (consecutivePossessionTime >= 15.0) {
+        reward += 0.8;
+      } else if (consecutivePossessionTime >= 10.0) {
+        reward += 0.5;
+      } else if (consecutivePossessionTime >= 5.0) {
+        reward += 0.3;
       }
     }
 
