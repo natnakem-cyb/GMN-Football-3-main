@@ -3,13 +3,15 @@ GMN-Football-3 -- Persistent Checkpoint Evaluation & Progress Logging
 Shared module to evaluate Single-Agent PPO, Multi-Agent IPPO, and Centralized-Critic MAPPO
 at milestone increments, appending deterministic evaluation metrics to win_rate_progress.csv.
 
-Schema Migration Guidance:
+Schema Migration Guidance (v3.2.0):
 - The legacy CSV column `turnover_rate` has been replaced by `non_scoring_episode_rate_pct`
   and `turnovers_conceded_per_ep`.
 - `non_scoring_episode_rate_pct` replaces the old misnamed turnover_rate (which was actually
   non_scoring_episodes / num_episodes).
-- `turnovers_conceded_per_ep` reports true football turnover metrics (possession loss events
-  per episode), distinct from goal outcomes.
+- `turnovers_conceded_per_ep` reports true football turnover metrics sourced from
+  FootballMetricsTracker possession-change events (left -> right transitions only).
+- `schema_version` is now recorded per evaluation row. Legacy CSV files are preserved
+  untouched; new evaluations write with the V2 header.
 - When applying this fix across historical logs, rename the old column header to
   `non_scoring_episode_rate_pct` to prevent telemetry distortion; do not convert old values
   as direct turnover metrics.
@@ -21,17 +23,40 @@ import os
 import sys
 import csv
 import datetime
+import math
 import getpass
 import platform
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import numpy as np
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+try:
+    from training.football_metrics import FootballMetricsTracker
+except ImportError:  # pragma: no cover - defensive fallback
+    class FootballMetricsTracker:  # type: ignore
+        def __init__(self) -> None:
+            self.turnovers_conceded = 0
+            self.possession_changes = 0
+            self.current_ticks = 0
+
+        def start_episode(self, *args, **kwargs):
+            self.turnovers_conceded = 0
+            self.possession_changes = 0
+            self.current_ticks = 0
+
+        def record_tick(self, *args, **kwargs):
+            self.current_ticks += 1
+
+        def end_episode(self, *args, **kwargs):
+            return None
+
 DEFAULT_CSV_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "results", "win_rate_progress.csv")
 )
+
+SCHEMA_VERSION = "3.2.0"
 
 # Files whose contents meaningfully affect environment dynamics.
 # If any of these change, cached evaluations must be considered stale.
@@ -44,6 +69,7 @@ ENV_HASH_FILES = [
 ]
 
 CSV_FIELDNAMES = [
+    "schema_version",
     "evaluation_id",
     "checkpoint_sha256",
     "scenario",
@@ -65,6 +91,53 @@ CSV_FIELDNAMES = [
     "provenance",
     "env_hash",
 ]
+
+
+def _extract_owner_team(obs: Optional[np.ndarray]) -> Optional[str]:
+    """Decode ball ownership from the observation vector's one-hot slot."""
+    if obs is None or len(obs) < 97:
+        return None
+    ball_owned = obs[94:97]
+    if ball_owned[0] > 0.5:
+        return None
+    if ball_owned[1] > 0.5:
+        return "left"
+    if ball_owned[2] > 0.5:
+        return "right"
+    return None
+
+
+def _extract_ball_pos(obs: Optional[np.ndarray]) -> Dict[str, float]:
+    """Extract ball position from the observation vector."""
+    if obs is None or len(obs) < 91:
+        return {"x": 0.0, "y": 0.0, "z": 0.0}
+    return {"x": float(obs[88]), "y": float(obs[89]), "z": float(obs[90])}
+
+
+def _left_action_indices_single(act_val: int) -> List[int]:
+    return [int(act_val)]
+
+
+def _left_action_indices_multi(action_dict: Dict[str, int]) -> List[int]:
+    return [int(v) for k, v in action_dict.items() if k.startswith("left_")]
+
+
+def _resolve_versioned_csv_path(csv_path: str) -> str:
+    """Return a writable CSV path, versioning away from legacy headers if needed."""
+    if not os.path.exists(csv_path):
+        return csv_path
+    try:
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader, [])
+        if "schema_version" in header:
+            return csv_path
+    except Exception:
+        pass
+    base, ext = os.path.splitext(csv_path)
+    return f"{base}_v2{ext}"
+
+
 
 
 def sha256_file(path: str, chunk_size: int = 1024 * 1024) -> str:
@@ -206,12 +279,15 @@ def check_existing_evaluation(
 
 def append_progress_row(csv_path: str, row_dict: Dict[str, Any]) -> None:
     """
-    Appends a formatted evaluation record to the target CSV file, creating directories and header as needed.
+    Appends a formatted evaluation record to the target CSV file, creating directories
+    and header as needed. Preserves legacy CSV files by versioning new writes when the
+    existing file does not contain the current schema_version column.
     """
-    os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
-    file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
+    target_path = _resolve_versioned_csv_path(csv_path)
+    os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+    file_exists = os.path.exists(target_path) and os.path.getsize(target_path) > 0
 
-    with open(csv_path, mode="a", newline="", encoding="utf-8") as f:
+    with open(target_path, mode="a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
         if not file_exists:
             writer.writeheader()
@@ -246,12 +322,15 @@ def evaluate_single_agent_ppo(
     rewards = []
     goals = 0
     shots = 0
-    turnovers = 0
+    turnovers_conceded_total = 0.0
+    is_rondo = scenario == "academy_rondo_4v1"
 
     try:
         for ep in range(num_episodes):
             seed = base_seed + ep * 1009
             obs = vec_env.reset()
+            tracker = FootballMetricsTracker()
+            tracker.start_episode(scenario, seed, _extract_ball_pos(obs))
             ep_rew = 0.0
             steps = 0
             done = False
@@ -261,7 +340,7 @@ def evaluate_single_agent_ppo(
             while not done and steps < 600:
                 action, _ = model.predict(obs, deterministic=deterministic)
                 act_val = int(action[0]) if isinstance(action, (list, np.ndarray)) else int(action)
-                if act_val == 12:  # Shot action
+                if not is_rondo and act_val == 12:  # Shot action
                     shots += 1
                     ep_shot = True
 
@@ -272,6 +351,23 @@ def evaluate_single_agent_ppo(
                 ep_rew += reward
                 steps += 1
 
+                owner_team = _extract_owner_team(obs)
+                ball_pos = _extract_ball_pos(obs)
+                tracker.record_tick(
+                    _left_action_indices_single(act_val),
+                    reward,
+                    ball_pos,
+                    owner_team,
+                )
+
+            tracker.end_episode(
+                last_info.get("score", {"left": 0, "right": 0}),
+                {},
+                _extract_ball_pos(obs),
+            )
+            ep_metrics = tracker.episodes[-1] if tracker.episodes else None
+            turnovers_conceded_total += ep_metrics.turnovers_conceded if ep_metrics else 0.0
+
             rewards.append(ep_rew)
             score_left = last_info.get("score", {}).get("left", 0)
             event = last_info.get("event", {})
@@ -279,8 +375,6 @@ def evaluate_single_agent_ppo(
 
             if is_goal:
                 goals += 1
-            else:
-                turnovers += 1
     finally:
         vec_env.close()
 
@@ -289,7 +383,14 @@ def evaluate_single_agent_ppo(
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
-    turnovers_conceded_per_ep = (turnovers / max(1, num_episodes))
+    turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
+
+    if is_rondo:
+        possession_retention_time = float("nan")
+        completed_pass_chains = float("nan")
+    else:
+        possession_retention_time = float("nan")
+        completed_pass_chains = float("nan")
 
     return {
         "goal_rate_pct": goal_rate_pct,
@@ -298,6 +399,8 @@ def evaluate_single_agent_ppo(
         "shots_per_ep": shots_per_ep,
         "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
+        "possession_retention_time": possession_retention_time,
+        "completed_pass_chains": completed_pass_chains,
     }
 
 
@@ -317,13 +420,16 @@ def evaluate_multi_agent_ippo(
     rewards = []
     goals = 0
     shots = 0
-    turnovers = 0
+    turnovers_conceded_total = 0.0
     is_rondo = scenario == "academy_rondo_4v1"
 
     try:
         for ep in range(num_episodes):
             seed = base_seed + ep * 1009
             obs_dict, _ = env.reset(seed=seed)
+            tracker = FootballMetricsTracker()
+            sample_obs = next(iter(obs_dict.values())) if obs_dict else None
+            tracker.start_episode(scenario, seed, _extract_ball_pos(sample_obs))
             ep_rew = 0.0
             steps = 0
             done = False
@@ -354,6 +460,24 @@ def evaluate_multi_agent_ippo(
                         last_info = inf
                         break
 
+                sample_obs = next(iter(obs_dict.values())) if obs_dict else None
+                owner_team = _extract_owner_team(sample_obs)
+                ball_pos = _extract_ball_pos(sample_obs)
+                tracker.record_tick(
+                    _left_action_indices_multi(actions),
+                    float(rews.get(env.possible_agents[0], 0.0)) if env.possible_agents else 0.0,
+                    ball_pos,
+                    owner_team,
+                )
+
+            tracker.end_episode(
+                last_info.get("score", {"left": 0, "right": 0}),
+                {},
+                _extract_ball_pos(sample_obs),
+            )
+            ep_metrics = tracker.episodes[-1] if tracker.episodes else None
+            turnovers_conceded_total += ep_metrics.turnovers_conceded if ep_metrics else 0.0
+
             rewards.append(ep_rew)
             if not is_rondo:
                 score_left = last_info.get("score", {}).get("left", 0)
@@ -362,26 +486,22 @@ def evaluate_multi_agent_ippo(
 
                 if is_goal:
                     goals += 1
-                else:
-                    turnovers += 1
     finally:
         env.close()
 
     mean_rew = float(np.mean(rewards)) if rewards else 0.0
     std_rew = float(np.std(rewards)) if rewards else 0.0
+    goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
+    shots_per_ep = shots / max(1, num_episodes)
+    non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
+    turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
     if is_rondo:
-        retention_threshold = 10.0
-        retained = sum(1 for r in rewards if r > retention_threshold)
-        goal_rate_pct = (retained / max(1, num_episodes)) * 100.0
-        shots_per_ep = 0.0
-        non_scoring_episode_rate_pct = 0.0
-        turnovers_conceded_per_ep = 0.0
+        possession_retention_time = float("nan")
+        completed_pass_chains = float("nan")
     else:
-        goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
-        shots_per_ep = shots / max(1, num_episodes)
-        non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
-        turnovers_conceded_per_ep = (turnovers / max(1, num_episodes))
+        possession_retention_time = float("nan")
+        completed_pass_chains = float("nan")
 
     return {
         "goal_rate_pct": goal_rate_pct,
@@ -390,6 +510,8 @@ def evaluate_multi_agent_ippo(
         "shots_per_ep": shots_per_ep,
         "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
+        "possession_retention_time": possession_retention_time,
+        "completed_pass_chains": completed_pass_chains,
     }
 
 
@@ -418,13 +540,16 @@ def evaluate_multi_agent_mappo(
     rewards = []
     goals = 0
     shots = 0
-    turnovers = 0
+    turnovers_conceded_total = 0.0
     is_rondo = scenario == "academy_rondo_4v1"
 
     try:
         for ep in range(num_episodes):
             seed = base_seed + ep * 1009
             obs_dict, _ = env.reset(seed=seed)
+            tracker = FootballMetricsTracker()
+            sample_obs = next(iter(obs_dict.values())) if obs_dict else None
+            tracker.start_episode(scenario, seed, _extract_ball_pos(sample_obs))
             ep_rew = 0.0
             steps = 0
             done = False
@@ -463,6 +588,24 @@ def evaluate_multi_agent_mappo(
                         last_info = inf
                         break
 
+                sample_obs = next(iter(obs_dict.values())) if obs_dict else None
+                owner_team = _extract_owner_team(sample_obs)
+                ball_pos = _extract_ball_pos(sample_obs)
+                tracker.record_tick(
+                    _left_action_indices_multi(action_dict),
+                    shared_rew,
+                    ball_pos,
+                    owner_team,
+                )
+
+            tracker.end_episode(
+                last_info.get("score", {"left": 0, "right": 0}),
+                {},
+                _extract_ball_pos(sample_obs),
+            )
+            ep_metrics = tracker.episodes[-1] if tracker.episodes else None
+            turnovers_conceded_total += ep_metrics.turnovers_conceded if ep_metrics else 0.0
+
             rewards.append(ep_rew)
             if not is_rondo:
                 score_left = last_info.get("score", {}).get("left", 0)
@@ -471,28 +614,22 @@ def evaluate_multi_agent_mappo(
 
                 if is_goal:
                     goals += 1
-                else:
-                    turnovers += 1
     finally:
         env.close()
 
     mean_rew = float(np.mean(rewards)) if rewards else 0.0
     std_rew = float(np.std(rewards)) if rewards else 0.0
+    goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
+    shots_per_ep = shots / max(1, num_episodes)
+    non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
+    turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
     if is_rondo:
-        # Rondo has no goals or meaningful shots; report possession retention rate
-        # and pass/interception estimates derived from dense reward.
-        retention_threshold = 10.0  # ~0.01/tick * 1000 ticks minimum viable possession
-        retained = sum(1 for r in rewards if r > retention_threshold)
-        goal_rate_pct = (retained / max(1, num_episodes)) * 100.0
-        shots_per_ep = 0.0
-        non_scoring_episode_rate_pct = 0.0
-        turnovers_conceded_per_ep = 0.0
+        possession_retention_time = float("nan")
+        completed_pass_chains = float("nan")
     else:
-        goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
-        shots_per_ep = shots / max(1, num_episodes)
-        non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
-        turnovers_conceded_per_ep = (turnovers / max(1, num_episodes))
+        possession_retention_time = float("nan")
+        completed_pass_chains = float("nan")
 
     return {
         "goal_rate_pct": goal_rate_pct,
@@ -501,6 +638,8 @@ def evaluate_multi_agent_mappo(
         "shots_per_ep": shots_per_ep,
         "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
+        "possession_retention_time": possession_retention_time,
+        "completed_pass_chains": completed_pass_chains,
     }
 
 
@@ -591,6 +730,7 @@ def evaluate_checkpoint_progress(
     provenance_str = f"host={provenance_host}|user={provenance_user}|date={provenance_date}|cmd={provenance_cmd}"
 
     row = {
+        "schema_version": SCHEMA_VERSION,
         "evaluation_id": evaluation_id,
         "checkpoint_sha256": checkpoint_sha256,
         "scenario": scenario,
