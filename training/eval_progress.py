@@ -2,6 +2,17 @@
 GMN-Football-3 -- Persistent Checkpoint Evaluation & Progress Logging
 Shared module to evaluate Single-Agent PPO, Multi-Agent IPPO, and Centralized-Critic MAPPO
 at milestone increments, appending deterministic evaluation metrics to win_rate_progress.csv.
+
+Schema Migration Guidance:
+- The legacy CSV column `turnover_rate` has been replaced by `non_scoring_episode_rate_pct`
+  and `turnovers_conceded_per_ep`.
+- `non_scoring_episode_rate_pct` replaces the old misnamed turnover_rate (which was actually
+  non_scoring_episodes / num_episodes).
+- `turnovers_conceded_per_ep` reports true football turnover metrics (possession loss events
+  per episode), distinct from goal outcomes.
+- When applying this fix across historical logs, rename the old column header to
+  `non_scoring_episode_rate_pct` to prevent telemetry distortion; do not convert old values
+  as direct turnover metrics.
 """
 
 import hashlib
@@ -46,7 +57,8 @@ CSV_FIELDNAMES = [
     "mean_reward",
     "std_reward",
     "shots_per_ep",
-    "turnover_rate",
+    "non_scoring_episode_rate_pct",
+    "turnovers_conceded_per_ep",
     "episodes",
     "deterministic",
     "checkpoint_path",
@@ -276,14 +288,16 @@ def evaluate_single_agent_ppo(
     std_rew = float(np.std(rewards)) if rewards else 0.0
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
-    turnover_rate = (turnovers / max(1, num_episodes)) * 100.0
+    non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
+    turnovers_conceded_per_ep = (turnovers / max(1, num_episodes))
 
     return {
         "goal_rate_pct": goal_rate_pct,
         "mean_reward": mean_rew,
         "std_reward": std_rew,
         "shots_per_ep": shots_per_ep,
-        "turnover_rate": turnover_rate,
+        "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
+        "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
     }
 
 
@@ -361,18 +375,21 @@ def evaluate_multi_agent_ippo(
         retained = sum(1 for r in rewards if r > retention_threshold)
         goal_rate_pct = (retained / max(1, num_episodes)) * 100.0
         shots_per_ep = 0.0
-        turnover_rate = 0.0
+        non_scoring_episode_rate_pct = 0.0
+        turnovers_conceded_per_ep = 0.0
     else:
         goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
         shots_per_ep = shots / max(1, num_episodes)
-        turnover_rate = (turnovers / max(1, num_episodes)) * 100.0
+        non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
+        turnovers_conceded_per_ep = (turnovers / max(1, num_episodes))
 
     return {
         "goal_rate_pct": goal_rate_pct,
         "mean_reward": mean_rew,
         "std_reward": std_rew,
         "shots_per_ep": shots_per_ep,
-        "turnover_rate": turnover_rate,
+        "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
+        "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
     }
 
 
@@ -469,18 +486,21 @@ def evaluate_multi_agent_mappo(
         retained = sum(1 for r in rewards if r > retention_threshold)
         goal_rate_pct = (retained / max(1, num_episodes)) * 100.0
         shots_per_ep = 0.0
-        turnover_rate = 0.0
+        non_scoring_episode_rate_pct = 0.0
+        turnovers_conceded_per_ep = 0.0
     else:
         goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
         shots_per_ep = shots / max(1, num_episodes)
-        turnover_rate = (turnovers / max(1, num_episodes)) * 100.0
+        non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
+        turnovers_conceded_per_ep = (turnovers / max(1, num_episodes))
 
     return {
         "goal_rate_pct": goal_rate_pct,
         "mean_reward": mean_rew,
         "std_reward": std_rew,
         "shots_per_ep": shots_per_ep,
-        "turnover_rate": turnover_rate,
+        "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
+        "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
     }
 
 
@@ -584,7 +604,8 @@ def evaluate_checkpoint_progress(
         "mean_reward": f"{eval_metrics['mean_reward']:.4f}",
         "std_reward": f"{eval_metrics['std_reward']:.4f}",
         "shots_per_ep": f"{eval_metrics['shots_per_ep']:.2f}",
-        "turnover_rate": f"{eval_metrics['turnover_rate']:.2f}",
+        "non_scoring_episode_rate_pct": f"{eval_metrics['non_scoring_episode_rate_pct']:.2f}",
+        "turnovers_conceded_per_ep": f"{eval_metrics['turnovers_conceded_per_ep']:.2f}",
         "episodes": num_episodes,
         "deterministic": deterministic,
         "checkpoint_path": checkpoint_path,
@@ -596,6 +617,8 @@ def evaluate_checkpoint_progress(
     print(
         f"[eval_progress] [OK] Milestone logged -> Goal Rate: {eval_metrics['goal_rate_pct']:.1f}% | "
         f"Mean Reward: {eval_metrics['mean_reward']:+.4f} | Shots/Ep: {eval_metrics['shots_per_ep']:.2f} | "
+        f"Non-Scoring Episode Rate: {eval_metrics['non_scoring_episode_rate_pct']:.1f}% | "
+        f"Turnovers Conceded/Ep: {eval_metrics['turnovers_conceded_per_ep']:.2f} | "
         f"evaluation_id={evaluation_id} | checkpoint_sha256={checkpoint_sha256} | "
         f"CSV: {csv_path}\n"
     )
