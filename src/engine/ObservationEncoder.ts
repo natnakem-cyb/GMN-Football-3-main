@@ -302,6 +302,7 @@ export class ObservationEncoder {
   static computeRondoReward({
     prevBallX,
     currBallX,
+    currBallY,
     ballOwnerTeam,
     lastPassTeam,
     lastPassCompleted,
@@ -312,6 +313,7 @@ export class ObservationEncoder {
   }: {
     prevBallX: number;
     currBallX: number;
+    currBallY: number;
     ballOwnerTeam: TeamSide | null;
     lastPassTeam: TeamSide | null;
     lastPassCompleted: boolean;
@@ -324,7 +326,7 @@ export class ObservationEncoder {
 
     // Attackers: small per-tick reward for possession inside the drill area
     if (ballOwnerTeam === 'left') {
-      if (Math.abs(currBallX) <= drillRadius && Math.abs(currBallX) <= drillRadius) {
+      if (Math.abs(currBallX) <= drillRadius && Math.abs(currBallY) <= drillRadius) {
         reward += 0.01;
       }
     }

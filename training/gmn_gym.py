@@ -280,7 +280,7 @@ class GMNFootballEnv(gym.Env):
                 self._connect_ws()
 
             self.ws_client.send(int(action).to_bytes(1, "little"))
-            expected_frame_len =  17 + OBSERVATION_DIM *  4
+            expected_frame_len =  18 + OBSERVATION_DIM *  4
             data = None
             for _ in range(60):
                 frame = self._recv_frame("step")
@@ -292,8 +292,8 @@ class GMNFootballEnv(gym.Env):
                 raise RuntimeError(
                     f"[GMN-Gym WS Error] Expected {expected_frame_len} binary bytes, got only broadcast frames"
                 )
-            reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code = struct.unpack_from("<f??BBffB", data, 0)
-            raw_obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=17).copy()
+            reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, _ball_owner_agent_idx = struct.unpack_from("<f??BBffBB", data, 0)
+            raw_obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=18).copy()
 
             # Bridge error-frame sentinel (P0 #5): an invalid action receives a
             # deterministic error frame instead of silence — surface it loudly.

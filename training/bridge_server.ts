@@ -277,6 +277,7 @@ export class GMNBridgeService {
         },
       },
       observations, // array, same order as controllableIds
+      controllableIds,
     };
   }
 
@@ -492,10 +493,11 @@ const server = http.createServer((req, res) => {
 // Offset 8 (4B float32): checkpointReward
 // Offset 12 (4B float32): ballDistanceToGoal
 // Offset 16 (1B uint8): eventCode
-// Offset 17 (OBSERVATION_DIM * 4 B): OBSERVATION_DIM * float32 observation
-export function encodeStepBinary(stepResult: ReturnType<typeof bridge.step>): Buffer {
+// Offset 17 (1B uint8): ballOwnerAgentId (0 = controlled player owns ball, 255 = no controllable owner)
+// Offset 18 ((OBSERVATION_DIM * 4) B): OBSERVATION_DIM * float32 observation
+export function encodeStepBinary(stepResult: ReturnType<typeof bridge.step>, ballOwnerAgentIdx: number): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
-  const buf = Buffer.allocUnsafe(17 + obsBytes);
+  const buf = Buffer.allocUnsafe(18 + obsBytes);
   buf.writeFloatLE(stepResult.reward || 0.0, 0);
   buf.writeUInt8(stepResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(stepResult.truncated ? 1 : 0, 5);
@@ -508,28 +510,31 @@ export function encodeStepBinary(stepResult: ReturnType<typeof bridge.step>): Bu
   const eventCode = getEventCode(eventType);
   buf.writeUInt8(eventCode, 16);
 
+  buf.writeUInt8(ballOwnerAgentIdx, 17);
+
   const obs = stepResult.observation;
   for (let i = 0; i < OBSERVATION_DIM; i++) {
-    buf.writeFloatLE(obs[i] ?? 0.0, 17 + i * 4);
+    buf.writeFloatLE(obs[i] ?? 0.0, 18 + i * 4);
   }
 
   return buf;
 }
 
-// Multi-Agent Binary step-response layout: 17 + (OBSERVATION_DIM * 4) * N bytes total, all little-endian
-// Offset 0 (4B float32): reward (shared team reward)
-// Offset 4 (1B uint8): terminated (0/1)
-// Offset 5 (1B uint8): truncated (0/1)
-// Offset 6 (1B uint8): scoreLeft
-// Offset 7 (1B uint8): scoreRight
-// Offset 8 (4B float32): checkpointReward
-// Offset 12 (4B float32): ballDistanceToGoal
-// Offset 16 (1B uint8): eventCode
-// Offset 17 ((OBSERVATION_DIM * 4) * N B): N observations, OBSERVATION_DIM * float32 each, in controllableAgentIds order
+// Multi-Agent Binary step-response layout: 18 + (OBSERVATION_DIM * 4) * N bytes total, all little-endian
+//   Offset 0 (4B float32): reward (shared team reward)
+//   Offset 4 (1B uint8): terminated (0/1)
+//   Offset 5 (1B uint8): truncated (0/1)
+//   Offset 6 (1B uint8): scoreLeft
+//   Offset 7 (1B uint8): scoreRight
+//   Offset 8 (4B float32): checkpointReward
+//   Offset 12 (4B float32): ballDistanceToGoal
+//   Offset 16 (1B uint8): eventCode
+//   Offset 17 (1B uint8): ballOwnerAgentId (0..N-1 index into controllableAgentIds, 255 = no controllable owner)
+//   Offset 18 ((OBSERVATION_DIM * 4) * N B): N observations, OBSERVATION_DIM * float32 each, in controllableAgentIds order
 export function encodeMultiStepBinary(multiResult: ReturnType<typeof bridge.stepMulti>): Buffer {
   const N = multiResult.observations.length;
   const obsBytes = OBSERVATION_DIM * 4;
-  const buf = Buffer.allocUnsafe(17 + obsBytes * N);
+  const buf = Buffer.allocUnsafe(18 + obsBytes * N);
   buf.writeFloatLE(multiResult.reward || 0.0, 0);
   buf.writeUInt8(multiResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(multiResult.truncated ? 1 : 0, 5);
@@ -542,9 +547,14 @@ export function encodeMultiStepBinary(multiResult: ReturnType<typeof bridge.step
   const eventCode = getEventCode(eventType);
   buf.writeUInt8(eventCode, 16);
 
+  const ownerId = multiResult.info.ground_truth?.current_ball_owner?.agent_id;
+  const controllableIds = multiResult.controllableIds || [];
+  const ballOwnerAgentIdx = ownerId ? controllableIds.indexOf(ownerId) : 255;
+  buf.writeUInt8(ballOwnerAgentIdx >= 0 ? ballOwnerAgentIdx : 255, 17);
+
   for (let agentIdx = 0; agentIdx < N; agentIdx++) {
     const obs = multiResult.observations[agentIdx];
-    const baseOffset = 17 + agentIdx * obsBytes;
+    const baseOffset = 18 + agentIdx * obsBytes;
     for (let i = 0; i < OBSERVATION_DIM; i++) {
       buf.writeFloatLE(obs[i] ?? 0.0, baseOffset + i * 4);
     }
@@ -552,7 +562,6 @@ export function encodeMultiStepBinary(multiResult: ReturnType<typeof bridge.step
 
   return buf;
 }
-
 /**
  * Deterministic binary error frame (P0 #5): same layout/length as a normal
  * step frame so Python clients can decode it without hanging. Carries a
@@ -620,7 +629,10 @@ wss.on('connection', (ws: WebSocket, req) => {
             ws.send(JSON.stringify(episodeStats));
           }
 
-          ws.send(encodeStepBinary(stepResult), { binary: true })
+          const ownerId = bridge['engine'].ball.ownerId as string | null;
+          const controlledPlayerId = bridge['engine'].controlledPlayerId as string;
+          const ballOwnerAgentIdx = (ownerId && ownerId === controlledPlayerId) ? 0 : 255;
+          ws.send(encodeStepBinary(stepResult, ballOwnerAgentIdx), { binary: true })
         } else if (buf.length > 1) {
           // new multi-agent path
           const actionIndices = Array.from(buf); // one uint8 per controlled agent, in controllableAgentIds order

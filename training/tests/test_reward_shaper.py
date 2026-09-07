@@ -198,3 +198,35 @@ class TestCooperativeRewardShaper:
         assert rewards["left_1"] == pytest.approx(0.25)
         assert rewards["left_2"] == pytest.approx(0.0)
         assert shaper.pass_chain_length == 2
+
+    def test_wired_path_pass_chain_differs_from_solitary_shot(self):
+        shaper = CooperativeRewardShaper()
+        shaper.reset()
+
+        base_rewards = {"left_0": 0.0, "left_1": 0.0}
+        active_agents = ["left_0", "left_1"]
+
+        # Scenario A: pass chain completed then goal
+        shaper.pass_chain_length = 1
+        events_pass = [
+            {"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_0"},
+            {"type": "GOAL_SCORED", "team": "left", "agent_id": "left_1"},
+        ]
+        gt_pass = {"current_ball_owner": {"team": "left", "agent_id": "left_1"}}
+        rewards_pass = shaper.compute_shaped_rewards(base_rewards.copy(), events_pass, gt_pass, active_agents)
+
+        # Scenario B: solitary shot then goal (no pass chain)
+        shaper.reset()
+        events_shot = [
+            {"type": "SHOT_TAKEN", "team": "left", "agent_id": "left_0"},
+            {"type": "GOAL_SCORED", "team": "left", "agent_id": "left_0"},
+        ]
+        gt_shot = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+        rewards_shot = shaper.compute_shaped_rewards(base_rewards.copy(), events_shot, gt_shot, active_agents)
+
+        # Pass-chain path should yield strictly higher shaped reward than solitary-shot path
+        total_pass = sum(rewards_pass[a] for a in active_agents)
+        total_shot = sum(rewards_shot[a] for a in active_agents)
+        assert total_pass > total_shot, (
+            f"Pass-chain total reward {total_pass} must exceed solitary-shot total {total_shot}"
+        )

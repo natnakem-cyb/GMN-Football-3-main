@@ -638,6 +638,7 @@ export class GameEngine {
       const rondoReward = ObservationEncoder.computeRondoReward({
         prevBallX,
         currBallX: this.ball.position.x,
+        currBallY: this.ball.position.y,
         ballOwnerTeam: this.ball.ownerId
           ? this.players.find((p) => p.id === this.ball.ownerId)?.team ?? null
           : null,

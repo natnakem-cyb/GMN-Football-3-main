@@ -17,7 +17,7 @@ NUM_AGENTS = 3
 TOTAL_STEPS = 250
 SEED = 424242
 
-EXPECTED_RESPONSE_BYTES = 17 + OBSERVATION_DIM * 4 * NUM_AGENTS  # 17 + 127*4*3 = 1541 bytes
+EXPECTED_RESPONSE_BYTES = 18 + OBSERVATION_DIM * 4 * NUM_AGENTS  # 18 + 127*4*3 = 1542 bytes
 
 
 def start_bridge_server(port: int) -> subprocess.Popen:
@@ -85,9 +85,23 @@ def run_multiagent_ws_trajectory(port: int, scenario: str, seed: int, steps: int
         action_frame = bytes([a0, a1, a2])
         ws.send(action_frame)
 
-        resp_data = ws.recv()
-        if not isinstance(resp_data, (bytes, bytearray)):
-            raise RuntimeError(f"Expected binary WebSocket response, got {type(resp_data)}")
+        resp_data = None
+        for _ in range(60):
+            frame = ws.recv()
+            if isinstance(frame, (bytes, bytearray)):
+                resp_data = frame
+                break
+            if isinstance(frame, str):
+                try:
+                    parsed = json.loads(frame)
+                    if isinstance(parsed, dict) and parsed.get("type") == "EPISODE_STATS":
+                        continue
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            # skip unsolicited broadcast / malformed frame
+
+        if resp_data is None:
+            raise RuntimeError("Expected binary WebSocket response, got only broadcast frames")
 
         response_byte_sizes.append(len(resp_data))
         if len(resp_data) != EXPECTED_RESPONSE_BYTES:
@@ -96,8 +110,8 @@ def run_multiagent_ws_trajectory(port: int, scenario: str, seed: int, steps: int
             )
 
         # Unpack 17-byte header
-        reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code = struct.unpack_from(
-            "<f??BBffB", resp_data, 0
+        reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, _ball_owner_agent_idx = struct.unpack_from(
+            "<f??BBffBB", resp_data, 0
         )
         rewards.append(float(reward))
         terminations.append(bool(term))
@@ -106,7 +120,7 @@ def run_multiagent_ws_trajectory(port: int, scenario: str, seed: int, steps: int
 
         # Unpack NUM_AGENTS observations (OBSERVATION_DIM floats = OBSERVATION_DIM*4 bytes each)
         for agent_idx in range(NUM_AGENTS):
-            offset = 17 + agent_idx * OBSERVATION_DIM * 4
+            offset = 18 + agent_idx * OBSERVATION_DIM * 4
             obs = np.frombuffer(resp_data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
             observations_per_agent[agent_idx].append(obs)
 
@@ -153,7 +167,7 @@ def test_multiagent_determinism():
         assert unique_byte_sizes == {EXPECTED_RESPONSE_BYTES}, (
             f"Expected all responses to be {EXPECTED_RESPONSE_BYTES} bytes, got {unique_byte_sizes}"
         )
-        print(f"✓ Exact frame length verified: {EXPECTED_RESPONSE_BYTES} bytes")
+        print(f"[OK] Exact frame length verified: {EXPECTED_RESPONSE_BYTES} bytes")
 
         # 2. Verify controllableAgentIds
         print(f"- Controllable Agent IDs: {run1['controllable_ids']}")
@@ -186,7 +200,7 @@ def test_multiagent_determinism():
         assert trunc_matches, "Truncation flags mismatch"
         assert score_matches, "Scores mismatch"
 
-        print("\n✓ MULTI-AGENT PROTOCOL & BIT-IDENTICAL DETERMINISM VERIFIED CLEANLY!")
+        print("\n[OK] MULTI-AGENT PROTOCOL & BIT-IDENTICAL DETERMINISM VERIFIED CLEANLY!")
 
     finally:
         proc.terminate()

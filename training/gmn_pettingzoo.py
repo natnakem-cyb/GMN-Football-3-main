@@ -87,6 +87,21 @@ class CooperativeRewardShaper:
         self.pass_chain_length: int = 0
         self.current_holder_id: Optional[str] = None
         self.holder_ticks: int = 0
+        self.pass_completed_count: int = 0
+        self.solitary_shot_count: int = 0
+        self.assisted_goal_count: int = 0
+        self.ball_hogging_count: int = 0
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Return episode-level cooperative shaping diagnostics."""
+        return {
+            "pass_chain_length": self.pass_chain_length,
+            "holder_ticks": self.holder_ticks,
+            "pass_completed_count": self.pass_completed_count,
+            "solitary_shot_count": self.solitary_shot_count,
+            "assisted_goal_count": self.assisted_goal_count,
+            "ball_hogging_count": self.ball_hogging_count,
+        }
 
     def compute_shaped_rewards(
         self,
@@ -112,6 +127,7 @@ class CooperativeRewardShaper:
 
             if self.holder_ticks > self.max_hold_ticks and holder_id in shaped_rewards:
                 shaped_rewards[holder_id] += self.p_ball_hogging
+                self.ball_hogging_count += 1
         else:
             self.current_holder_id = None
             self.holder_ticks = 0
@@ -129,6 +145,7 @@ class CooperativeRewardShaper:
 
             if event_type == "PASS_COMPLETED":
                 self.pass_chain_length += 1
+                self.pass_completed_count += 1
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] += self.r_pass
 
@@ -138,11 +155,13 @@ class CooperativeRewardShaper:
             elif event_type == "SHOT_TAKEN":
                 if self.pass_chain_length == 0 and agent_id in shaped_rewards:
                     shaped_rewards[agent_id] += self.p_solitary_shot
+                    self.solitary_shot_count += 1
 
             elif event_type == "GOAL_SCORED":
                 if self.pass_chain_length > 0:
                     for aid in shaped_rewards:
                         shaped_rewards[aid] += self.r_assisted_goal
+                    self.assisted_goal_count += 1
                 self.pass_chain_length = 0
 
         return shaped_rewards
@@ -351,7 +370,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         Also collects any EPISODE_STATS JSON frames that arrive alongside the binary response.
         """
         obs_bytes = OBSERVATION_DIM * 4
-        expected_len = 17 + obs_bytes * num_agents
+        expected_len = 18 + obs_bytes * num_agents
         episode_stats: Optional[Dict[str, Any]] = None
         for _ in range(60):
             data = self._recv_frame("step")
@@ -483,16 +502,16 @@ class GMNMultiAgentEnv(ParallelEnv):
             raise RuntimeError(f"[GMN-PettingZoo] Expected binary WebSocket frame, got {type(data)}")
 
         obs_bytes = OBSERVATION_DIM * 4
-        expected_len = 17 + obs_bytes * num_agents
+        expected_len = 18 + obs_bytes * num_agents
         if len(data) != expected_len:
             raise RuntimeError(
                 f"[GMN-PettingZoo Frame Length Error] Expected {expected_len} bytes "
-                f"(17B header + {obs_bytes}B * {num_agents} agents), but received {len(data)} bytes."
+                f"(18B header + {obs_bytes}B * {num_agents} agents), but received {len(data)} bytes."
             )
 
-        # Unpack 17-byte header
-        reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code = struct.unpack_from(
-            "<f??BBffB", data, 0
+        # Unpack 18-byte header
+        reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, ball_owner_agent_idx = struct.unpack_from(
+            "<f??BBffBB", data, 0
         )
 
         shared_reward = float(reward)
@@ -536,15 +555,31 @@ class GMNMultiAgentEnv(ParallelEnv):
         if 0 < event_code < len(EVENT_CODE_MAP):
             ev_type = EVENT_CODE_MAP[event_code]
             if ev_type:
-                # Infer team from score delta for goal events; otherwise assume left-team
-                # action for offensive events and right-team for defensive/negative events.
-                team = "left"
-                if ev_type == "goal":
-                    team = "left" if score_l > 0 else "right"
+                # Map engine event types to shaper-consumable event types.
+                # Engine emits: pass, shot, shot_saved, shot_missed, goal,
+                # interception, tackle, foul, kickoff, out_of_bounds,
+                # scenario_complete, scenario_failed, offside
+                # Shaper expects: PASS_COMPLETED, PASS_FAILED, TURNOVER_CONCEDED,
+                # SHOT_TAKEN, GOAL_SCORED
+                shaper_type = None
+                shaper_team = "left"
+                if ev_type == "pass":
+                    shaper_type = "PASS_COMPLETED"
+                elif ev_type in ("shot", "shot_saved", "shot_missed"):
+                    shaper_type = "SHOT_TAKEN"
+                elif ev_type == "goal":
+                    shaper_type = "GOAL_SCORED"
+                    shaper_team = "left" if score_l > 0 else "right"
                 elif ev_type in ("interception", "tackle", "foul"):
-                    team = "right"
+                    shaper_type = "TURNOVER_CONCEDED"
+                    shaper_team = "right"
 
-                step_events.append({"type": ev_type, "team": team})
+                if shaper_type is not None:
+                    event_dict: Dict[str, Any] = {"type": shaper_type, "team": shaper_team}
+                    # Attach agent_id if ball owner is a controllable agent
+                    if 0 <= ball_owner_agent_idx < len(self.agents):
+                        event_dict["agent_id"] = self.agents[ball_owner_agent_idx]
+                    step_events.append(event_dict)
 
         observations: Dict[str, np.ndarray] = {}
         rewards: Dict[str, float] = {}
@@ -553,7 +588,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         infos: Dict[str, Any] = {}
 
         for i, agent in enumerate(self.agents):
-            offset = 17 + i * obs_bytes
+            offset = 18 + i * obs_bytes
             obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
             observations[agent] = obs
             rewards[agent] = shared_reward
@@ -566,18 +601,14 @@ class GMNMultiAgentEnv(ParallelEnv):
         # Apply cooperative reward shaping if enabled
         if self.enable_reward_shaping and self.reward_shaper is not None and not shared_term and not shared_trunc:
             try:
-                # Derive current ball owner from the first agent's observation
+                # Derive current ball owner from binary frame ballOwnerAgentId
                 current_ball_owner = None
-                if self.agents:
-                    first_obs = observations[self.agents[0]]
-                    if len(first_obs) > 96:
-                        no_one = float(first_obs[94])
-                        left = float(first_obs[95])
-                        right = float(first_obs[96])
-                        if left > 0.5:
-                            current_ball_owner = {"team": "left"}
-                        elif right > 0.5:
-                            current_ball_owner = {"team": "right"}
+                if 0 <= ball_owner_agent_idx < len(self.agents):
+                    agent_id = self.agents[ball_owner_agent_idx]
+                    team = "left"
+                    if agent_id.startswith("right_"):
+                        team = "right"
+                    current_ball_owner = {"agent_id": agent_id, "team": team}
 
                 shaped_rewards = self.reward_shaper.compute_shaped_rewards(
                     base_rewards=rewards,
