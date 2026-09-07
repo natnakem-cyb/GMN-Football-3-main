@@ -172,6 +172,14 @@ export class GMNBridgeService {
           attempted_passes_left: this.engine.stats.passes.left,
           shots_on_target_left: this.engine.stats.shotsOnTarget.left,
           total_shots_left: this.engine.stats.shots.left,
+          current_ball_owner: this.engine.ball.ownerId != null
+            ? (() => {
+                const owner = this.engine.players.find((p) => p.id === this.engine.ball.ownerId);
+                return owner
+                  ? { agent_id: owner.id, team: owner.team }
+                  : null;
+              })()
+            : null,
         },
       },
     };
@@ -258,6 +266,14 @@ export class GMNBridgeService {
           attempted_passes_left: this.engine.stats.passes.left,
           shots_on_target_left: this.engine.stats.shotsOnTarget.left,
           total_shots_left: this.engine.stats.shots.left,
+          current_ball_owner: this.engine.ball.ownerId != null
+            ? (() => {
+                const owner = this.engine.players.find((p) => p.id === this.engine.ball.ownerId);
+                return owner
+                  ? { agent_id: owner.id, team: owner.team }
+                  : null;
+              })()
+            : null,
         },
       },
       observations, // array, same order as controllableIds
