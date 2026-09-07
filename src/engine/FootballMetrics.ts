@@ -7,7 +7,7 @@
  */
 
 import { GameEngine } from './GameEngine';
-import { ActionType, AgentAction, TeamSide } from '../types/football';
+import { TeamSide } from '../types/football';
 import { ACTION_SPACE_SIZE } from './Contract';
 
 export interface EpisodeMetrics {

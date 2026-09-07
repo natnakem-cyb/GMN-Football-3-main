@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Keyboard, Gamepad2, Move, Target, Zap, Shield, RefreshCw } from 'lucide-react';
+import { X, Keyboard, Move, Target, Zap, Shield, RefreshCw } from 'lucide-react';
 
 interface ControlsHelpModalProps {
   isOpen: boolean;

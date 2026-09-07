@@ -6,11 +6,11 @@
 
 import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
-import { ActionType, AgentAction, ScenarioConfig } from '../src/types/football';
+import { AgentAction } from '../src/types/football';
 import { RuleBasedAgent } from '../src/agents/RuleBasedAgent';
 import { TrainedPolicyAgent } from '../src/agents/TrainedPolicyAgent';
 import { MAPPO_WEIGHTS } from '../src/agents/mappo_weights';
-import { mapDiscreteAction, ACTION_SPACE_SIZE } from './action_mapping';
+import { mapDiscreteAction } from './action_mapping';
 import { FootballMetricsTracker, AggregatedMetrics } from '../src/engine/FootballMetrics';
 
 export interface GeneralizationPartition {

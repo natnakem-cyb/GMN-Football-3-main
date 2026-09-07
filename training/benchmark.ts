@@ -1,6 +1,6 @@
 import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
-import { ActionType, AgentAction } from '../src/types/football';
+import { AgentAction } from '../src/types/football';
 import { mapDiscreteAction, ACTION_SPACE_SIZE } from './action_mapping';
 
 function benchmarkRawEngine(totalSteps = 10000) {

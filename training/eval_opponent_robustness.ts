@@ -6,7 +6,7 @@
 
 import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
-import { ActionType, AgentAction } from '../src/types/football';
+import { AgentAction } from '../src/types/football';
 import { RuleBasedAgent } from '../src/agents/RuleBasedAgent';
 import { ScriptedScenarioAgent } from '../src/agents/ScriptedScenarioAgent';
 import { TrainedPolicyAgent } from '../src/agents/TrainedPolicyAgent';

@@ -2,8 +2,7 @@ import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
 import { ActionType, AgentAction, GameMode } from '../src/types/football';
 import { mapDiscreteAction, ACTION_SPACE_SIZE } from './action_mapping';
-import { RuleBasedAgent } from '../src/agents/RuleBasedAgent';
-import { OBSERVATION_DIM, BASE_OBSERVATION_DIM, ROLE_DIM } from '../src/engine/Contract';
+import { OBSERVATION_DIM, BASE_OBSERVATION_DIM } from '../src/engine/Contract';
 
 interface FeatureStats {
   min: number;

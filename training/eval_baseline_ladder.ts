@@ -13,7 +13,6 @@ import { TrainedPolicyAgent } from '../src/agents/TrainedPolicyAgent';
 import { MAPPO_WEIGHTS } from '../src/agents/mappo_weights';
 import { mapDiscreteAction, ACTION_SPACE_SIZE } from './action_mapping';
 import { FootballMetricsTracker, AggregatedMetrics } from '../src/engine/FootballMetrics';
-import { CheckpointContractValidator } from './checkpoint_contract';
 
 export type BaselineType =
   | 'random'

@@ -3,7 +3,7 @@ import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
-import { ActionType, AgentAction, ScenarioConfig } from '../src/types/football';
+import { AgentAction, ScenarioConfig } from '../src/types/football';
 import { mapDiscreteAction } from './action_mapping';
 import {
   GMN_ENV_VERSION,
@@ -31,6 +31,8 @@ let hardwareStop: (() => void) | null = null;
 export class GMNBridgeService {
   private engine: GameEngine;
   private botAgents: Map<string, RuleBasedAgent>;
+  /** Difficulty level used when creating right-team / non-controlled bot agents. */
+  public botDifficulty: 'easy' | 'medium' | 'hard' | 'master' = 'medium';
   private scenarioMap: Map<string, ScenarioConfig>;
   public currentScenarioName = 'academy_empty_goal';
 
@@ -135,7 +137,7 @@ export class GMNBridgeService {
       if (!this.botAgents.has(player.id)) {
         this.botAgents.set(
           player.id,
-          new RuleBasedAgent(`bot_${player.id}`, player.name, 'medium')
+          new RuleBasedAgent(`bot_${player.id}`, player.name, this.botDifficulty)
         );
       }
       const bot = this.botAgents.get(player.id)!;
@@ -206,7 +208,7 @@ export class GMNBridgeService {
       actionMap.set(id, mapDiscreteAction(actionIndices[i]));
     });
 
-    // 2. Automated bots for other players (if any) — skipped for rondo
+    // 2. Automated bots for other players (if any) â€” skipped for rondo
     if (!isRondoScenario) {
       this.engine.players.forEach((player) => {
         if (controllableIds.includes(player.id)) return;
@@ -238,7 +240,7 @@ export class GMNBridgeService {
     const result = this.engine.step(actionMap, 1 / 60);
 
     // 4. Re-encode one observation per controlled agent from the
-    // already-updated post-step state — do not step the engine again
+    // already-updated post-step state â€” do not step the engine again
     const observations = controllableIds.map((id) =>
       ObservationEncoder.encode(
         this.engine.players,
@@ -363,10 +365,8 @@ const server = http.createServer((req, res) => {
       }
 
       if (req.method === 'POST' && urlPath === '/api/training/export') {
-        const checkpoint = parsedBody.checkpoint || 'training/models/mappo_academy_3_vs_1_with_keeper_best.pt';
         const scenario = parsedBody.scenario || 'academy_3_vs_1_with_keeper';
         const algorithm = parsedBody.algorithm || 'MAPPO';
-        const output = parsedBody.output || `public/models/mappo_${scenario}_${Date.now()}.onnx`;
 
         TrainingJobService.handleAutomaticExport({
           id: `export_${Date.now()}`,
@@ -463,6 +463,23 @@ const server = http.createServer((req, res) => {
         const multiResult = bridge.stepMulti(parsedBody.actions);
         res.writeHead(200);
         res.end(JSON.stringify(multiResult));
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/opponent') {
+        // Opponent-pool integration: switch the difficulty of rule-based bot
+        // agents (applied to newly created bots and on the next /reset).
+        const d = parsedBody.difficulty || parsedBody.botDifficulty;
+        if (!['easy', 'medium', 'hard', 'master'].includes(d)) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: "difficulty must be one of 'easy'|'medium'|'hard'|'master'" }));
+          return;
+        }
+        bridge.botDifficulty = d;
+        // Clear existing bots so the new difficulty takes effect immediately.
+        bridge.reset(bridge.currentScenarioName);
+        res.writeHead(200);
+        res.end(JSON.stringify({ status: 'ok', difficulty: d }));
         return;
       }
 
@@ -610,10 +627,10 @@ wss.on('connection', (ws: WebSocket, req) => {
       if (isBinary) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
         if (buf.length === 1) {
-          // existing single-agent path — unchanged
+          // existing single-agent path â€” unchanged
           const actionIdx = buf.readUInt8(0);
           if (actionIdx >= ACTION_SPACE_SIZE) {
-            // P0 #5: NEVER silently drop — send a deterministic binary error
+            // P0 #5: NEVER silently drop â€” send a deterministic binary error
             // frame so Python clients cannot hang waiting for a response.
             ws.send(encodeErrorStepBinary(1), { binary: true });
             return;
@@ -684,7 +701,7 @@ wss.on('connection', (ws: WebSocket, req) => {
           });
           ws.send(JSON.stringify({ status: 'broadcast_ok' }));
         } else if (parsed.type === 'subscribe_metrics') {
-          // Runtime subscription — dashboard can subscribe after connecting
+          // Runtime subscription â€” dashboard can subscribe after connecting
           metricsBroadcaster.subscribe(ws);
           ws.send(JSON.stringify({ status: 'subscribed_metrics' }));
         } else if (parsed.type === 'unsubscribe_metrics') {

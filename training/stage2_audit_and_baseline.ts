@@ -1,9 +1,8 @@
 import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
-import { ActionType, AgentAction } from '../src/types/football';
+import { AgentAction } from '../src/types/football';
 import { mapDiscreteAction, ACTION_SPACE_SIZE } from './action_mapping';
 import { RuleBasedAgent } from '../src/agents/RuleBasedAgent';
-import { Vec2 } from '../src/engine/Vector';
 
 export function runStage2Audit() {
   console.log('==================================================');

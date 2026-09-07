@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
-import { ActionType, AgentAction, RLObservation, RLStepResult } from '../types/football';
-import { Cpu, Terminal, Play, RotateCcw, Activity, Award, CheckSquare, Layers, UploadCloud } from 'lucide-react';
+﻿import React, { useState, useRef } from 'react';
+import { ActionType, AgentAction, RLStepResult } from '../types/football';
+import { Cpu, Terminal, RotateCcw, Award, Layers, UploadCloud } from 'lucide-react';
 import { OBSERVATION_DIM, BASE_OBSERVATION_DIM, ROLE_DIM } from '../engine/Contract';
 
 interface RLGymnasiumPanelProps {
@@ -20,7 +20,6 @@ export const RLGymnasiumPanel: React.FC<RLGymnasiumPanelProps> = ({
   onSwitchModel,
   activeModelName,
 }) => {
-  const [vectorViewFilter, setVectorViewFilter] = useState<'all' | 'players' | 'ball' | 'match'>('all');
   const [modelUploadStatus, setModelUploadStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 

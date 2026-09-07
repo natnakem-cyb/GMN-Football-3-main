@@ -1,12 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+﻿import { useEffect, useRef, useState, useCallback } from 'react';
 import { GameEngine } from './engine/GameEngine';
 import { HumanAgent } from './agents/HumanAgent';
 import { RuleBasedAgent } from './agents/RuleBasedAgent';
 import { NeuralHeuristicAgent } from './agents/NeuralHeuristicAgent';
 import { TrainedPolicyAgent } from './agents/TrainedPolicyAgent';
 import { ScriptedScenarioAgent } from './agents/ScriptedScenarioAgent';
-import { ActionType, AgentAction, FormationType, RLStepResult, ScenarioConfig, TeamConfig, Vector2D } from './types/football';
-import { ACADEMY_SCENARIOS } from './scenarios/ScenarioRegistry';
+import { ActionType, AgentAction, RLStepResult, ScenarioConfig } from './types/football';
 
 import { PitchCanvas } from './components/PitchCanvas';
 import { Scoreboard } from './components/Scoreboard';
@@ -22,21 +21,7 @@ import { PolicyActionOverlay } from './components/PolicyActionOverlay';
 import { MultiAgentCreditMatrix } from './components/MultiAgentCreditMatrix';
 import { TrainingTelemetryService } from './engine/TrainingTelemetryService';
 
-import {
-  Trophy,
-  GraduationCap,
-  Film,
-  Cpu,
-  BarChart3,
-  Bot,
-  Zap,
-  RotateCcw,
-  Target,
-  RefreshCw,
-  Shield,
-  Layers,
-  Activity,
-} from 'lucide-react';
+import { GraduationCap, Film, Cpu, BarChart3, Target, Activity } from 'lucide-react';
 
 type TabType = 'arena' | 'academy' | 'replay' | 'training' | 'gymnasium' | 'analytics';
 
@@ -126,9 +111,6 @@ export default function App() {
         while (accumulatedTime >= tickInterval && ticksRun < 10) {
           const actionMap = new Map<string, AgentAction>();
 
-          const leftPlayersCount = engine.players.filter((p) => p.team === 'left').length;
-          const is3v1Scenario = engine.activeScenario?.id === 'academy_3_vs_1_with_keeper' || leftPlayersCount === 3;
-
           // Gather decisions for each player
           engine.players.forEach((player) => {
             const isLeft = player.team === 'left';
@@ -191,8 +173,6 @@ export default function App() {
   // Handle Manual Step
   const handleStep = useCallback(() => {
     const actionMap = new Map<string, AgentAction>();
-    const leftPlayersCount = engine.players.filter((p) => p.team === 'left').length;
-    const is3v1Scenario = engine.activeScenario?.id === 'academy_3_vs_1_with_keeper' || leftPlayersCount === 3;
 
     engine.players.forEach((player) => {
       const isLeft = player.team === 'left';
@@ -380,7 +360,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-emerald-950/40 text-lg">
-              ⚽
+              âš½
             </div>
             <div>
               <h1 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2">
@@ -491,7 +471,7 @@ export default function App() {
           {/* Neural Policy Unavailable Banner */}
           {neuralFallbackActive && (
             <div className="mb-2 p-2 rounded-lg bg-amber-900/80 border border-amber-600 text-amber-100 text-xs font-semibold text-center">
-              ⚠️ Neural Policy Unavailable — Using Rule-Based Fallback.
+              âš ï¸ Neural Policy Unavailable â€” Using Rule-Based Fallback.
               {modelError ? ` Error: ${modelError}` : ' No trained checkpoint loaded.'}
             </div>
           )}
@@ -600,7 +580,7 @@ export default function App() {
                     (trainedAgentRef.current.isSessionReady() || trainedAgentRef.current.isValidCheckpoint());
                   if (!hasValidOnnx) {
                     setNeuralFallbackActive(true);
-                    setModelError('Neural Model Unavailable – Reverting to Rule-Based');
+                    setModelError('Neural Model Unavailable â€“ Reverting to Rule-Based');
                     // Keep controller as 'neural' to preserve user selection;
                     // the game loop already falls back to NeuralHeuristicAgent internally.
                   } else {
@@ -710,7 +690,7 @@ export default function App() {
               setRenderTrigger((prev) => prev + 1);
             }}
             stepCount={engine.tickCount}
-            onSwitchModel={async (buffer, filename) => {
+            onSwitchModel={async (buffer, _filename) => {
               if (trainedAgentRef.current) {
                 await trainedAgentRef.current.switchModel(buffer);
                 setRenderTrigger((p) => p + 1);

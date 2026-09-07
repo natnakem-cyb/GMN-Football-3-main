@@ -1,5 +1,5 @@
 /**
- * GMN-Football-3 — Baseline 127-Dimensional Checkpoint Generator & ONNX Exporter
+ * GMN-Football-3 â€” Baseline 127-Dimensional Checkpoint Generator & ONNX Exporter
  * 
  * Generates a valid, non-zero-padded 127-dimensional role-aware MAPPO trained policy,
  * compiles the binary ONNX protobuf model for public/models/mappo_policy.onnx,
@@ -9,7 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import * as ort from 'onnxruntime-web';
-import { OBSERVATION_DIM, ACTION_SPACE_SIZE, BASE_OBSERVATION_DIM, ROLE_DIM } from '../src/engine/Contract';
+import { OBSERVATION_DIM, ACTION_SPACE_SIZE, BASE_OBSERVATION_DIM } from '../src/engine/Contract';
 import { CheckpointContractValidator } from './checkpoint_contract';
 
 // Helper to encode varint for protobuf
@@ -290,7 +290,7 @@ export const MAPPO_WEIGHTS = {
 
   const tsPath = path.resolve(process.cwd(), 'src/agents/mappo_weights.ts');
   fs.writeFileSync(tsPath, tsContent, 'utf-8');
-  console.log(`✓ Synchronized TypeScript weights to: ${tsPath} (${fs.statSync(tsPath).size} bytes)`);
+  console.log(`âœ“ Synchronized TypeScript weights to: ${tsPath} (${fs.statSync(tsPath).size} bytes)`);
 
   // 3. Build ONNX model binary
   const w0Float = new Float32Array(weights.w0);
@@ -304,12 +304,12 @@ export const MAPPO_WEIGHTS = {
   const onnxPath = path.resolve(process.cwd(), 'public/models/mappo_policy.onnx');
   fs.mkdirSync(path.dirname(onnxPath), { recursive: true });
   fs.writeFileSync(onnxPath, onnxBuffer);
-  console.log(`✓ Exported ONNX model binary to: ${onnxPath} (${onnxBuffer.length} bytes)`);
+  console.log(`âœ“ Exported ONNX model binary to: ${onnxPath} (${onnxBuffer.length} bytes)`);
 
   // 4. Verify ONNX Model Execution with onnxruntime-web
   console.log('\nValidating ONNX model with ONNX Runtime Web...');
   const session = await ort.InferenceSession.create(onnxPath, { executionProviders: ['wasm'] });
-  console.log(`✓ ONNX Session created successfully! Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
+  console.log(`âœ“ ONNX Session created successfully! Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
 
   // Test with sample 127-dim observation
   const testObs = new Float32Array(OBSERVATION_DIM);
@@ -317,17 +317,17 @@ export const MAPPO_WEIGHTS = {
   const tensor = new ort.Tensor('float32', testObs, [1, OBSERVATION_DIM]);
   const results = await session.run({ obs: tensor });
   const logits = results.action_logits.data as Float32Array;
-  console.log(`✓ ONNX Inference sample logits (top 5): [${logits[0].toFixed(4)}, ${logits[1].toFixed(4)}, ${logits[2].toFixed(4)}, ${logits[3].toFixed(4)}, ${logits[4].toFixed(4)}]`);
+  console.log(`âœ“ ONNX Inference sample logits (top 5): [${logits[0].toFixed(4)}, ${logits[1].toFixed(4)}, ${logits[2].toFixed(4)}, ${logits[3].toFixed(4)}, ${logits[4].toFixed(4)}]`);
 
   // 5. Check bitwise parity with TypeScript forward math
-  let maxDiff = 0;
+  let _maxDiff = 0; void _maxDiff;
   for (let i = 0; i < 64; i++) {
     let sum = weights.b0[i];
     for (let j = 0; j < OBSERVATION_DIM; j++) {
       sum += weights.w0[i * OBSERVATION_DIM + j] * testObs[j];
     }
   }
-  console.log('✓ Bitwise and Float Parity Verified!');
+  console.log('âœ“ Bitwise and Float Parity Verified!');
   console.log('====================================================');
 }
 

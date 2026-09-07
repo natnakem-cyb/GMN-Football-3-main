@@ -6,7 +6,6 @@
  */
 
 import { ObservationEncoder } from '../src/engine/ObservationEncoder';
-import { TeamSide } from '../src/types/football';
 
 function assertApprox(actual: number, expected: number, tolerance = 1e-9, msg = '' ): void {
   if (Math.abs(actual - expected) > tolerance) {

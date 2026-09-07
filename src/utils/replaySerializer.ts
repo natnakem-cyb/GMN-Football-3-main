@@ -1,4 +1,4 @@
-import { MatchEvent, MatchScore, ReplayFrame, TeamSide, Vector2D, Vector3D } from '../types/football';
+import { MatchEvent, MatchScore, ReplayFrame } from '../types/football';
 import { GMN_ENV_VERSION, OBSERVATION_SCHEMA_VERSION } from '../engine/Contract';
 
 export interface TraceMetadata {
@@ -30,7 +30,7 @@ export interface TraceStepRecord {
  */
 export function exportReplayToJsonl(
   frames: ReplayFrame[],
-  events: MatchEvent[],
+  _events: MatchEvent[],
   scenarioName: string,
   seed: number | null = null,
   checkpoint: string | null = null

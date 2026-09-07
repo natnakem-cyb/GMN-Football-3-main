@@ -178,17 +178,17 @@ GMN-Football-3/
 │   ├── modular_encoder.ts / modular_networks.py
 │   ├── models/              # Checkpoints (currently: smoke tests for PPO/IPPO/MAPPO, plus one completed drill-scenario training run each for IPPO and MAPPO — see Current Status)
 │   └── results/             # win_rate_progress.csv, generalization.csv, comparison_table.md/.html
-│   # Note: this directory has grown beyond what's listed above — check `training/` directly for the current full set of scripts before assuming this list is exhaustive.
+│   # See `training/README.md` for the full script inventory, dependency notes,
+│   # and how to enable parallel stepping and self-play.
 │
 ├── public/models/           # mappo_policy.onnx — actively loaded by the browser app (see Technology Stack)
-├── requirements.txt          # Python deps (root)
-├── training/requirements.txt # Python deps (training-pinned, includes SuperSuit — prefer this one for training)
+├── training/requirements.txt # Python deps (single source of truth — install with `pip install -r training/requirements.txt`)
 ├── package.json
 ├── tsconfig.json             # TypeScript config includes both `src/` and `training/` for strict typechecking
 ├── vite.config.ts / tailwind.config.js / postcss.config.js
 ├── .env.example
 ├── LICENSE (Apache-2.0)
-└── CONTRIBUTING.md            # currently generic boilerplate referencing an unrelated project — see Contributing
+└── CONTRIBUTING.md            # project-specific contribution guidelines (setup, style, PRs)
 ```
 
 Quick Start (Browser App)
@@ -238,7 +238,7 @@ python3 training/train_mappo.py
 python3 training/eval_mappo.py
 ```
 
-Both `train_ppo.py` and the custom trainers accept a `--scenario` (or positional step-count) argument — see each script's `argparse` setup for the current options. **PPO and MAPPO still run against a single environment instance per process** (no vectorized rollout collection); **IPPO is the exception** — `train_ippo.py` builds a real `SuperSuit` vector environment with multiple sub-environments sharing one policy.
+Both `train_ppo.py` and the custom trainers accept a `--scenario` (or positional step-count) argument — see each script's `argparse` setup for the current options. **PPO and MAPPO now support optional parallel stepping** via `--n-envs N` (spawns N bridge instances on ports 5050..5050+N-1); `n_envs=1` keeps the legacy single-env path. `train_ippo.py` uses SuperSuit vectorization. See [`training/README.md`](training/README.md) for the full script inventory, parallel-stepping and self-play configuration, and sample commands.
 
 **3. Evaluate / inspect:**
 
@@ -323,8 +323,7 @@ GMN-Football-3 should currently be described as an RL-ready football simulation 
 Known Limitations
 -------------------
 - Determinism is not guaranteed for every agent. `RuleBasedAgent` and tackle resolution (`PhysicsEngine.executeTackle`) correctly use the seeded RNG; `NeuralHeuristicAgent` and `HumanAgent` currently use `Math.random()` directly for some decisions, so browser-only opponent behavior isn't reproducible (this doesn't affect training determinism, since neither is wired into the bridge).
-- Two Python requirements files (`requirements.txt` and `training/requirements.txt`) exist with different version bounds — `training/requirements.txt` is the one training scripts are actually validated against.
-- Contract constants are hand-duplicated across `Contract.ts`, `gmn_gym.py`, and `gmn_pettingzoo.py`, reconciled by a runtime health check; `scripts/sync_contracts.ts` generates the Python side from `Contract.ts`.
+- Contract constants are single-sourced from `src/engine/Contract.ts`; `npm run check:contracts` (part of CI and `npm run lint`) fails when `scripts/sync_contracts.ts` would change the generated Python blocks. Run `npm run sync-contracts` to regenerate.
 - `training/` contains substantially more scripts (duplicate `.ts`/`.py` pairs for several eval and validation tasks, a `modular_encoder`/`modular_networks` pair, stage-2 audit/validation scripts) than are documented in this README's Repository Structure section — treat that section as a guide to the most important files, not an exhaustive list.
 
 Corrections vs. Prior Documentation

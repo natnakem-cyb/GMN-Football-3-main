@@ -1,27 +1,7 @@
-import {
-  ActionType,
-  AgentAction,
-  Ball,
-  FormationType,
-  GameMode,
-  MatchEvent,
-  MatchScore,
-  MatchStateStatus,
-  MatchStats,
-  Player,
-  PlayerRole,
-  ReplayFrame,
-  RLObservation,
-  RLStepResult,
-  ScenarioConfig,
-  TeamConfig,
-  TeamSide,
-  Vector2D,
-  Vector3D,
-} from '../types/football';
+﻿import { ActionType, AgentAction, Ball, FormationType, GameMode, MatchEvent, MatchScore, MatchStateStatus, MatchStats, Player, ReplayFrame, RLObservation, RLStepResult, ScenarioConfig, TeamConfig, TeamSide, Vector2D } from '../types/football';
 import { PITCH, getFormationPositions, computeOffsideLineX, isGoalMouthPoint } from './Rules';
 import { PhysicsEngine } from './Physics';
-import { Vec2, Vec3 } from './Vector';
+import { Vec2 } from './Vector';
 import { ObservationEncoder } from './ObservationEncoder';
 import { CONTROLLED_TRAINING_TEAM } from './Contract';
 import { SeededRNG } from './SeededRNG';
@@ -105,7 +85,7 @@ export class GameEngine {
   // time limit is reached; it must not re-fire on subsequent ticks).
   private lastScenarioResolutionEmitted = false;
 
-  // Rondo (4v1 keep-ball) drill state — isolated from academy goal-scoring logic
+  // Rondo (4v1 keep-ball) drill state â€” isolated from academy goal-scoring logic
   private rondoDefenderPossessionTime = 0;
   private rondoLastPassCompleted = false;
   private rondoLastPassTeam: TeamSide | null = null;
@@ -582,7 +562,7 @@ export class GameEngine {
           }
         }
 
-        // 5. Goal & boundary checks (skipped for rondo — no goal objective)
+        // 5. Goal & boundary checks (skipped for rondo â€” no goal objective)
         if (!isRondoScenario) {
           goalScoredThisTick = this.checkGoalAndBoundaries();
         }
@@ -857,7 +837,7 @@ export class GameEngine {
                 // Straight red card
                 player.redCard = true;
                 this.stats.redCards[player.team]++;
-                cardDescription = ` RED CARD — ${player.name} is sent off!`;
+                cardDescription = ` RED CARD â€” ${player.name} is sent off!`;
               } else if (cardRoll >= 0.80) {
                 // Yellow card
                 if (player.yellowCards === 0) {
@@ -869,7 +849,7 @@ export class GameEngine {
                   player.redCard = true;
                   this.stats.yellowCards[player.team]++;
                   this.stats.redCards[player.team]++;
-                  cardDescription = ` Second yellow card shown to ${player.name} — RED CARD!`;
+                  cardDescription = ` Second yellow card shown to ${player.name} â€” RED CARD!`;
                 }
               }
             }
@@ -1022,7 +1002,7 @@ export class GameEngine {
           const roll = this.rng.next();
 
           if (roll >= saveChance) {
-            // Save fails — parry, not a clean catch. Ball stays live.
+            // Save fails â€” parry, not a clean catch. Ball stays live.
             const currentAngle = Vec2.angle(velocity2D);
             const deflectAngle = currentAngle + (this.rng.next() - 0.5) * 1.2;
             const deflectSpeed = shotSpeed * 0.35;
@@ -1033,14 +1013,14 @@ export class GameEngine {
 
             this.recordEvent(
               'shot_saved',
-              `${player.name} gets a hand to it but can't hold on — parried away!`,
+              `${player.name} gets a hand to it but can't hold on â€” parried away!`,
               player.position,
               player.team
             );
-            break; // matches existing loop pattern — this player touched the ball this tick
+            break; // matches existing loop pattern â€” this player touched the ball this tick
           }
           // else: save succeeds, fall through to the existing possession-assignment
-          // logic below unchanged (clean catch, isShotInFlight already cleared there per §2)
+          // logic below unchanged (clean catch, isShotInFlight already cleared there per Â§2)
         }
 
         // If ball was unowned or changing owner
@@ -1220,15 +1200,6 @@ export class GameEngine {
     return null;
   }
 
-  private handleOutOfBounds(type: string): void {
-    this.ball.velocity = { x: 0, y: 0, z: 0 };
-    this.ball.position.x = Math.max(PITCH.minX + 0.05, Math.min(PITCH.maxX - 0.05, this.ball.position.x));
-    this.ball.position.y = Math.max(PITCH.minY + 0.02, Math.min(PITCH.maxY - 0.02, this.ball.position.y));
-    this.ball.position.z = 0;
-    this.ball.ownerId = null;
-    this.ball.isShotInFlight = false;
-  }
-
   public resetToKickoff(resetScore = false, seed?: number): void {
     if (seed !== undefined) {
       this.setSeed(seed);
@@ -1252,7 +1223,7 @@ export class GameEngine {
 
     const timeLimitReached = this.matchTimeSeconds >= this.activeScenario.timeLimitSeconds;
 
-    // Drill / step objectives — evaluated live as the player achieves them.
+    // Drill / step objectives â€” evaluated live as the player achieves them.
     // Goal-scoring drills complete the moment the LEFT team scores; the match-type
     // `win_match` objective is intentionally NOT resolved here (see below).
     if (this.score.left > 0) {

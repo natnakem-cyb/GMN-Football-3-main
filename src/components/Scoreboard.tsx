@@ -1,6 +1,6 @@
 import React from 'react';
 import { MatchScore, MatchStateStatus, TeamConfig } from '../types/football';
-import { Shield, Trophy, Activity, Radio } from 'lucide-react';
+import { Trophy, Radio } from 'lucide-react';
 
 interface ScoreboardProps {
   score: MatchScore;

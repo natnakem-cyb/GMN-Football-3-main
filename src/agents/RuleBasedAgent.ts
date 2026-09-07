@@ -35,7 +35,6 @@ export class RuleBasedAgent implements IAgent {
 
     const ballPos2D: Vector2D = { x: ball.position.x, y: ball.position.y };
     const distToBall = Vec2.distance(player.position, ballPos2D);
-    const distToGoal = Math.abs(opponentGoalX - player.position.x);
 
     // 1. Goalkeeper Specific Heuristic
     if (player.isGoalkeeper) {
@@ -77,7 +76,7 @@ export class RuleBasedAgent implements IAgent {
         targetY += (rnd() - 0.5) * variance;
 
         // Final arrival y at the goal line reduces to targetY exactly, since shootDir.x
-        // is unchanged — clamp once here rather than re-tuning each branch's constants.
+        // is unchanged â€” clamp once here rather than re-tuning each branch's constants.
         targetY = Math.max(-maxSafeY, Math.min(maxSafeY, targetY));
 
         const goalCenter: Vector2D = { x: opponentGoalX, y: targetY };
@@ -185,8 +184,6 @@ export class RuleBasedAgent implements IAgent {
     rnd?: () => number
   ): AgentAction {
     const randomFunc = rnd ?? (() => this.rng.next());
-    const ballPos2D: Vector2D = { x: ball.position.x, y: ball.position.y };
-
     if (keeper.hasBall || ball.ownerId === keeper.id) {
       // Distribute to outfield player
       const outfielders = teammates.filter((t) => !t.isGoalkeeper);
@@ -208,7 +205,7 @@ export class RuleBasedAgent implements IAgent {
     if (opponentWithBall) {
       const distToOpponent = Vec2.distance(keeper.position, opponentWithBall.position);
       if (distToOpponent < 0.055) {
-        // Tackle range only — do NOT sprint out to press from distance
+        // Tackle range only â€” do NOT sprint out to press from distance
         return { type: ActionType.TACKLE };
       }
     }

@@ -1,6 +1,5 @@
 import { Ball, GameMode, MatchScore, Player, RLObservation, TeamSide } from '../types/football';
 import { PITCH, isGoalMouthPoint } from './Rules';
-import { Vec2 } from './Vector';
 import { PhysicsEngine } from './Physics';
 import {
   OBSERVATION_DIM,
@@ -246,7 +245,7 @@ export class ObservationEncoder {
       }
     }
 
-    // Shot-quality conditioned bonus — encourages aiming at the goal mouth.
+    // Shot-quality conditioned bonus â€” encourages aiming at the goal mouth.
     // Uses the authoritative goal-mouth geometry (isGoalMouthPoint) with a
     // discrete ballistic projection of the shot trajectory onto the goal line,
     // so a shot that would cross the goal line above the crossbar is NOT
@@ -278,7 +277,7 @@ export class ObservationEncoder {
 
   /**
    * Isolated dense reward for the Rondo 4v1 keep-ball drill.
-   * No goal-scoring logic, no terminal bonus — fully dense.
+   * No goal-scoring logic, no terminal bonus â€” fully dense.
    *
    * Shared across all agents (4 attackers + 1 defender) so a single
    * MAPPO policy learns behaviors useful for both sides.
@@ -300,7 +299,7 @@ export class ObservationEncoder {
    * @param consecutivePossessionTime seconds of continuous left-team possession
    */
   static computeRondoReward({
-    prevBallX,
+    prevBallX: _prevBallX,
     currBallX,
     currBallY,
     ballOwnerTeam,

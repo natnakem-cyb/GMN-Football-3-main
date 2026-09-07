@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
-    "build": "tsc && vite build",
-    "lint": "tsc --noEmit",
+    "build": "npm run sync-contracts && tsc && vite build",
+    "lint": "tsc --noEmit && npm run check:contracts",
     "preview": "vite preview --port 3000",
     "bridge": "tsx training/bridge_server.ts",
     "headless": "tsx training/benchmark.ts",
@@ -42,7 +42,9 @@
     "eval:ablations": "tsx training/eval_ablations.ts",
     "test:browser-parity": "tsx training/test_browser_inference_parity.ts",
     "validate:policy": "tsx training/validate_learned_policy.ts",
-    "sync:contracts": "tsx scripts/sync_contracts.ts"
+    "sync:contracts": "tsx scripts/sync_contracts.ts",
+    "sync-contracts": "tsx scripts/sync_contracts.ts",
+    "check:contracts": "tsx scripts/sync_contracts.ts --check"
   },
   "dependencies": {
     "clsx": "^2.1.1",

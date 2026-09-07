@@ -1,6 +1,6 @@
-import React from 'react';
+﻿import React from 'react';
 import { FormationType, TeamConfig } from '../types/football';
-import { Bot, User, Brain, Sliders, Shield, Award, AlertTriangle } from 'lucide-react';
+import { Bot, AlertTriangle } from 'lucide-react';
 
 interface AgentArenaPanelProps {
   teamLeft: TeamConfig;
@@ -19,8 +19,8 @@ export const AgentArenaPanel: React.FC<AgentArenaPanelProps> = ({
   onUpdateTeamLeft,
   onUpdateTeamRight,
   onApplyPresetMatchup,
-  is3v1Scenario = false,
-  isModelLoading = false,
+  is3v1Scenario: _is3v1Scenario = false,
+  isModelLoading: _isModelLoading = false,
   modelError = null,
 }) => {
   const formations: FormationType[] = ['4-3-3', '4-4-2', '3-5-2', '5-3-2', '1-2-1'];
@@ -81,24 +81,24 @@ export const AgentArenaPanel: React.FC<AgentArenaPanelProps> = ({
                 onChange={(e) => onUpdateTeamLeft({ controller: e.target.value as any })}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-medium focus:ring-1 focus:ring-blue-500"
               >
-                <option value="human">👤 Human Player (Keyboard / Touch)</option>
-                <option value="rule_based">🤖 Tactical Rule AI</option>
+                <option value="human">ðŸ‘¤ Human Player (Keyboard / Touch)</option>
+                <option value="rule_based">ðŸ¤– Tactical Rule AI</option>
                 {!modelError ? (
                   <option value="neural">
-                    🧠 Neural Policy (Trained MAPPO — ONNX / 127-dim)
+                    ðŸ§  Neural Policy (Trained MAPPO â€” ONNX / 127-dim)
                   </option>
                 ) : (
                   <option value="neural" disabled>
-                    🧠 Neural Policy (Unavailable: {modelError})
+                    ðŸ§  Neural Policy (Unavailable: {modelError})
                   </option>
                 )}
-                <option value="heuristic">📊 Heuristic Bot (Untrained Baseline)</option>
-                <option value="scripted">📜 Scripted Scenario Bot</option>
+                <option value="heuristic">ðŸ“Š Heuristic Bot (Untrained Baseline)</option>
+                <option value="scripted">ðŸ“œ Scripted Scenario Bot</option>
               </select>
               {modelError && (
                 <div className="mt-2 p-2 rounded-lg bg-amber-950/80 border border-amber-600/80 text-[11px] text-amber-300 flex items-center gap-1.5 font-semibold animate-fadeIn">
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Neural Model Unavailable – Reverting to Rule-Based ({modelError})</span>
+                  <span>Neural Model Unavailable â€“ Reverting to Rule-Based ({modelError})</span>
                 </div>
               )}
             </div>
@@ -157,12 +157,12 @@ export const AgentArenaPanel: React.FC<AgentArenaPanelProps> = ({
                 onChange={(e) => onUpdateTeamRight({ controller: e.target.value as any })}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-medium focus:ring-1 focus:ring-red-500"
               >
-                <option value="rule_based">🤖 Tactical Rule AI</option>
-                <option value="heuristic">📊 Heuristic Bot (Untrained Baseline)</option>
-                <option value="human">👤 Human Player</option>
-                <option value="scripted">📜 Scripted Scenario Bot</option>
+                <option value="rule_based">ðŸ¤– Tactical Rule AI</option>
+                <option value="heuristic">ðŸ“Š Heuristic Bot (Untrained Baseline)</option>
+                <option value="human">ðŸ‘¤ Human Player</option>
+                <option value="scripted">ðŸ“œ Scripted Scenario Bot</option>
                 <option value="neural" disabled title="Trained policy is left-side only (trained to attack the right goal)">
-                  🧠 Neural Policy (Left-side only, no mirroring)
+                  ðŸ§  Neural Policy (Left-side only, no mirroring)
                 </option>
               </select>
               <p className="text-[11px] text-slate-400 mt-1">

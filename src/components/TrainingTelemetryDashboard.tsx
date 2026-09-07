@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TrainingTelemetryService } from '../engine/TrainingTelemetryService';
-import {
-  TrainingMetricsSnapshot,
-  HardwareMetrics,
-  TrainingHyperparameters,
-} from '../types/telemetry';
 import { ACADEMY_SCENARIOS } from '../scenarios/ScenarioRegistry';
 import {
   LineChart,
@@ -21,18 +16,14 @@ import {
 import {
   Play,
   Square,
-  RotateCcw,
   Zap,
   Activity,
   Cpu,
   HardDrive,
-  Sliders,
   TrendingUp,
   Target,
   Shield,
   Layers,
-  ArrowUpRight,
-  Info,
   CheckCircle2,
   AlertTriangle,
   Server,
@@ -45,7 +36,6 @@ import {
   FileCode,
   Terminal,
   Copy,
-  ExternalLink,
   RefreshCw,
 } from 'lucide-react';
 
@@ -78,7 +68,6 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
   const [deleteSourcePt, setDeleteSourcePt] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Terminal state
@@ -107,12 +96,12 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
     snapshots,
     currentStep,
     isTrainingActive,
-    trainingSpeed,
+    trainingSpeed: _trainingSpeed,
     hyperparameters,
     hardware,
     isWsConnected,
-    wsStatus,
-    wsUrl,
+    wsStatus: _wsStatus,
+    wsUrl: _wsUrl,
     liveLogs,
     activeJob,
     checkpoints,
@@ -265,7 +254,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
             <div className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
               <span className="text-slate-400">Inference:</span>
-              <span className="font-mono text-slate-200 font-bold">{lastInferenceMs != null ? `${lastInferenceMs} ms` : '—'}</span>
+              <span className="font-mono text-slate-200 font-bold">{lastInferenceMs != null ? `${lastInferenceMs} ms` : 'â€”'}</span>
             </div>
 
             {/* Staleness Badge */}
@@ -317,7 +306,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Zap className="w-3 h-3 text-amber-400" /> Steps / Second
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.sps != null ? hardware.sps.toLocaleString() : '—'}{' '}
+              {hardware.sps != null ? hardware.sps.toLocaleString() : 'â€”'}{' '}
               <span className="text-[10px] text-slate-500 font-normal">SPS</span>
             </div>
           </div>
@@ -327,7 +316,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Cpu className="w-3 h-3 text-blue-400" /> CPU Worker Load
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.cpuUtilizationPct != null ? `${hardware.cpuUtilizationPct}%` : '—'}
+              {hardware.cpuUtilizationPct != null ? `${hardware.cpuUtilizationPct}%` : 'â€”'}
             </div>
           </div>
 
@@ -336,7 +325,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Server className="w-3 h-3 text-emerald-400" /> GPU Utilization
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.gpuUtilizationPct != null ? `${hardware.gpuUtilizationPct}%` : '—'}
+              {hardware.gpuUtilizationPct != null ? `${hardware.gpuUtilizationPct}%` : 'â€”'}
             </div>
           </div>
 
@@ -345,7 +334,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <HardDrive className="w-3 h-3 text-purple-400" /> VRAM Memory
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.gpuVramUsedMb != null ? `${(hardware.gpuVramUsedMb / 1024).toFixed(1)} GB` : '—'}
+              {hardware.gpuVramUsedMb != null ? `${(hardware.gpuVramUsedMb / 1024).toFixed(1)} GB` : 'â€”'}
             </div>
           </div>
 
@@ -354,7 +343,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <Layers className="w-3 h-3 text-cyan-400" /> IPC Bridge Latency
             </div>
             <div className="text-base font-bold font-mono text-slate-100 mt-0.5">
-              {hardware.ipcLatencyMs != null ? `${hardware.ipcLatencyMs} ms` : '—'}
+              {hardware.ipcLatencyMs != null ? `${hardware.ipcLatencyMs} ms` : 'â€”'}
             </div>
           </div>
 
@@ -538,7 +527,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <h3 className="text-xs font-bold text-slate-100">Rolling Episode Reward & Goal Rate</h3>
             </div>
             <span className="text-[11px] font-mono text-emerald-400 font-semibold">
-              Goal Rate: {lastSnapshot.goalRate != null ? `${lastSnapshot.goalRate.toFixed(1)}%` : '—'}
+              Goal Rate: {lastSnapshot.goalRate != null ? `${lastSnapshot.goalRate.toFixed(1)}%` : 'â€”'}
             </span>
           </div>
 
@@ -592,7 +581,7 @@ export const TrainingTelemetryDashboard: React.FC<TrainingTelemetryDashboardProp
               <h3 className="text-xs font-bold text-slate-100">Loss Curves & Policy Entropy</h3>
             </div>
             <span className="text-[11px] font-mono text-purple-400 font-semibold">
-              Entropy: {lastSnapshot.entropy != null ? lastSnapshot.entropy.toFixed(3) : '—'}
+              Entropy: {lastSnapshot.entropy != null ? lastSnapshot.entropy.toFixed(3) : 'â€”'}
             </span>
           </div>
 

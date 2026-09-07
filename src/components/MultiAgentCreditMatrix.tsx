@@ -1,6 +1,6 @@
 import React from 'react';
 import { AgentCreditMetrics } from '../types/telemetry';
-import { Users, Award, Zap, Shield, Compass, BarChart2 } from 'lucide-react';
+import { Users, Award } from 'lucide-react';
 
 interface MultiAgentCreditMatrixProps {
   metrics: AgentCreditMetrics[];

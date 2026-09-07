@@ -1,4 +1,4 @@
-import { Ball, Player, TeamSide, Vector2D, Vector3D } from '../types/football';
+﻿import { Ball, Player, Vector2D, Vector3D } from '../types/football';
 import { PITCH } from './Rules';
 import { Vec2, Vec3 } from './Vector';
 import { SeededRNG } from './SeededRNG';
@@ -12,7 +12,7 @@ export class PhysicsEngine {
    * continuous dt-scaled terms. The API accepts a `dt` parameter but only
    * dt === FIXED_DT (1/60) is supported and verified. The training bridge always
    * steps with dt = 1/60. Callers passing any other dt will get physically
-   * incorrect (tick-rate-dependent) results — do not treat this API as
+   * incorrect (tick-rate-dependent) results â€” do not treat this API as
    * dt-independent. See `training/TELEMETRY_PROTOCOL.md` and section 16 of the
    * stabilization notes.
    */
@@ -21,7 +21,7 @@ export class PhysicsEngine {
   // (length 2.0 units == 105 m), so 1 unit == 52.5 m. Gravity applied on the
   // SAME normalized axis must therefore be 9.8 m/s^2 / 52.5 = ~0.187 units/s^2,
   // NOT 9.8 units/s^2. The previous 9.8 value was ~52x too strong and crushed
-  // loft/arc — a visually non-physical "skimming" ball. Ball physical velocity
+  // loft/arc â€” a visually non-physical "skimming" ball. Ball physical velocity
   // and height are now both expressed in consistent normalized units.
   static readonly UNITS_PER_METER = 1 / 52.5;
   static GRAVITY = 9.8 * (1 / 52.5); // ~0.18667 units/s^2 (physically consistent)
@@ -78,8 +78,8 @@ export class PhysicsEngine {
       ball.velocity.z -= PhysicsEngine.GRAVITY * dt;
       ball.velocity.x *= PhysicsEngine.AIR_DRAG;
       ball.velocity.y *= PhysicsEngine.AIR_DRAG;
-      // Magnus lift from backspin (ω × v), only meaningful while the ball is
-      // in the air. Deterministic — derived from the kick, no RNG.
+      // Magnus lift from backspin (Ï‰ Ã— v), only meaningful while the ball is
+      // in the air. Deterministic â€” derived from the kick, no RNG.
       if (ball.angularVelocity) {
         const mag = PhysicsEngine.magnusAcceleration(ball.velocity, ball.angularVelocity);
         ball.velocity.x += mag.x * dt;
@@ -114,7 +114,7 @@ export class PhysicsEngine {
   }
 
   // Update single player state & physics
-  static updatePlayer(player: Player, ball: Ball, dt: number): void {
+  static updatePlayer(player: Player, _ball: Ball, dt: number): void {
     // Tackle state
     if (player.isTackling) {
       player.tackleCooldown -= 1;
@@ -174,7 +174,7 @@ export class PhysicsEngine {
 
   /**
    * Computes the ball velocity a kick produces, given a player, direction, power
-   * and loft. Single source of truth for kick speed semantics — used by
+   * and loft. Single source of truth for kick speed semantics â€” used by
    * `kickBall` and by the SHOT on-target projection so that shot-quality checks
    * simulate exactly the velocity the ball will actually receive.
    */
@@ -198,7 +198,7 @@ export class PhysicsEngine {
    * plane x = goalX. Simulates the same discrete per-tick integration used by
    * `updateBall` (air drag when airborne, ground friction when grounded, gravity,
    * bounces) at the FIXED_DT timestep, returning the (y, z) point at which the
-   * ball first reaches the goal-line plane — or null if it never reaches it
+   * ball first reaches the goal-line plane â€” or null if it never reaches it
    * within `maxTicks` (i.e. the shot cannot reach the goal).
    *
    * Used by goal-boundary-aware shot-quality logic (see `isGoalMouthPoint`).
@@ -233,7 +233,7 @@ export class PhysicsEngine {
       x += vx * dt;
       y += vy * dt;
 
-      // Magnus lift (ω × v) — identical formula to updateBall so the projected
+      // Magnus lift (Ï‰ Ã— v) â€” identical formula to updateBall so the projected
       // curved trajectory agrees with the live simulation.
       if (angularVelocity) {
         const mag = PhysicsEngine.magnusAcceleration({ x: vx, y: vy, z }, angularVelocity);
@@ -291,8 +291,8 @@ export class PhysicsEngine {
 
   /**
    * Deterministic backspin from a kick. Backspin direction is chosen so the
-   * Magnus force (ω × v) always produces upward lift regardless of travel
-   * direction: ωy = -sign(vx) * (BACKSPIN_PER_LOFT * loft).
+   * Magnus force (Ï‰ Ã— v) always produces upward lift regardless of travel
+   * direction: Ï‰y = -sign(vx) * (BACKSPIN_PER_LOFT * loft).
    */
   static computeKickSpin(velocity: Vector3D, loft: number): Vector3D {
     const omegaY = -Math.sign(velocity.x || 0) * PhysicsEngine.BACKSPIN_PER_LOFT * loft;
@@ -300,7 +300,7 @@ export class PhysicsEngine {
   }
 
   /**
-   * Magnus acceleration: a = C_M * (ω × v). Shared by `updateBall` and
+   * Magnus acceleration: a = C_M * (Ï‰ Ã— v). Shared by `updateBall` and
    * `projectShotAtGoalLine` so live trajectories and shot-quality projections
    * curve identically (single source of truth / no geometry divergence).
    */

@@ -96,6 +96,8 @@ def run_ppo_training(
     lr_schedule: str = "constant",
     initial_lr: float = 3e-4,
     eval_episodes: int = 5,
+    n_envs: int = 1,
+    opponent_difficulty: str = "medium",
 ):
     print("==================================================")
     print("GMN FOOTBALL -- STABLE-BASELINES3 PPO TRAINING")
@@ -108,11 +110,26 @@ def run_ppo_training(
     os.makedirs(logs_dir, exist_ok=True)
 
     print("\n1. Initializing Environment...")
-    def make_env():
-        return GMNFootballEnv(scenario=scenario, port=5050, use_ws=True)
+    # Parallel mode (optional): with n_envs > 1, each environment runs its own
+    # bridge instance on a distinct port (5050, 5051, ...) so steps are served
+    # by multiple Node processes. n_envs=1 keeps the legacy single-env path.
+    n_envs = max(1, n_envs)
 
-    raw_env = make_env()
-    env = DummyVecEnv([lambda: raw_env])
+    def make_env(index: int) -> GMNFootballEnv:
+        return GMNFootballEnv(
+            scenario=scenario,
+            port=5050 + index if index > 0 else 5050,
+            use_ws=True,
+            opponent_difficulty=opponent_difficulty,
+        )
+
+    if n_envs == 1:
+        raw_env = make_env(0)
+        env = DummyVecEnv([lambda: raw_env])
+    else:
+        env = DummyVecEnv([(lambda idx=i: make_env(idx)) for i in range(n_envs)])
+        print(f"   Parallel stepping enabled with {n_envs} environments (ports 5050..{5050 + n_envs - 1}).")
+    raw_env = env.envs[0]  # first sub-env, reused by the final evaluation section
 
     vec_norm_path = resume_path.replace(".zip", "_vecnormalize.pkl") if resume_path else None
     if vec_norm_path and os.path.exists(vec_norm_path):
@@ -251,6 +268,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr-schedule", type=str, choices=["constant", "linear"], default="constant", help="Learning rate schedule")
     parser.add_argument("--lr", type=float, default=3e-4, help="Initial learning rate")
     parser.add_argument("--eval-episodes", type=int, default=5, help="Number of eval episodes")
+    parser.add_argument("--n-envs", type=int, default=1, help="Number of parallel environments/bridges (1 = legacy single-env mode)")
+    parser.add_argument("--opponent-difficulty", type=str, default="medium", choices=["easy", "medium", "hard", "master"], help="Right-team (bot) difficulty")
 
     args = parser.parse_args()
     chosen_steps = args.timesteps if args.timesteps is not None else (args.steps if args.steps is not None else 1000)
@@ -263,5 +282,7 @@ if __name__ == "__main__":
         lr_schedule=args.lr_schedule,
         initial_lr=args.lr,
         eval_episodes=args.eval_episodes,
+        n_envs=args.n_envs,
+        opponent_difficulty=args.opponent_difficulty,
     )
     sys.exit(0 if success else 1)

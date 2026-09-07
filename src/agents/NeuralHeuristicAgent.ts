@@ -1,4 +1,4 @@
-import { ActionType, AgentAction, Vector2D } from '../types/football';
+﻿import { ActionType, AgentAction } from '../types/football';
 import { AgentDecisionContext, IAgent } from './BaseAgent';
 import { Vec2 } from '../engine/Vector';
 import { SeededRNG } from '../engine/SeededRNG';
@@ -48,7 +48,7 @@ export class NeuralHeuristicAgent implements IAgent {
   }
 
   decide(context: AgentDecisionContext): AgentAction {
-    const { player, ball, opponents, teammates, teamSide } = context;
+    const { player, ball, opponents: _opponents, teammates, teamSide } = context;
     const opponentGoalX = teamSide === 'left' ? 1.0 : -1.0;
 
     // Feature extraction (8 normalized inputs)

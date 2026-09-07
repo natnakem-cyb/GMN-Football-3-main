@@ -67,6 +67,7 @@ class GMNFootballEnv(gym.Env):
         auto_start_bridge: bool = True,
         render_mode: Optional[str] = None,
         use_ws: bool = True,
+        opponent_difficulty: str = "medium",
     ):
         super().__init__()
 
@@ -101,8 +102,30 @@ class GMNFootballEnv(gym.Env):
 
         # Ensure Bridge Server is running
         self._ensure_bridge_running()
+        if opponent_difficulty != "medium":
+            self.set_opponent_difficulty(opponent_difficulty)
         if self.use_ws:
             self._connect_ws()
+
+    def set_opponent_difficulty(self, difficulty: str) -> None:
+        """Set the right-team (bot) difficulty via the bridge /opponent endpoint.
+
+        Used by the self-play opponent pool (training/opponent_pool.py) to vary
+        the opponent between episodes / vectorized workers.
+        """
+        if difficulty not in ("easy", "medium", "hard", "master"):
+            raise ValueError(f"Invalid opponent difficulty: {difficulty}")
+        try:
+            res = self.session.post(
+                f"{self.base_url}/opponent",
+                json={"difficulty": difficulty},
+                timeout=5.0,
+            )
+            if res.status_code != 200:
+                raise RuntimeError(f"/opponent failed with code {res.status_code}: {res.text}")
+        except requests.exceptions.ConnectionError:
+            # Bridge without the /opponent endpoint (older bridge) — ignore.
+            pass
 
     def _ensure_bridge_running(self):
         """Verifies connection to bridge server or starts it via npx tsx."""

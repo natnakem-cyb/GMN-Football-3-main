@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, StepForward, RotateCcw, Zap, Compass, Keyboard, ShieldAlert, Grid3x3 } from 'lucide-react';
+import { Play, Pause, StepForward, RotateCcw, Compass, Keyboard, Grid3x3 } from 'lucide-react';
 
 interface MatchControlsProps {
   isPlaying: boolean;
@@ -28,7 +28,7 @@ export const MatchControls: React.FC<MatchControlsProps> = ({
   showFormationOverlay,
   onToggleFormationOverlay,
   onOpenHelp,
-  isHumanControlled,
+  isHumanControlled: _isHumanControlled,
 }) => {
   return (
     <div

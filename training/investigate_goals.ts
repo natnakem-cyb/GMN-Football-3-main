@@ -3,7 +3,7 @@
  * to determine whether goals come from dribbling past defenders, shooting, or
  * other mechanisms.
  *
- * This is a permanent, committed artifact — not a throwaway script.
+ * This is a permanent, committed artifact â€” not a throwaway script.
  * It loads the smoke-test ONNX model, runs deterministic episodes through
  * GameEngine with active rule-based defenders, and logs per-step actions,
  * ball ownership, player positions, and events.
@@ -26,7 +26,7 @@ async function main() {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
-  console.log(`✓ Session created. Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
+  console.log(`âœ“ Session created. Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
 
   const inputName = session.inputNames[0] || 'obs';
   const outputName = session.outputNames[0] || 'action_logits';
@@ -103,7 +103,7 @@ async function main() {
             const maxLogit = Math.max(...logitsArray);
             const actionIdx = logitsArray.indexOf(maxLogit);
             if (actionIdx < 0 || actionIdx > 18) {
-              console.error(`[warn] Invalid action index ${actionIdx} at tick ${tick}, seed ${seed} — using IDLE`);
+              console.error(`[warn] Invalid action index ${actionIdx} at tick ${tick}, seed ${seed} â€” using IDLE`);
               action = { type: 0 };
             } else {
               action = mapDiscreteAction(actionIdx);
@@ -134,7 +134,6 @@ async function main() {
         actionMap.set(player.id, action);
       }
 
-      const prevBallOwner = engine.ball.ownerId;
       engine.step(actionMap, 1 / 60);
 
       const currentBallOwner = engine.ball.ownerId;

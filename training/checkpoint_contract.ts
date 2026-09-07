@@ -1,21 +1,12 @@
-/**
- * GMN-Football-3 — Checkpoint Contract & Metadata Validation System
+﻿/**
+ * GMN-Football-3 â€” Checkpoint Contract & Metadata Validation System
  * Ensures all evaluated and trained checkpoints satisfy the authoritative environment contracts,
  * valid schema dimensions, non-padded weight criteria, and full metadata provenance.
  */
 
 import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
-import {
-  GMN_ENV_VERSION,
-  OBSERVATION_SCHEMA_VERSION,
-  ACTION_SCHEMA_VERSION,
-  OBSERVATION_DIM,
-  BASE_OBSERVATION_DIM,
-  ROLE_DIM,
-  ACTION_SPACE_SIZE,
-} from '../src/engine/Contract';
+import { GMN_ENV_VERSION, OBSERVATION_SCHEMA_VERSION, ACTION_SCHEMA_VERSION, OBSERVATION_DIM, BASE_OBSERVATION_DIM, ACTION_SPACE_SIZE } from '../src/engine/Contract';
 
 export interface CheckpointMetadata {
   algorithm: 'mappo' | 'ippo' | 'ppo' | 'rule_based' | 'scripted' | 'random' | 'noop';
@@ -67,7 +58,7 @@ export class CheckpointContractValidator {
     isRoleAware: boolean;
     reason?: string;
   } {
-    const { w0, b0, w1, b1, w2, b2 } = weights;
+    const { w0, b0, w1: _w1, b1, w2: _w2, b2 } = weights;
 
     if (!w0 || !Array.isArray(w0) || w0.length === 0) {
       return { isValid: false, isRoleAware: false, reason: 'Layer 0 weight matrix (w0) is missing or empty.' };

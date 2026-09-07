@@ -4,7 +4,7 @@
  * Connects to the bridge server WebSocket, starts a short MAPPO training job,
  * and captures real parsed metrics flowing through the pipeline.
  *
- * This is a permanent, committed artifact — not a throwaway script.
+ * This is a permanent, committed artifact â€” not a throwaway script.
  */
 
 import WebSocket from 'ws';
@@ -13,7 +13,7 @@ import http from 'http';
 const BRIDGE_HOST = process.env.GMN_BRIDGE_HOST || '127.0.0.1';
 const BRIDGE_PORT = parseInt(process.env.GMN_BRIDGE_PORT || '5050', 10);
 const WS_URL = `ws://${BRIDGE_HOST}:${BRIDGE_PORT}`;
-const HTTP_BASE = `http://${BRIDGE_HOST}:${BRIDGE_PORT}`;
+void 0; // HTTP_BASE removed (unused; WS transport is authoritative)
 
 interface MetricsMessage {
   type: string;

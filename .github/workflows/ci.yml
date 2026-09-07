@@ -32,6 +32,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r training/requirements.txt
 
+      - name: Contract sync check (fail on drift)
+        run: npm run check:contracts
+
       - name: TypeScript lint
         run: npm run lint
 

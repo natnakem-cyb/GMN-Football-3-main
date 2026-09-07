@@ -3,8 +3,6 @@
  * Formats evaluation results into Markdown, CSV, and HTML comparison tables.
  */
 
-import fs from 'fs';
-import path from 'path';
 import { AggregatedMetrics } from '../src/engine/FootballMetrics';
 
 export class ComparisonTableGenerator {

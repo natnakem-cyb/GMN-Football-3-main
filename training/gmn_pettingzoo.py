@@ -217,6 +217,8 @@ class GMNMultiAgentEnv(ParallelEnv):
         auto_start_bridge: bool = True,
         render_mode: Optional[str] = None,
         enable_reward_shaping: bool = True,
+        opponent_difficulty: str = "medium",
+        opponent_pool: Optional[Any] = None,
     ):
         super().__init__()
         self.scenario = scenario
@@ -227,6 +229,13 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.auto_start_bridge = auto_start_bridge
         self.render_mode = render_mode
         self.enable_reward_shaping = enable_reward_shaping
+        self.opponent_difficulty = opponent_difficulty
+        # Optional OpponentPool (training/opponent_pool.py): when provided, a
+        # pool opponent is selected and applied on every reset() (self-play /
+        # opponent-pool training). Entries with kind == "snapshot" are recorded
+        # but not yet executable by the Node bridge.
+        self.opponent_pool = opponent_pool
+        self.current_opponent: Optional[Dict[str, Any]] = None
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
         self.reward_shaper = CooperativeRewardShaper() if enable_reward_shaping else None
@@ -251,12 +260,30 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         # Ensure Bridge Server is running & connected
         self._ensure_bridge_running()
+        if opponent_difficulty != "medium":
+            self.set_opponent_difficulty(opponent_difficulty)
         # P0 #6: bounded WS receive timeout (never hang on a missing frame).
         self.ws_recv_timeout = float(os.environ.get("GMN_WS_RECV_TIMEOUT", "10.0"))
         self._connect_ws()
 
         # Perform initial reset to discover controllable agents
         self.reset()
+
+    def set_opponent_difficulty(self, difficulty: str) -> None:
+        """Set the right-team (bot) difficulty via the bridge /opponent endpoint."""
+        if difficulty not in ("easy", "medium", "hard", "master"):
+            raise ValueError(f"Invalid opponent difficulty: {difficulty}")
+        self.opponent_difficulty = difficulty
+        try:
+            import requests  # already a module dependency of this wrapper
+
+            requests.post(
+                f"http://{self.host}:{self.port}/opponent",
+                json={"difficulty": difficulty},
+                timeout=5.0,
+            )
+        except Exception:
+            pass  # older bridges without /opponent keep the default difficulty
 
     def _ensure_bridge_running(self):
         """Verifies connection to bridge server or starts it via npx tsx."""
@@ -412,6 +439,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         if self.reward_shaper is not None:
             self.reward_shaper.reset()
         self._pending_pass = None
+
+        # Self-play / opponent-pool selection: pick an opponent for this episode.
+        if self.opponent_pool is not None:
+            self.current_opponent = self.opponent_pool.sample()
+            self.opponent_pool.apply(self.current_opponent, self)
 
         target_scenario = self.scenario
         if options and "scenario" in options:

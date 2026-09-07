@@ -1,5 +1,4 @@
 import { ChildProcess, spawn } from 'child_process';
-import path from 'path';
 import fs from 'fs';
 import { WebSocket } from 'ws';
 import { metricsBroadcaster } from './bridge_server';

@@ -48,5 +48,12 @@ bun.lock
 
 # Training artifacts (transient)
 training/runs/
+training/logs/
+training/models/opponent_pool/
 *.bak
 training/models/*_temp.pt
+training/models/smoke_*.pt
+training/models/smoke_*.zip
+training/models/smoke_*_vecnormalize.pkl
+training/models/*smoke_*.pt
+training/models/*smoke_*.zip

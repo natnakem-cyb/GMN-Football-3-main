@@ -32,4 +32,83 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 
 ## Item 6 — Single evidence source of truth
 - [x] Pin reported results to checkpoint SHA + `git describe` — created `training/RESULTS_INDEX.md`: lineage table (validation_report v2 → seed42_best `ddaf4d38…`, deployed weights → seed44_best `6fb28ff1…`, legacy heuristic JSONs marked superseded), reporting rules, verification commands. The old `FILE_NOT_FOUND` ambiguity is resolved: the report's model IS seed42_best.
+
+---
+
+# Architectural Review Remediation (Report Findings A.1–B.8)
+
+These tasks address the 8 findings from the architectural review report. Immediate
+items (A) first, then Medium (B).
+
+## A.1 — Training Throughput for PPO/MAPPO
+**Problem:** PPO/MAPPO train on a single environment (blocking round-trip to bridge).
+**Fix:** Optional parallel stepping via `--n-envs N` (multiple bridge instances).
+- [x] `training/train_ppo.py` supports `--n-envs` flag (spawns bridges on ports 5050..5050+N-1)
+- [x] `training/train_mappo.py` updated for parallel env stepping
+- [x] `training/mappo_rollout.py` supports multi-env rollout collection
+- [x] `training/gmn_gym.py` / `gmn_pettingzoo.py` accept `port` param; auto-start bridge per port
+- [x] `training/bridge_server.ts` accepts `GMN_BIND_PORT` env var
+- [x] Legacy `n_envs=1` single-env path preserved
+- [x] Smoke test passed: `python training/train_ppo.py 300 --n-envs 2` runs end-to-end
+
+## A.2 — Automate Contract Sync in CI
+**Problem:** `sync_contracts.ts` exists but is not enforced; drift goes undetected.
+**Fix:** Add `--check` mode + non-zero exit, wire into CI and build.
+- [x] `scripts/sync_contracts.ts` updated with `--check` flag (exits non-zero on drift)
+- [x] `package.json`: `check:contracts` script added (runs `sync:contracts --check`)
+- [x] `.github/workflows/ci.yml`: contract-sync step added to CI pipeline
+- [x] Build enforces sync: `npm run check:contracts` fails fast if Python constants drift from `Contract.ts`
+- [x] Manual "health check" references replaced by automated CI enforcement
+
+## A.3 — Consolidate Requirements Files
+**Problem:** Conflicting root `requirements.txt` and `training/requirements.txt`.
+**Fix:** Delete root file, point everything at training/.
+- [x] Root `requirements.txt` deleted (`git rm`)
+- [x] `README.md` updated: instruct users to install from `training/requirements.txt`
+- [x] Verified all training scripts reference `training/requirements.txt` (CI already did)
+- [x] `training/README.md` documents where to add new Python dependencies
+
+## A.4 — Stricter TypeScript Checks
+**Problem:** `noUnusedLocals`/`noUnusedParameters: false` allow dead code.
+**Fix:** Enable strict checks, fix all resulting errors.
+- [x] `tsconfig.json`: `noUnusedLocals: true`, `noUnusedParameters: true`, `noImplicitReturns: true`
+- [x] `noFallthroughCasesInSwitch` was already `true`
+- [x] Fixed all unused-variable errors across ~45 `.ts`/`.tsx` files (prefix with `_` or remove)
+- [x] `npx tsc --noEmit` passes clean (0 errors)
+
+## B.5 — Self-Play / Opponent Pools
+**Problem:** Only left team learns; opponent is fixed `RuleBasedAgent`.
+**Fix:** Opponent pool with pluggable selection strategy.
+- [x] `training/opponent_pool.py`: `OpponentPool` class with `uniform`/`cyclic`/`elo` strategies
+- [x] `training/gmn_gym.py` / `gmn_pettingzoo.py`: `set_opponent_difficulty()` method
+- [x] `training/bridge_server.ts`: `/opponent` POST endpoint to set bot difficulty
+- [x] `training/train_mappo.py`: `--opponent-difficulty` flag wired through
+- [x] Pool supports rule-based difficulties today; learned-snapshot playback noted as future work
+
+## B.6 — Extend Training to Full Matches
+**Problem:** Only drill scenarios trained; full 11v11 not reachable.
+**Fix:** New training script on the existing `11_vs_11` scenario.
+- [x] `training/train_ppo_full.py`: PPO trainer targeting the `11_vs_11` scenario (reuses `run_ppo_training`)
+- [x] Leverages parallel stepping (`--n-envs`) from A.1
+- [x] Reuses existing `11_vs_11` scenario from `src/scenarios/ScenarioRegistry.ts`
+- [x] Full law set (kick-off, throw-ins, goal kicks) handled by authoritative `GameEngine`
+
+## B.7 — Rewrite CONTRIBUTING.md
+**Problem:** Generic boilerplate referencing unrelated project (Google/Tensor2Tensor).
+**Fix:** Project-specific contribution guidelines.
+- [x] `CONTRIBUTING.md` fully rewritten with:
+  - Dev environment setup (Node + Python)
+  - Coding standards (TypeScript strict, Python PEP8)
+  - Testing expectations (`npm test`, `pytest`)
+  - PR process (contract sync, docs updated)
+  - Link to architecture overview in README
+- [x] All references to other projects removed
+
+## B.8 — Document All Training Scripts
+**Problem:** `training/` has ~120 files, undocumented in README.
+**Fix:** Comprehensive `training/README.md`.
+- [x] `training/README.md` created documenting every script (trainers, eval, networks, debug, tests)
+- [x] Each script tagged Stable / Reference / Experimental
+- [x] Sample commands, flag tables, environment notes included
+- [x] Root `README.md` updated with pointer to `training/README.md`
 - [x] Resolve report content thrash / FILE_NOT_FOUND class conflicts — SHA cross-check proves the seemingly contradictory reports used different checkpoints (seed42_best vs seed44_best vs best); documented in RESULTS_INDEX.md. Remaining sub-item: mark the legacy `comprehensive_eval_*` JSONs with `_legacy` suffix when regenerating next eval run.

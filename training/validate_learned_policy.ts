@@ -1,5 +1,5 @@
 /**
- * GMN-Football-3 — Master Policy Validation & Evidence Chain Runner
+ * GMN-Football-3 â€” Master Policy Validation & Evidence Chain Runner
  * 
  * Executes the complete 10-point scientific validation pipeline to objectively evaluate whether
  * a trained RL policy has learned genuine, generalizing football behavior.
@@ -9,7 +9,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { CheckpointContractValidator, CheckpointMetadata } from './checkpoint_contract';
+import { CheckpointContractValidator } from './checkpoint_contract';
 import { BaselineLadderEvaluator, BaselineLadderResult } from './eval_baseline_ladder';
 import { GeneralizationEvaluator, GeneralizationReport } from './eval_generalization';
 import { OpponentRobustnessEvaluator, OpponentRobustnessReport } from './eval_opponent_robustness';
@@ -48,7 +48,7 @@ export class PolicyValidationMasterRunner {
     baseSeed = 100000
   ): MasterValidationReport {
     console.log('========================================================================');
-    console.log('       GMN-FOOTBALL-3 — MASTER POLICY VALIDATION & EVIDENCE PIPELINE     ');
+    console.log('       GMN-FOOTBALL-3 â€” MASTER POLICY VALIDATION & EVIDENCE PIPELINE     ');
     console.log('========================================================================\n');
 
     const criteria: ValidationCriterionResult[] = [];
@@ -60,7 +60,7 @@ export class PolicyValidationMasterRunner {
       path.resolve(process.cwd(), 'training/models/mappo_academy_3_vs_1_with_keeper_seed44_best.pt')
     );
 
-    const manifest = CheckpointContractValidator.createExperimentManifest({
+    const _manifest = CheckpointContractValidator.createExperimentManifest({
       algorithm: 'mappo',
       scenario: scenarioId,
       trainingSteps: 49920,
@@ -68,6 +68,7 @@ export class PolicyValidationMasterRunner {
       checkpointPath: 'training/models/mappo_academy_3_vs_1_with_keeper_seed44_best.pt',
       weights: MAPPO_WEIGHTS,
     });
+    void _manifest;
 
     if (tensorCheck.isValid) {
       criteria.push({
@@ -217,16 +218,16 @@ export class PolicyValidationMasterRunner {
     const mdPath = path.resolve(process.cwd(), 'training/validation_report.md');
 
     fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), 'utf-8');
-    console.log(`\n✓ Saved full JSON validation report to: ${jsonPath}`);
+    console.log(`\nâœ“ Saved full JSON validation report to: ${jsonPath}`);
 
     const mdContent = this.formatMarkdownReport(report);
     fs.writeFileSync(mdPath, mdContent, 'utf-8');
-    console.log(`✓ Saved formatted Markdown validation report to: ${mdPath}\n`);
+    console.log(`âœ“ Saved formatted Markdown validation report to: ${mdPath}\n`);
   }
 
   private formatMarkdownReport(report: MasterValidationReport): string {
     const lines: string[] = [];
-    lines.push('# GMN-Football-3 — Policy Validation & Scientific Evidence Report');
+    lines.push('# GMN-Football-3 â€” Policy Validation & Scientific Evidence Report');
     lines.push(`\n**Date of Evaluation:** ${report.timestamp}`);
     lines.push(`**Target Scenario:** \`${report.scenario}\``);
     lines.push(`**Algorithm:** \`${report.policyAlgorithm}\``);
@@ -243,12 +244,12 @@ export class PolicyValidationMasterRunner {
     for (const c of report.criteria) {
       const vBadge =
         c.verdict === 'PASS'
-          ? '✅ **PASS**'
+          ? 'âœ… **PASS**'
           : c.verdict === 'REJECTED'
-          ? '🛑 **REJECTED**'
+          ? 'ðŸ›‘ **REJECTED**'
           : c.verdict === 'INCONCLUSIVE'
-          ? '⚠️ **INCONCLUSIVE**'
-          : '❌ **FAIL**';
+          ? 'âš ï¸ **INCONCLUSIVE**'
+          : 'âŒ **FAIL**';
       lines.push(`| ${c.step} | ${c.name} | ${vBadge} | ${c.evidence} |`);
     }
 
@@ -268,7 +269,7 @@ export class PolicyValidationMasterRunner {
     lines.push(`- **Total Vectors Tested:** ${report.browserParity.totalVectorsTested}`);
     lines.push(`- **Max Absolute Logit Delta:** \`${report.browserParity.maxAbsoluteLogitDiff.toExponential(4)}\``);
     lines.push(`- **Action Mismatches:** ${report.browserParity.actionMismatches}`);
-    lines.push(`- **Parity Status:** ${report.browserParity.isParityVerified ? '✅ 100% PARITY' : '❌ MISMATCH'}`);
+    lines.push(`- **Parity Status:** ${report.browserParity.isParityVerified ? 'âœ… 100% PARITY' : 'âŒ MISMATCH'}`);
 
     return lines.join('\n');
   }

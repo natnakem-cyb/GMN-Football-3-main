@@ -1,4 +1,4 @@
-import {
+﻿import {
   TrainingMetricsSnapshot,
   HardwareMetrics,
   AgentCreditMetrics,
@@ -6,7 +6,7 @@ import {
   ActionProbabilityEntry,
   TrainingHyperparameters,
 } from '../types/telemetry';
-import { Player, Ball, Vector2D, MatchEvent } from '../types/football';
+import { Player, Ball, MatchEvent } from '../types/football';
 import { TrainedPolicyAgent } from '../agents/TrainedPolicyAgent';
 import { ObservationEncoder } from './ObservationEncoder';
 
@@ -196,7 +196,7 @@ export class TrainingTelemetryService {
    *
    * Priority:
    *   1. `VITE_WS_URL` build-time env (production / remote bridge deployments).
-   *   2. Same-origin `/ws` path — served by the Vite dev proxy in development
+   *   2. Same-origin `/ws` path â€” served by the Vite dev proxy in development
    *      (vite.config.ts proxies `/ws` -> ws://127.0.0.1:5050) and by any
    *      production reverse proxy that forwards `/ws` to the bridge.
    *
@@ -311,7 +311,7 @@ export class TrainingTelemetryService {
               this.liveLogs.push(`[BRIDGE ERROR] ${parsed.data?.message || parsed.error || 'unknown error'}`);
               this.notify();
             }
-            // Unknown/unsupported message types are ignored — telemetry must
+            // Unknown/unsupported message types are ignored â€” telemetry must
             // never crash the connection.
           }
         } catch (err) {
@@ -598,7 +598,7 @@ export class TrainingTelemetryService {
     };
   }
 
-  private computeSyntheticPolicyLogits(player: Player, allPlayers: Player[], ball: Ball): number[] {
+  private computeSyntheticPolicyLogits(player: Player, _allPlayers: Player[], ball: Ball): number[] {
     const logits = new Array(19).fill(-1.5);
     const distToBall = Math.hypot(ball.position.x - player.position.x, ball.position.y - player.position.y);
     const distToGoal = Math.hypot(1.0 - player.position.x, player.position.y);
@@ -649,7 +649,7 @@ export class TrainingTelemetryService {
    * Counterfactual advantage is not available from the browser-side engine alone,
    * so this returns observable behavioral metrics instead.
    */
-  public computeMultiAgentCredits(players: Player[], ball: Ball, events: MatchEvent[] = []): AgentCreditMetrics[] {
+  public computeMultiAgentCredits(players: Player[], _ball: Ball, events: MatchEvent[] = []): AgentCreditMetrics[] {
     const leftPlayers = players.filter((p) => p.team === 'left');
 
     // Pre-compute per-player event counts from the actual match event log.

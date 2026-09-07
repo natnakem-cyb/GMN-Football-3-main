@@ -1,4 +1,4 @@
-import { ActionType, AgentAction, Vector2D } from '../types/football';
+﻿import { ActionType, AgentAction, Vector2D } from '../types/football';
 import { AgentDecisionContext, IAgent } from './BaseAgent';
 import { Vec2 } from '../engine/Vector';
 import { SeededRNG } from '../engine/SeededRNG';
@@ -77,7 +77,7 @@ export class HumanAgent implements IAgent {
   }
 
   decide(context: AgentDecisionContext): AgentAction {
-    const { player, ball } = context;
+    const { player, ball: _ball } = context;
 
     // Check if there is an explicit action queued
     if (this.pendingAction) {

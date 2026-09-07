@@ -5,12 +5,7 @@
 
 import { GameEngine } from '../src/engine/GameEngine';
 import { ObservationEncoder } from '../src/engine/ObservationEncoder';
-import {
-  OBSERVATION_DIM,
-  OBSERVATION_SCHEMA_VERSION,
-  ROLE_DIM,
-  ROLE_VOCABULARY,
-} from '../src/engine/Contract';
+import { OBSERVATION_DIM, OBSERVATION_SCHEMA_VERSION } from '../src/engine/Contract';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
 import { ModularFeatureParser } from './modular_encoder';
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ScenarioConfig } from '../types/football';
 import { ACADEMY_SCENARIOS } from '../scenarios/ScenarioRegistry';
-import { GraduationCap, CheckCircle2, XCircle, Clock, Trophy, Play, Star } from 'lucide-react';
+import { GraduationCap, CheckCircle2, XCircle, Clock, Trophy, Play } from 'lucide-react';
 
 interface ScenarioSelectorProps {
   activeScenario: ScenarioConfig | null;
@@ -14,7 +14,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
   activeScenario,
   onSelectScenario,
   onFreePlay,
-  matchTimeSeconds,
+  matchTimeSeconds: _matchTimeSeconds,
 }) => {
   return (
     <div id="scenario-selector-panel" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl">
@@ -36,7 +36,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
               : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
           }`}
         >
-          ⚽ Free Play Match
+          âš½ Free Play Match
         </button>
       </div>
 
@@ -44,8 +44,6 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {ACADEMY_SCENARIOS.map((scenario) => {
           const isSelected = activeScenario?.id === scenario.id;
-          const allCompleted = isSelected && scenario.objectives.every((o) => o.isCompleted);
-          const hasFailed = isSelected && scenario.objectives.some((o) => o.isFailed);
 
           return (
             <div

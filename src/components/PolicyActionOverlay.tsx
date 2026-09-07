@@ -1,17 +1,6 @@
 import React, { useState } from 'react';
 import { PolicyActionDistribution } from '../types/telemetry';
-import {
-  BrainCircuit,
-  Eye,
-  Crosshair,
-  Gauge,
-  ArrowRight,
-  TrendingUp,
-  Shield,
-  Layers,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react';
+import { BrainCircuit, Eye, Crosshair, Gauge, Layers, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface PolicyActionOverlayProps {
   distribution: PolicyActionDistribution | null;
@@ -26,7 +15,7 @@ export const PolicyActionOverlay: React.FC<PolicyActionOverlayProps> = ({
   onSelectAction,
   showAttentionVectors,
   onToggleAttentionVectors,
-  isNeuralActive,
+  isNeuralActive: _isNeuralActive,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
 

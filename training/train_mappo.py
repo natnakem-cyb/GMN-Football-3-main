@@ -29,7 +29,7 @@ import torch
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv, OBSERVATION_DIM, ACTION_SPACE_SIZE
 from training.mappo_networks import SharedActor, CentralizedCritic
-from training.mappo_rollout import collect_rollout, compute_gae
+from training.mappo_rollout import collect_rollout, collect_rollout_parallel, compute_gae
 from training.mappo_update import ppo_update
 from training.eval_progress import evaluate_checkpoint_progress, persist_trend_snapshots
 
@@ -40,6 +40,10 @@ def run_mappo_training(
     scenario: str = "academy_3_vs_1_with_keeper",
     seed: int = 42,
     resume_path: str = None,
+    n_envs: int = 1,
+    self_play: bool = False,
+    opponent_difficulty: str = "medium",
+    opponent_strategy: str = "uniform",
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -72,7 +76,35 @@ def run_mappo_training(
     os.makedirs(logs_dir, exist_ok=True)
 
     print("\n1. Initializing Multi-Agent Environment & MAPPO Networks...")
-    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True)
+    # Self-play / opponent pool (Task: opponent generalization). When enabled,
+    # a pool of rule-based difficulties (and periodic policy snapshots) is
+    # sampled per episode; snapshots of the current policy are saved to
+    # training/models/opponent_pool/ for future bridge-side execution.
+    opponent_pool = None
+    if self_play:
+        from training.opponent_pool import OpponentPool
+
+        opponent_pool = OpponentPool(
+            strategy=opponent_strategy,
+            seed=seed,
+            snapshot_dir=os.path.join(models_dir, "opponent_pool"),
+        )
+        print(f"   Self-play enabled: {opponent_pool.describe()}")
+
+    # Parallel mode: each env runs its own bridge instance on a distinct port
+    # (5050, 5051, ...). n_envs=1 keeps the original single-env workflow.
+    envs = []
+    for i in range(max(1, n_envs)):
+        envs.append(
+            GMNMultiAgentEnv(
+                scenario=scenario,
+                auto_start_bridge=True,
+                port=5050 + i if i > 0 else None,
+                opponent_difficulty=opponent_difficulty,
+                opponent_pool=opponent_pool,
+            )
+        )
+    env = envs[0]
     num_agents = len(env.possible_agents)
     obs_dim = OBSERVATION_DIM
     global_state_dim = obs_dim * num_agents
@@ -113,10 +145,11 @@ def run_mappo_training(
         print(f"   [OK] Checkpoint loaded successfully. Resuming from step {total_steps_elapsed}.")
 
     n_steps = 256
+    effective_steps_per_update = n_steps * max(1, n_envs)
     remaining_timesteps = max(0, timesteps - total_steps_elapsed)
-    n_updates = remaining_timesteps // n_steps
-    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(actor_opt, T_max=n_updates, eta_min=3e-5)
-    critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(critic_opt, T_max=n_updates, eta_min=3e-5)
+    n_updates = remaining_timesteps // effective_steps_per_update
+    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(actor_opt, T_max=max(1, n_updates), eta_min=3e-5)
+    critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(critic_opt, T_max=max(1, n_updates), eta_min=3e-5)
     check_freq_steps = 1000 if is_smoke_test else 10000
 
     print(f"\n2. Configuration:")
@@ -152,9 +185,13 @@ def run_mappo_training(
     total_steps_elapsed_at_start = total_steps_elapsed
 
     for update_idx in range(start_update, start_update + n_updates):
-        # 1. Collect Rollout
-        buffer = collect_rollout(env, actor, critic, num_steps=n_steps)
-        total_steps_elapsed += n_steps
+        # 1. Collect Rollout (parallel across n_envs bridges when n_envs > 1)
+        if n_envs > 1:
+            buffer = collect_rollout_parallel(envs, actor, critic, num_steps=n_steps)
+            total_steps_elapsed += n_steps * n_envs
+        else:
+            buffer = collect_rollout(env, actor, critic, num_steps=n_steps)
+            total_steps_elapsed += n_steps
 
         # Record completed episodes
         for ep_info in buffer.get("completed_episodes", []):
@@ -209,6 +246,13 @@ def run_mappo_training(
         # Periodic snapshot logging (matching train_ippo.py cadence)
         if total_steps_elapsed - last_check_step >= check_freq_steps:
             last_check_step = total_steps_elapsed
+
+            # Periodic self-play snapshot: add the current policy to the pool.
+            if opponent_pool is not None:
+                snap = opponent_pool.maybe_snapshot(actor, total_steps_elapsed)
+                if snap:
+                    print(f"   [SelfPlay] Policy snapshot added to opponent pool: {snap}", flush=True)
+
             recent_ep = episode_rewards[-50:] if episode_rewards else [0.0]
             recent_goals = episode_goals[-50:] if episode_goals else [0]
             mean_rew = float(np.mean(recent_ep))
@@ -492,6 +536,10 @@ if __name__ == "__main__":
     parser.add_argument("--scenario", type=str, default="academy_3_vs_1_with_keeper", help="Scenario name")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint (.pt) to resume from")
+    parser.add_argument("--n-envs", type=int, default=1, help="Number of parallel environments/bridges (1 = legacy single-env mode)")
+    parser.add_argument("--self-play", action="store_true", help="Enable the self-play opponent pool for the right team")
+    parser.add_argument("--opponent-difficulty", type=str, default="medium", choices=["easy", "medium", "hard", "master"], help="Fixed rule-based opponent difficulty when self-play is disabled")
+    parser.add_argument("--opponent-strategy", type=str, default="uniform", choices=["uniform", "cyclic", "elo"], help="Opponent pool selection strategy")
     args = parser.parse_args()
 
     run_mappo_training(
@@ -500,4 +548,8 @@ if __name__ == "__main__":
         scenario=args.scenario,
         seed=args.seed,
         resume_path=args.resume,
+        n_envs=args.n_envs,
+        self_play=args.self_play,
+        opponent_difficulty=args.opponent_difficulty,
+        opponent_strategy=args.opponent_strategy,
     )

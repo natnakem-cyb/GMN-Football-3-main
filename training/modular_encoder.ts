@@ -8,12 +8,7 @@
  * - Match Context (game mode one-hot)
  */
 
-import {
-  OBSERVATION_DIM,
-  OBSERVATION_SCHEMA_VERSION,
-  ROLE_DIM,
-  ROLE_VOCABULARY,
-} from '../src/engine/Contract';
+import { OBSERVATION_DIM, OBSERVATION_SCHEMA_VERSION, ROLE_VOCABULARY } from '../src/engine/Contract';
 
 export interface ModularEntities {
   ego: {

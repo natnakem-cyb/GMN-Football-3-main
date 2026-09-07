@@ -1,4 +1,4 @@
-import { ActionType, AgentAction, Vector2D } from '../types/football';
+﻿import { ActionType, AgentAction, Vector2D } from '../types/football';
 import { AgentDecisionContext, IAgent } from './BaseAgent';
 import { Vec2 } from '../engine/Vector';
 
@@ -19,7 +19,7 @@ export class ScriptedScenarioAgent implements IAgent {
   }
 
   decide(context: AgentDecisionContext): AgentAction {
-    const { player, ball, opponents } = context;
+    const { player, ball, opponents: _opponents } = context;
 
     if (this.scenarioType === 'static_obstacle') {
       return { type: ActionType.IDLE };

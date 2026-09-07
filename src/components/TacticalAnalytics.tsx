@@ -1,21 +1,7 @@
 import React from 'react';
 import { MatchStats, TeamConfig } from '../types/football';
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  Legend,
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-  ZAxis,
-} from 'recharts';
-import { BarChart3, TrendingUp, Target, Activity, Zap } from 'lucide-react';
+import { AreaChart, Area, BarChart, Bar, Legend, ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart3, TrendingUp, Target } from 'lucide-react';
 
 interface TacticalAnalyticsProps {
   stats: MatchStats;

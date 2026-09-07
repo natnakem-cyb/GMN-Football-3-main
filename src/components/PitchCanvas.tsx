@@ -24,7 +24,7 @@ export const PitchCanvas: React.FC<PitchCanvasProps> = ({
   teamLeftConfig,
   teamRightConfig,
   controlledPlayerId,
-  cameraMode,
+  cameraMode: _cameraMode,
   onPlayerClick,
   onPitchClick,
   showRadar = true,
