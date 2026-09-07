@@ -50,6 +50,11 @@ def evaluate_mappo(
     rewards_list = []
     lengths_list = []
     goals_list = []
+    ground_truth_possession = []
+    ground_truth_pass_accuracy = []
+    ground_truth_shot_accuracy = []
+    ground_truth_completed_passes = []
+    ground_truth_total_shots = []
 
     for ep in range(1, num_episodes + 1):
         ep_seed = base_seed + ep
@@ -57,6 +62,7 @@ def evaluate_mappo(
         ep_reward = 0.0
         ep_length = 0
         goal_scored = 0
+        episode_ground_truth = {}
 
         recorder = None
         if save_replay and ep <= save_replay_episodes:
@@ -101,6 +107,9 @@ def evaluate_mappo(
                         step_event = ev["type"]
                     elif isinstance(ev, str):
                         step_event = ev
+                    # Capture ground-truth metrics on terminal step
+                    if done and "ground_truth" in agent_info:
+                        episode_ground_truth = agent_info["ground_truth"]
                     break
 
             if recorder is not None:
@@ -128,6 +137,19 @@ def evaluate_mappo(
         lengths_list.append(ep_length)
         goals_list.append(goal_scored)
 
+        # Collect ground-truth metrics from episode end
+        if episode_ground_truth:
+            if episode_ground_truth.get("possession_left_pct") is not None:
+                ground_truth_possession.append(episode_ground_truth["possession_left_pct"])
+            if episode_ground_truth.get("pass_accuracy") is not None:
+                ground_truth_pass_accuracy.append(episode_ground_truth["pass_accuracy"])
+            if episode_ground_truth.get("shot_accuracy") is not None:
+                ground_truth_shot_accuracy.append(episode_ground_truth["shot_accuracy"])
+            if episode_ground_truth.get("completed_passes_left") is not None:
+                ground_truth_completed_passes.append(episode_ground_truth["completed_passes_left"])
+            if episode_ground_truth.get("total_shots_left") is not None:
+                ground_truth_total_shots.append(episode_ground_truth["total_shots_left"])
+
         if ep % 10 == 0 or ep == num_episodes:
             print(
                 f"   [Episode {ep:3d}/{num_episodes}] Mean Reward: {np.mean(rewards_list):+.4f} | "
@@ -140,6 +162,13 @@ def evaluate_mappo(
     goal_rate = float(np.mean(goals_list)) * 100.0
     mean_len = float(np.mean(lengths_list))
 
+    # Compute ground-truth aggregates
+    gt_possession = float(np.mean(ground_truth_possession)) if ground_truth_possession else None
+    gt_pass_accuracy = float(np.mean(ground_truth_pass_accuracy)) if ground_truth_pass_accuracy else None
+    gt_shot_accuracy = float(np.mean(ground_truth_shot_accuracy)) if ground_truth_shot_accuracy else None
+    gt_completed_passes = float(np.mean(ground_truth_completed_passes)) if ground_truth_completed_passes else None
+    gt_total_shots = float(np.mean(ground_truth_total_shots)) if ground_truth_total_shots else None
+
     print("\n==================================================")
     print("MAPPO EVALUATION RESULTS SUMMARY")
     print("==================================================")
@@ -147,6 +176,16 @@ def evaluate_mappo(
     print(f"Mean Episode Reward     : {mean_rew:+.4f} ± {std_rew:.4f}")
     print(f"Goal Conversion Rate    : {goal_rate:.1f}% ({sum(goals_list)}/{num_episodes} goals)")
     print(f"Mean Episode Length     : {mean_len:.1f} steps")
+    if gt_possession is not None:
+        print(f"Ground-Truth Possession : {gt_possession:.1f}% (left team)")
+    if gt_pass_accuracy is not None:
+        print(f"Ground-Truth Pass Acc   : {gt_pass_accuracy:.1f}%")
+    if gt_shot_accuracy is not None:
+        print(f"Ground-Truth Shot Acc   : {gt_shot_accuracy:.1f}%")
+    if gt_completed_passes is not None:
+        print(f"Completed Passes/Ep     : {gt_completed_passes:.1f}")
+    if gt_total_shots is not None:
+        print(f"Total Shots/Ep          : {gt_total_shots:.1f}")
     print("==================================================")
 
     return {
@@ -154,6 +193,11 @@ def evaluate_mappo(
         "std_reward": std_rew,
         "goal_rate": goal_rate,
         "mean_length": mean_len,
+        "ground_truth_possession_left_pct": gt_possession,
+        "ground_truth_pass_accuracy": gt_pass_accuracy,
+        "ground_truth_shot_accuracy": gt_shot_accuracy,
+        "ground_truth_completed_passes_ep": gt_completed_passes,
+        "ground_truth_total_shots_ep": gt_total_shots,
     }
 
 

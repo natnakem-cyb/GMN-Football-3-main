@@ -24,7 +24,7 @@ import { MetricsBroadcaster } from './MetricsBroadcaster';
 const PORT = parseInt(process.env.GMN_BRIDGE_PORT || '5050', 10);
 const HOST = process.env.GMN_BRIDGE_HOST || '0.0.0.0';
 
-// Singleton broadcaster — shared between bridge and training jobs
+// Singleton broadcaster - shared between bridge and training jobs
 export const metricsBroadcaster = new MetricsBroadcaster();
 let hardwareStop: (() => void) | null = null;
 
@@ -166,6 +166,13 @@ export class GMNBridgeService {
         event: result.info.event,
         checkpointReward: result.info.checkpointReward,
         ballDistanceToGoal: result.info.ballDistanceToGoal,
+        ground_truth: {
+          possession_left_pct: this.engine.stats.possession.left,
+          completed_passes_left: this.engine.stats.completedPasses.left,
+          attempted_passes_left: this.engine.stats.passes.left,
+          shots_on_target_left: this.engine.stats.shotsOnTarget.left,
+          total_shots_left: this.engine.stats.shots.left,
+        },
       },
     };
   }
@@ -245,6 +252,13 @@ export class GMNBridgeService {
         event: result.info.event,
         checkpointReward: result.info.checkpointReward,
         ballDistanceToGoal: result.info.ballDistanceToGoal,
+        ground_truth: {
+          possession_left_pct: this.engine.stats.possession.left,
+          completed_passes_left: this.engine.stats.completedPasses.left,
+          attempted_passes_left: this.engine.stats.passes.left,
+          shots_on_target_left: this.engine.stats.shotsOnTarget.left,
+          total_shots_left: this.engine.stats.shots.left,
+        },
       },
       observations, // array, same order as controllableIds
     };
@@ -580,7 +594,17 @@ wss.on('connection', (ws: WebSocket, req) => {
             return;
           }
           const stepResult = bridge.step(actionIdx);
-          ws.send(encodeStepBinary(stepResult), { binary: true });
+
+          // Send ground-truth episode stats as JSON BEFORE the binary frame
+          if (stepResult.terminated || stepResult.truncated) {
+            const episodeStats = {
+              type: 'EPISODE_STATS',
+              ...stepResult.info.ground_truth,
+            };
+            ws.send(JSON.stringify(episodeStats));
+          }
+
+          ws.send(encodeStepBinary(stepResult), { binary: true })
         } else if (buf.length > 1) {
           // new multi-agent path
           const actionIndices = Array.from(buf); // one uint8 per controlled agent, in controllableAgentIds order
@@ -592,6 +616,17 @@ wss.on('connection', (ws: WebSocket, req) => {
             return;
           }
           const multiResult = bridge.stepMulti(actionIndices);
+
+          // Send ground-truth episode stats as JSON BEFORE the binary frame,
+          // so the Python client can capture it in _recv_step_response.
+          if (multiResult.terminated || multiResult.truncated) {
+            const episodeStats = {
+              type: 'EPISODE_STATS',
+              ...multiResult.info.ground_truth,
+            };
+            ws.send(JSON.stringify(episodeStats));
+          }
+
           ws.send(encodeMultiStepBinary(multiResult), { binary: true });
         }
       } else {

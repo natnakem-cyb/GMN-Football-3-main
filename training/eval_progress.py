@@ -422,6 +422,9 @@ def evaluate_multi_agent_ippo(
     shots = 0
     turnovers_conceded_total = 0.0
     is_rondo = scenario == "academy_rondo_4v1"
+    ground_truth_possession = []
+    ground_truth_pass_accuracy = []
+    ground_truth_shot_accuracy = []
 
     try:
         for ep in range(num_episodes):
@@ -434,6 +437,7 @@ def evaluate_multi_agent_ippo(
             steps = 0
             done = False
             last_info = {}
+            episode_ground_truth = {}
 
             while not done and steps < 600:
                 actions = {}
@@ -458,6 +462,9 @@ def evaluate_multi_agent_ippo(
                 if infos:
                     for inf in infos.values():
                         last_info = inf
+                        # Capture ground-truth metrics on terminal step
+                        if done and "ground_truth" in inf:
+                            episode_ground_truth = inf["ground_truth"]
                         break
 
                 sample_obs = next(iter(obs_dict.values())) if obs_dict else None
@@ -486,6 +493,15 @@ def evaluate_multi_agent_ippo(
 
                 if is_goal:
                     goals += 1
+
+            # Collect ground-truth metrics from episode end
+            if episode_ground_truth:
+                if episode_ground_truth.get("possession_left_pct") is not None:
+                    ground_truth_possession.append(episode_ground_truth["possession_left_pct"])
+                if episode_ground_truth.get("pass_accuracy") is not None:
+                    ground_truth_pass_accuracy.append(episode_ground_truth["pass_accuracy"])
+                if episode_ground_truth.get("shot_accuracy") is not None:
+                    ground_truth_shot_accuracy.append(episode_ground_truth["shot_accuracy"])
     finally:
         env.close()
 
@@ -495,6 +511,10 @@ def evaluate_multi_agent_ippo(
     shots_per_ep = shots / max(1, num_episodes)
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
+
+    gt_possession = float(np.mean(ground_truth_possession)) if ground_truth_possession else None
+    gt_pass_accuracy = float(np.mean(ground_truth_pass_accuracy)) if ground_truth_pass_accuracy else None
+    gt_shot_accuracy = float(np.mean(ground_truth_shot_accuracy)) if ground_truth_shot_accuracy else None
 
     if is_rondo:
         possession_retention_time = float("nan")
@@ -512,6 +532,9 @@ def evaluate_multi_agent_ippo(
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
         "possession_retention_time": possession_retention_time,
         "completed_pass_chains": completed_pass_chains,
+        "ground_truth_possession_left_pct": gt_possession,
+        "ground_truth_pass_accuracy": gt_pass_accuracy,
+        "ground_truth_shot_accuracy": gt_shot_accuracy,
     }
 
 
@@ -542,6 +565,9 @@ def evaluate_multi_agent_mappo(
     shots = 0
     turnovers_conceded_total = 0.0
     is_rondo = scenario == "academy_rondo_4v1"
+    ground_truth_possession = []
+    ground_truth_pass_accuracy = []
+    ground_truth_shot_accuracy = []
 
     try:
         for ep in range(num_episodes):
@@ -554,6 +580,7 @@ def evaluate_multi_agent_mappo(
             steps = 0
             done = False
             last_info = {}
+            episode_ground_truth = {}
 
             while not done and steps < 600:
                 current_agents = list(env.agents if env.agents else controllable_agents)
@@ -586,6 +613,9 @@ def evaluate_multi_agent_mappo(
                 if infos:
                     for inf in infos.values():
                         last_info = inf
+                        # Capture ground-truth metrics on terminal step
+                        if done and "ground_truth" in inf:
+                            episode_ground_truth = inf["ground_truth"]
                         break
 
                 sample_obs = next(iter(obs_dict.values())) if obs_dict else None
@@ -614,6 +644,15 @@ def evaluate_multi_agent_mappo(
 
                 if is_goal:
                     goals += 1
+
+            # Collect ground-truth metrics from episode end
+            if episode_ground_truth:
+                if episode_ground_truth.get("possession_left_pct") is not None:
+                    ground_truth_possession.append(episode_ground_truth["possession_left_pct"])
+                if episode_ground_truth.get("pass_accuracy") is not None:
+                    ground_truth_pass_accuracy.append(episode_ground_truth["pass_accuracy"])
+                if episode_ground_truth.get("shot_accuracy") is not None:
+                    ground_truth_shot_accuracy.append(episode_ground_truth["shot_accuracy"])
     finally:
         env.close()
 
@@ -623,6 +662,10 @@ def evaluate_multi_agent_mappo(
     shots_per_ep = shots / max(1, num_episodes)
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
+
+    gt_possession = float(np.mean(ground_truth_possession)) if ground_truth_possession else None
+    gt_pass_accuracy = float(np.mean(ground_truth_pass_accuracy)) if ground_truth_pass_accuracy else None
+    gt_shot_accuracy = float(np.mean(ground_truth_shot_accuracy)) if ground_truth_shot_accuracy else None
 
     if is_rondo:
         possession_retention_time = float("nan")
@@ -640,6 +683,9 @@ def evaluate_multi_agent_mappo(
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
         "possession_retention_time": possession_retention_time,
         "completed_pass_chains": completed_pass_chains,
+        "ground_truth_possession_left_pct": gt_possession,
+        "ground_truth_pass_accuracy": gt_pass_accuracy,
+        "ground_truth_shot_accuracy": gt_shot_accuracy,
     }
 
 

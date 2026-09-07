@@ -151,10 +151,14 @@ def evaluate_checkpoint_comprehensive(
 
             action_dict = {}
             left_action_indices = []
+            right_action_indices = []
             for i, a in enumerate(current_agents):
                 act_int = int(actions[i].item())
                 action_dict[a] = act_int
-                left_action_indices.append(act_int)
+                if a.startswith("left_"):
+                    left_action_indices.append(act_int)
+                elif a.startswith("right_"):
+                    right_action_indices.append(act_int)
 
                 if act_int in SHOT_ACTIONS:
                     shot_actions += 1
@@ -173,6 +177,17 @@ def evaluate_checkpoint_comprehensive(
             current_obs = obs_dict[current_agents[0]]
             ball_pos, ownership = extract_ball_from_obs(current_obs)
             owner_team = ownership_to_team(ownership)
+
+            # Record engine events for ground-truth shot/pass accuracy
+            event_type = None
+            if infos:
+                for inf in infos.values():
+                    event = inf.get("event", {})
+                    if isinstance(event, dict):
+                        event_type = event.get("type")
+                    break
+            if event_type:
+                tracker.record_event(event_type)
 
             tracker.record_tick(
                 left_action_indices=left_action_indices,
@@ -203,23 +218,10 @@ def evaluate_checkpoint_comprehensive(
         ball_pos, _ = extract_ball_from_obs(final_obs)
         final_score = last_info.get("score", {"left": 0, "right": 0})
 
-        # Build final_stats from tracked actions since env doesn't expose full stats
-        final_stats = {
-            "passes": {"left": pass_actions},
-            "completedPasses": {"left": pass_actions},  # Approximated
-            "shots": {"left": shot_actions},
-            "shotsOnTarget": {"left": shot_actions if goal_scored else 0},  # Approximated
-            "tackles": {"left": tackle_actions},
-            "interceptions": {"left": 0},
-            "fouls": {"left": 0},
-            "yellowCards": {"left": 0},
-            "redCards": {"left": 0},
-            "possession": {"left": 50.0},  # Will be computed by tracker
-        }
-
+        # Use ground-truth stats from FootballMetricsTracker
         ep_metrics = tracker.end_episode(
             final_score=final_score,
-            final_stats=final_stats,
+            final_stats={},
             final_ball_pos=ball_pos,
             max_ball_progress_x=0.0,
         )
@@ -228,8 +230,8 @@ def evaluate_checkpoint_comprehensive(
         rewards_list.append(ep_reward)
         lengths_list.append(ep_length)
         goals_list.append(goal_scored)
-        shot_actions_list.append(shot_actions)
-        pass_actions_list.append(pass_actions)
+        shot_actions_list.append(ep_metrics.shots_total)
+        pass_actions_list.append(ep_metrics.passes_attempted)
         tackle_actions_list.append(tackle_actions)
 
         if (ep + 1) % 10 == 0 or ep == num_episodes - 1:
@@ -245,7 +247,7 @@ def evaluate_checkpoint_comprehensive(
     # Aggregate metrics
     agg = tracker.aggregate(policy_name=os.path.basename(checkpoint_path), scenario=scenario)
 
-    # Add additional computed metrics
+    # Add additional computed metrics from ground-truth tracker
     agg["shots_per_episode_mean"] = float(np.mean(shot_actions_list)) if shot_actions_list else 0.0
     agg["passes_per_episode_mean"] = float(np.mean(pass_actions_list)) if pass_actions_list else 0.0
     agg["tackles_per_episode_mean"] = float(np.mean(tackle_actions_list)) if tackle_actions_list else 0.0
@@ -256,6 +258,7 @@ def evaluate_checkpoint_comprehensive(
     )
     agg["mean_episode_length"] = float(np.mean(lengths_list)) if lengths_list else 0.0
     agg["std_episode_length"] = float(np.std(lengths_list)) if lengths_list else 0.0
+    agg["mean_episode_duration_seconds"] = float(np.mean(lengths_list)) / 60.0 if lengths_list else 0.0
 
     # Print summary
     print("\n" + "=" * 60)
@@ -277,7 +280,7 @@ def evaluate_checkpoint_comprehensive(
     print(f"Tackles/Episode      : {agg['tackles_per_episode_mean']:.2f}")
     print(f"Turnovers Conceded/Ep: {agg['turnovers_conceded_per_episode']['mean']:.2f}")
     print(f"Possession %         : {agg['possession_rate_pct']['mean']:.1f}%")
-    print(f"Episode Length       : {agg['mean_episode_length']:.1f} ± {agg['std_episode_length']:.1f} steps")
+    print(f"Episode Length       : {agg['mean_episode_length']:.1f} ± {agg['std_episode_length']:.1f} steps ({agg['mean_episode_duration_seconds']:.2f}s)")
     print(f"Mean Reward          : {agg['cumulative_reward']['mean']:.4f} ± {agg['cumulative_reward']['std']:.4f}")
     print("=" * 60)
 

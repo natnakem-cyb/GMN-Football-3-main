@@ -139,6 +139,15 @@ class FootballMetricsTracker:
         self.possession_changes = 0
         self.turnovers_conceded = 0
         self.turnovers_forced = 0
+        self.left_possession_ticks = 0
+        self.right_possession_ticks = 0
+        self.pass_attempted = False
+        self.pass_origin_agent = None
+        self.pass_origin_team = None
+        self.passes_attempted = 0
+        self.passes_completed = 0
+        self.shots_total = 0
+        self.shots_on_target = 0
 
     def start_episode(self, scenario: str, seed: int, ball_pos: Dict[str, float]):
         self._reset_current_episode()
@@ -171,8 +180,23 @@ class FootballMetricsTracker:
         if dist < self.min_ball_dist:
             self.min_ball_dist = dist
 
-        if owner_team == "left" and self.time_to_first_possession is None:
-            self.time_to_first_possession = self.current_ticks / 60.0
+        # Ground-truth possession tick tracking
+        if owner_team == "left":
+            self.left_possession_ticks += 1
+            if self.time_to_first_possession is None:
+                self.time_to_first_possession = self.current_ticks / 60.0
+        elif owner_team == "right":
+            self.right_possession_ticks += 1
+
+        # Pass state machine: track attempts and completions from ownership changes
+        pass_actions_this_tick = sum(1 for a in left_action_indices if a in {9, 10, 11})
+        if pass_actions_this_tick > 0 and not self.pass_attempted:
+            self.pass_attempted = True
+            self.pass_origin_team = owner_team
+            self.passes_attempted += 1
+        elif self.pass_attempted and pass_actions_this_tick == 0:
+            self.pass_attempted = False
+            self.pass_origin_team = None
 
         if owner_team and owner_team != self.previous_possession_team:
             self.possession_changes += 1
@@ -181,6 +205,15 @@ class FootballMetricsTracker:
             elif self.previous_possession_team == "right" and owner_team == "left":
                 self.turnovers_forced += 1
             self.previous_possession_team = owner_team
+
+    def record_event(self, event_type: Optional[str]) -> None:
+        """Record engine event for shot/pass/tackle accuracy."""
+        if event_type == "pass":
+            self.passes_completed += 1
+        elif event_type in ("shot", "shot_saved", "shot_missed", "goal"):
+            self.shots_total += 1
+            if event_type in ("shot_saved", "goal"):
+                self.shots_on_target += 1
 
     def end_episode(
         self,
@@ -214,15 +247,16 @@ class FootballMetricsTracker:
         sprint_count = self.action_counts[13]
         dribble_count = self.action_counts[17]
 
-        passes_attempted = final_stats.get("passes", {}).get("left", 0) if isinstance(final_stats.get("passes"), dict) else 0
-        passes_completed = final_stats.get("completedPasses", {}).get("left", 0) if isinstance(final_stats.get("completedPasses"), dict) else 0
+        passes_attempted = self.passes_attempted
+        passes_completed = self.passes_completed
         pass_comp_rate = (passes_completed / passes_attempted * 100.0) if passes_attempted > 0 else 0.0
 
-        shots_total = final_stats.get("shots", {}).get("left", 0) if isinstance(final_stats.get("shots"), dict) else 0
-        shots_on_target = final_stats.get("shotsOnTarget", {}).get("left", 0) if isinstance(final_stats.get("shotsOnTarget"), dict) else 0
+        shots_total = self.shots_total
+        shots_on_target = self.shots_on_target
         shot_acc = (shots_on_target / shots_total * 100.0) if shots_total > 0 else 0.0
 
-        possession_left = final_stats.get("possession", {}).get("left", 50.0) if isinstance(final_stats.get("possession"), dict) else 50.0
+        total_possession_ticks = max(1, self.left_possession_ticks + self.right_possession_ticks)
+        possession_left = (self.left_possession_ticks / total_possession_ticks * 100.0)
 
         ep = EpisodeMetrics(
             episode_index=self.current_episode_index,
@@ -237,8 +271,8 @@ class FootballMetricsTracker:
             is_draw=is_draw,
             is_loss=is_loss,
             is_success=is_success,
-            possession_ticks_left=possession_left,
-            possession_ticks_right=100.0 - possession_left,
+            possession_ticks_left=self.left_possession_ticks,
+            possession_ticks_right=self.right_possession_ticks,
             possession_rate_left=possession_left,
             time_to_first_possession_seconds=self.time_to_first_possession if self.time_to_first_possession is not None else duration_seconds,
             possession_changes=self.possession_changes,

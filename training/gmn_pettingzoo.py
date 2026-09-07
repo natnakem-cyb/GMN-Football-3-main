@@ -224,14 +224,27 @@ class GMNMultiAgentEnv(ParallelEnv):
             return True
         return False
 
-    def _recv_step_response(self, num_agents: int) -> bytes:
-        """Receive a binary step response, skipping unsolicited broadcast frames ON the shared WS."""
+    def _recv_step_response(self, num_agents: int) -> Tuple[bytes, Optional[Dict[str, Any]]]:
+        """Receive a binary step response, skipping unsolicited broadcast frames ON the shared WS.
+        
+        Also collects any EPISODE_STATS JSON frames that arrive alongside the binary response.
+        """
         obs_bytes = OBSERVATION_DIM * 4
         expected_len = 17 + obs_bytes * num_agents
+        episode_stats: Optional[Dict[str, Any]] = None
         for _ in range(60):
             data = self._recv_frame("step")
             if isinstance(data, (bytes, bytearray)) and len(data) == expected_len:
-                return bytes(data)
+                return bytes(data), episode_stats
+            # Collect EPISODE_STATS JSON frames
+            if isinstance(data, str):
+                try:
+                    parsed = json.loads(data)
+                    if isinstance(parsed, dict) and parsed.get("type") == "EPISODE_STATS":
+                        episode_stats = parsed
+                        continue
+                except (json.JSONDecodeError, AttributeError):
+                    pass
             # unsolicited broadcast (training_status/telemetry) — skip
         raise RuntimeError(
             f"[GMN-PettingZoo Frame Length Error] Expected {expected_len} bytes, got only broadcast frames"
@@ -335,11 +348,11 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         try:
             self.ws_client.send(bytes(action_bytes))
-            data = self._recv_step_response(num_agents)
+            data, episode_stats = self._recv_step_response(num_agents)
         except Exception:
             self._connect_ws()
             self.ws_client.send(bytes(action_bytes))
-            data = self._recv_step_response(num_agents)
+            data, episode_stats = self._recv_step_response(num_agents)
 
         if isinstance(data, str):
             raise RuntimeError(f"[GMN-PettingZoo] Bridge sent text error: {data}")
@@ -362,7 +375,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         shared_reward = float(reward)
         shared_term = bool(term)
         shared_trunc = bool(trunc)
-        shared_info = {
+        shared_info: Dict[str, Any] = {
             "score": {"left": int(score_l), "right": int(score_r)},
             "checkpointReward": float(cp_reward),
             "ballDistanceToGoal": float(dist_goal),
@@ -373,6 +386,26 @@ class GMNMultiAgentEnv(ParallelEnv):
             ev_type = EVENT_CODE_MAP[event_code]
             if ev_type:
                 shared_info["event"] = {"type": ev_type}
+
+        # Attach ground-truth engine stats if the bridge sent them on episode end
+        if episode_stats and shared_term:
+            shared_info["ground_truth"] = {
+                "possession_left_pct": episode_stats.get("possession_left_pct"),
+                "completed_passes_left": episode_stats.get("completed_passes_left"),
+                "attempted_passes_left": episode_stats.get("attempted_passes_left"),
+                "shots_on_target_left": episode_stats.get("shots_on_target_left"),
+                "total_shots_left": episode_stats.get("total_shots_left"),
+                "pass_accuracy": (
+                    episode_stats.get("completed_passes_left", 0) / episode_stats.get("attempted_passes_left", 1)
+                    if episode_stats.get("attempted_passes_left", 0) > 0
+                    else 0.0
+                ),
+                "shot_accuracy": (
+                    episode_stats.get("shots_on_target_left", 0) / episode_stats.get("total_shots_left", 1)
+                    if episode_stats.get("total_shots_left", 0) > 0
+                    else 0.0
+                ),
+            }
 
         observations: Dict[str, np.ndarray] = {}
         rewards: Dict[str, float] = {}
