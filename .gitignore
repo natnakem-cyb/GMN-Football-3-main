@@ -45,3 +45,8 @@ bun.lock
 # Environment / secrets
 .env
 .env.*
+
+# Training artifacts (transient)
+training/runs/
+*.bak
+training/models/*_temp.pt
