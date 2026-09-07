@@ -31,5 +31,5 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [ ] Reconcile stale/scattered `comprehensive_eval_*.json` / reports
 
 ## Item 6 — Single evidence source of truth
-- [ ] Pin reported results to checkpoint SHA + `git describe`
-- [ ] Resolve report content thrash / FILE_NOT_FOUND class conflicts
+- [x] Pin reported results to checkpoint SHA + `git describe` — created `training/RESULTS_INDEX.md`: lineage table (validation_report v2 → seed42_best `ddaf4d38…`, deployed weights → seed44_best `6fb28ff1…`, legacy heuristic JSONs marked superseded), reporting rules, verification commands. The old `FILE_NOT_FOUND` ambiguity is resolved: the report's model IS seed42_best.
+- [x] Resolve report content thrash / FILE_NOT_FOUND class conflicts — SHA cross-check proves the seemingly contradictory reports used different checkpoints (seed42_best vs seed44_best vs best); documented in RESULTS_INDEX.md. Remaining sub-item: mark the legacy `comprehensive_eval_*` JSONs with `_legacy` suffix when regenerating next eval run.
