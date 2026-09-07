@@ -45,6 +45,13 @@ def run_mappo_training(
     if checkpoint_name is None:
         suffix = "smoke" if is_smoke_test else "trained"
         checkpoint_name = f"mappo_{scenario}_seed{seed}_{suffix}.pt"
+    else:
+        # Enforce seed-based naming to prevent cross-seed overwrites.
+        if f"seed{seed}" not in checkpoint_name:
+            raise ValueError(
+                f"Checkpoint name '{checkpoint_name}' does not contain seed identifier 'seed{seed}'. "
+                "Use None or a seed-unique name to prevent overwrites across parallel runs."
+            )
 
     print("==================================================")
     print(f"GMN FOOTBALL -- MULTI-AGENT PPO (MAPPO) {'SMOKE TEST' if is_smoke_test else 'REAL TRAINING RUN'}")

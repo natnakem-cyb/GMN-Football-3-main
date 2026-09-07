@@ -8,13 +8,14 @@ Evaluates trained MAPPO checkpoints with full behavioral metrics:
 """
 
 import argparse
+import hashlib
 import os
 import sys
 import json
 import math
 import numpy as np
 import torch
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -22,6 +23,28 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.mappo_networks import SharedActor
 from training.football_metrics import FootballMetricsTracker, EpisodeMetrics, compute_distribution
+
+
+def sha256_of(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def build_evaluation_metadata(checkpoint_path: str, num_episodes: int, scenario: str) -> Dict[str, Any]:
+    return {
+        "evaluation_metadata": {
+            "git_commit": __import__("subprocess").check_output(["git", "rev-parse", "HEAD"], cwd=os.path.dirname(__file__)).decode().strip(),
+            "evaluator_version": "v2_ground_truth_bridge",
+            "timestamp_iso": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "model_file": checkpoint_path,
+            "model_sha256": sha256_of(checkpoint_path),
+            "episodes": num_episodes,
+            "scenario": scenario,
+        }
+    }
 
 
 # Action name mapping (matches ActionType in src/types/football.ts)
@@ -79,6 +102,7 @@ def evaluate_checkpoint_comprehensive(
     deterministic: bool = True,
     base_seed: int = 500000,
     bridge_port: int = 5050,
+    force: bool = False,
 ) -> Dict[str, Any]:
     """Run comprehensive evaluation on a MAPPO checkpoint."""
 
@@ -121,6 +145,13 @@ def evaluate_checkpoint_comprehensive(
     pass_actions_list = []
     tackle_actions_list = []
 
+    # Ground-truth metrics from EPISODE_STATS WebSocket frame
+    gt_possession_list = []
+    gt_pass_accuracy_list = []
+    gt_shot_accuracy_list = []
+    gt_completed_passes_list = []
+    gt_total_shots_list = []
+
     for ep in range(num_episodes):
         ep_seed = base_seed + ep * 1009
         obs_dict, _ = env.reset(seed=ep_seed)
@@ -137,6 +168,7 @@ def evaluate_checkpoint_comprehensive(
         pass_actions = 0
         tackle_actions = 0
         last_info = {}
+        episode_ground_truth = {}
 
         while True:
             current_agents = list(env.agents if env.agents else controllable_agents)
@@ -211,6 +243,11 @@ def evaluate_checkpoint_comprehensive(
                 is_goal = score_left > 0 or (isinstance(event, dict) and event.get("type") == "goal")
                 if is_goal:
                     goal_scored = 1
+                # Capture ground-truth metrics from EPISODE_STATS frame
+                for inf in infos.values():
+                    if isinstance(inf, dict) and "ground_truth" in inf:
+                        episode_ground_truth = inf["ground_truth"]
+                        break
                 break
 
         # End of episode - record metrics
@@ -234,6 +271,19 @@ def evaluate_checkpoint_comprehensive(
         pass_actions_list.append(ep_metrics.passes_attempted)
         tackle_actions_list.append(tackle_actions)
 
+        # Collect ground-truth metrics from EPISODE_STATS frame
+        if episode_ground_truth:
+            if episode_ground_truth.get("possession_left_pct") is not None:
+                gt_possession_list.append(episode_ground_truth["possession_left_pct"])
+            if episode_ground_truth.get("pass_accuracy") is not None:
+                gt_pass_accuracy_list.append(episode_ground_truth["pass_accuracy"])
+            if episode_ground_truth.get("shot_accuracy") is not None:
+                gt_shot_accuracy_list.append(episode_ground_truth["shot_accuracy"])
+            if episode_ground_truth.get("completed_passes_left") is not None:
+                gt_completed_passes_list.append(episode_ground_truth["completed_passes_left"])
+            if episode_ground_truth.get("total_shots_left") is not None:
+                gt_total_shots_list.append(episode_ground_truth["total_shots_left"])
+
         if (ep + 1) % 10 == 0 or ep == num_episodes - 1:
             print(
                 f"   [Episode {ep + 1:3d}/{num_episodes}] "
@@ -246,6 +296,58 @@ def evaluate_checkpoint_comprehensive(
 
     # Aggregate metrics
     agg = tracker.aggregate(policy_name=os.path.basename(checkpoint_path), scenario=scenario)
+
+    # Override with ground-truth metrics from EPISODE_STATS WebSocket frame
+    if gt_possession_list:
+        agg["possession_rate_pct"] = {
+            "mean": float(np.mean(gt_possession_list)),
+            "std": float(np.std(gt_possession_list)),
+            "median": float(np.median(gt_possession_list)),
+            "min": float(np.min(gt_possession_list)),
+            "max": float(np.max(gt_possession_list)),
+            "ci95_low": float(np.percentile(gt_possession_list, 2.5)),
+            "ci95_high": float(np.percentile(gt_possession_list, 97.5)),
+        }
+    if gt_pass_accuracy_list:
+        agg["pass_completion_rate_pct"] = {
+            "mean": float(np.mean(gt_pass_accuracy_list)) * 100.0,
+            "std": float(np.std(gt_pass_accuracy_list)) * 100.0,
+            "median": float(np.median(gt_pass_accuracy_list)) * 100.0,
+            "min": float(np.min(gt_pass_accuracy_list)) * 100.0,
+            "max": float(np.max(gt_pass_accuracy_list)) * 100.0,
+            "ci95_low": float(np.percentile(gt_pass_accuracy_list, 2.5)) * 100.0,
+            "ci95_high": float(np.percentile(gt_pass_accuracy_list, 97.5)) * 100.0,
+        }
+    if gt_shot_accuracy_list:
+        agg["shot_accuracy_pct"] = {
+            "mean": float(np.mean(gt_shot_accuracy_list)) * 100.0,
+            "std": float(np.std(gt_shot_accuracy_list)) * 100.0,
+            "median": float(np.median(gt_shot_accuracy_list)) * 100.0,
+            "min": float(np.min(gt_shot_accuracy_list)) * 100.0,
+            "max": float(np.max(gt_shot_accuracy_list)) * 100.0,
+            "ci95_low": float(np.percentile(gt_shot_accuracy_list, 2.5)) * 100.0,
+            "ci95_high": float(np.percentile(gt_shot_accuracy_list, 97.5)) * 100.0,
+        }
+    if gt_completed_passes_list:
+        agg["passes_completed_per_episode"] = {
+            "mean": float(np.mean(gt_completed_passes_list)),
+            "std": float(np.std(gt_completed_passes_list)),
+            "median": float(np.median(gt_completed_passes_list)),
+            "min": float(np.min(gt_completed_passes_list)),
+            "max": float(np.max(gt_completed_passes_list)),
+            "ci95_low": float(np.percentile(gt_completed_passes_list, 2.5)),
+            "ci95_high": float(np.percentile(gt_completed_passes_list, 97.5)),
+        }
+    if gt_total_shots_list:
+        agg["shots_per_episode"] = {
+            "mean": float(np.mean(gt_total_shots_list)),
+            "std": float(np.std(gt_total_shots_list)),
+            "median": float(np.median(gt_total_shots_list)),
+            "min": float(np.min(gt_total_shots_list)),
+            "max": float(np.max(gt_total_shots_list)),
+            "ci95_low": float(np.percentile(gt_total_shots_list, 2.5)),
+            "ci95_high": float(np.percentile(gt_total_shots_list, 97.5)),
+        }
 
     # Add additional computed metrics from ground-truth tracker
     agg["shots_per_episode_mean"] = float(np.mean(shot_actions_list)) if shot_actions_list else 0.0
@@ -289,8 +391,18 @@ def evaluate_checkpoint_comprehensive(
         os.path.dirname(checkpoint_path),
         f"comprehensive_eval_{os.path.splitext(os.path.basename(checkpoint_path))[0]}.json"
     )
+
+    if os.path.exists(results_path) and not force:
+        raise FileExistsError(
+            f"Evaluation results already exist at {results_path}. "
+            "Use --force to overwrite."
+        )
+
+    output_payload = build_evaluation_metadata(checkpoint_path, num_episodes, scenario)
+    output_payload.update(agg)
+
     with open(results_path, "w") as f:
-        json.dump(agg, f, indent=2)
+        json.dump(output_payload, f, indent=2)
     print(f"\nDetailed results saved to: {results_path}")
 
     return agg
@@ -304,6 +416,7 @@ def main():
     parser.add_argument("--stochastic", action="store_true")
     parser.add_argument("--seed", type=int, default=500000)
     parser.add_argument("--port", type=int, default=5050)
+    parser.add_argument("--force", action="store_true", help="Overwrite existing evaluation results")
     args = parser.parse_args()
 
     evaluate_checkpoint_comprehensive(
@@ -313,6 +426,7 @@ def main():
         deterministic=not args.stochastic,
         base_seed=args.seed,
         bridge_port=args.port,
+        force=args.force,
     )
 
 

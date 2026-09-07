@@ -4,10 +4,12 @@ Evaluates trained MAPPO model against the Multi-Agent environment.
 """
 
 import argparse
+import hashlib
 import os
 import sys
 import numpy as np
 import torch
+from datetime import datetime, timezone
 
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -15,6 +17,31 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.mappo_networks import SharedActor
 from training.episode_recorder import EpisodeRecorder
+
+
+def sha256_of(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def build_evaluation_metadata(checkpoint_path: str, num_episodes: int, scenario: str) -> dict:
+    return {
+        "evaluation_metadata": {
+            "git_commit": __import__("subprocess").check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=os.path.dirname(__file__),
+            ).decode().strip(),
+            "evaluator_version": "v2_ground_truth_bridge",
+            "timestamp_iso": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "model_file": checkpoint_path,
+            "model_sha256": sha256_of(checkpoint_path),
+            "episodes": num_episodes,
+            "scenario": scenario,
+        }
+    }
 
 
 def evaluate_mappo(
@@ -33,6 +60,12 @@ def evaluate_mappo(
     if save_replay:
         print(f"Replay Recording: ENABLED (Saving first {save_replay_episodes} episode traces to training/replays/)")
     print("==================================================")
+
+    metadata = build_evaluation_metadata(checkpoint_path, num_episodes, scenario)
+    print(f"[Lineage] git_commit={metadata['evaluation_metadata']['git_commit'][:12]} "
+          f"evaluator_version={metadata['evaluation_metadata']['evaluator_version']} "
+          f"timestamp={metadata['evaluation_metadata']['timestamp_iso']} "
+          f"model_sha256={metadata['evaluation_metadata']['model_sha256'][:16]}...")
 
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found at: {checkpoint_path}")
