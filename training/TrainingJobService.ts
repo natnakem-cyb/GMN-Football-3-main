@@ -427,8 +427,8 @@ export class TrainingJobService {
       // Fallback candidates
       if (fs.existsSync(`training/models/mappo_${scenario}_trained.pt`)) {
         sourcePt = `training/models/mappo_${scenario}_trained.pt`;
-      } else if (fs.existsSync('training/models/mappo_academy_3_vs_1_with_keeper_trained.pt')) {
-        sourcePt = 'training/models/mappo_academy_3_vs_1_with_keeper_trained.pt';
+      } else if (fs.existsSync('training/models/mappo_academy_3_vs_1_with_keeper_best.pt')) {
+        sourcePt = 'training/models/mappo_academy_3_vs_1_with_keeper_best.pt';
       }
     }
 

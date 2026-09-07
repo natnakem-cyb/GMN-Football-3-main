@@ -363,7 +363,7 @@ const server = http.createServer((req, res) => {
       }
 
       if (req.method === 'POST' && urlPath === '/api/training/export') {
-        const checkpoint = parsedBody.checkpoint || 'training/models/mappo_academy_3_vs_1_with_keeper_trained.pt';
+        const checkpoint = parsedBody.checkpoint || 'training/models/mappo_academy_3_vs_1_with_keeper_best.pt';
         const scenario = parsedBody.scenario || 'academy_3_vs_1_with_keeper';
         const algorithm = parsedBody.algorithm || 'MAPPO';
         const output = parsedBody.output || `public/models/mappo_${scenario}_${Date.now()}.onnx`;

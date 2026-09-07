@@ -19,15 +19,15 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [x] Ensure the canonical trainer is committed; document divergence — both committed; header note in `train_mappo_shaped.py`; shaped checkpoints tracked (`..._seed42_shaped_*.pt`)
 
 ## Item 3 — Repo hygiene: commit / ignore untracked work
-- [ ] Commit `train_mappo_shaped.py`, `training/runs/`, shaped + rondo checkpoints (or .gitignore temp/backup)
-- [ ] Remove/gitignore `win_rate_progress.csv.bak`, `*_shaped_temp.pt`
-- [ ] Verify `git status` is clean/coherent
+- [x] Commit `train_mappo_shaped.py`, shaped + rondo checkpoints (matches existing seed-checkpoint convention, ~430 KB each) + evidence CSVs — commit `6e1d632`
+- [x] Gitignore `training/runs/`, `*.bak` (`win_rate_progress.csv.bak`), `*_temp.pt` (`*_shaped_temp.pt`) — `.gitignore` "Training artifacts (transient)" section
+- [x] Verify `git status` is clean/coherent — confirmed clean after `6e1d632`
 
 ## Item 4 — Frontend hyperparameters match trainer
 - [x] Fix `TrainingTelemetryService` defaults to match trainers — clipRange 0.2→0.15, miniBatchSize 64→256, targetTimesteps 200k (train_mappo.py default; shaped targets 500k, noted in comment), entropy anneal 0.01→0.005 documented. `npx tsc --noEmit` passes.
 
 ## Item 5 — Reconciled eval/README checkpoint paths
-- [ ] Point `eval_mappo.py`, `validate_learned_policy.py`, README at an existing checkpoint
+- [x] Point all defaults at an existing checkpoint — `mappo_..._trained.pt` did not exist; replaced with `mappo_..._best.pt` (eval_mappo.py, eval_generalization.py, export_onnx.py, validate_learned_policy.py, bridge_server.ts, TrainingJobService.ts fallback) and `..._seed44_best.pt` for the deployed-weights lineage (validate_learned_policy.ts, README). Remaining `_trained.pt` refs are guarded `fs.existsSync` fallbacks only. tsc + py_compile pass.
 - [ ] Reconcile stale/scattered `comprehensive_eval_*.json` / reports
 
 ## Item 6 — Single evidence source of truth

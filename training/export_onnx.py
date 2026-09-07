@@ -31,7 +31,7 @@ class ActorPolicyOnnxModule(nn.Module):
 
 
 def export_to_onnx(
-    checkpoint_path: str = "training/models/mappo_academy_3_vs_1_with_keeper_trained.pt",
+    checkpoint_path: str = "training/models/mappo_academy_3_vs_1_with_keeper_best.pt",
     output_path: str = "public/models/mappo_policy.onnx",
     ts_weights_path: str = "src/agents/mappo_weights.ts",
     allow_legacy_115: bool = False,
@@ -311,7 +311,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="training/models/mappo_academy_3_vs_1_with_keeper_trained.pt",
+        default="training/models/mappo_academy_3_vs_1_with_keeper_best.pt",
         help="Path to PyTorch checkpoint",
     )
     parser.add_argument(

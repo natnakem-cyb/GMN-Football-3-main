@@ -16,7 +16,7 @@ from test_browser_inference_parity import generate_test_vectors, reference_forwa
 
 def main():
     parser = argparse.ArgumentParser(description="GMN-Football-3 Policy Validation Runner")
-    parser.add_argument("--checkpoint", type=str, default="training/mappo_academy_3_vs_1_with_keeper_trained.pt")
+    parser.add_argument("--checkpoint", type=str, default="training/models/mappo_academy_3_vs_1_with_keeper_best.pt")
     parser.add_argument("--scenario", type=str, default="academy_3_vs_1_with_keeper")
     parser.add_argument("--episodes", type=int, default=50)
     parser.add_argument("--seed", type=int, default=42)

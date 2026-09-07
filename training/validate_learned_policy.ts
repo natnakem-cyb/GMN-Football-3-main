@@ -57,7 +57,7 @@ export class PolicyValidationMasterRunner {
     console.log('[Step 1/10] Validating Checkpoint Integrity and Weight Contract...');
     const tensorCheck = CheckpointContractValidator.validateWeightTensors(MAPPO_WEIGHTS);
     const chkHash = CheckpointContractValidator.computeFileHash(
-      path.resolve(process.cwd(), 'training/mappo_academy_3_vs_1_with_keeper_trained.pt')
+      path.resolve(process.cwd(), 'training/models/mappo_academy_3_vs_1_with_keeper_seed44_best.pt')
     );
 
     const manifest = CheckpointContractValidator.createExperimentManifest({
@@ -65,7 +65,7 @@ export class PolicyValidationMasterRunner {
       scenario: scenarioId,
       trainingSteps: 49920,
       seed: 42,
-      checkpointPath: 'training/mappo_academy_3_vs_1_with_keeper_trained.pt',
+      checkpointPath: 'training/models/mappo_academy_3_vs_1_with_keeper_seed44_best.pt',
       weights: MAPPO_WEIGHTS,
     });
 

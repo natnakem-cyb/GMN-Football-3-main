@@ -45,7 +45,7 @@ def build_evaluation_metadata(checkpoint_path: str, num_episodes: int, scenario:
 
 
 def evaluate_mappo(
-    checkpoint_path: str = "training/models/mappo_academy_3_vs_1_with_keeper_trained.pt",
+    checkpoint_path: str = "training/models/mappo_academy_3_vs_1_with_keeper_best.pt",
     scenario: str = "academy_3_vs_1_with_keeper",
     num_episodes: int = 50,
     deterministic: bool = True,
@@ -236,7 +236,7 @@ def evaluate_mappo(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=str, default="training/models/mappo_academy_3_vs_1_with_keeper_trained.pt")
+    parser.add_argument("--checkpoint", type=str, default="training/models/mappo_academy_3_vs_1_with_keeper_best.pt")
     parser.add_argument("--scenario", type=str, default="academy_3_vs_1_with_keeper")
     parser.add_argument("--episodes", type=int, default=50)
     parser.add_argument("--stochastic", action="store_true")

@@ -113,7 +113,7 @@ def evaluate_variation(
 
 
 def run_generalization_suite(
-    checkpoint_path: str = "training/models/mappo_academy_3_vs_1_with_keeper_trained.pt",
+    checkpoint_path: str = "training/models/mappo_academy_3_vs_1_with_keeper_best.pt",
     variations: List[str] = None,
     num_episodes: int = 50,
     base_seed: int = 500000,
@@ -235,7 +235,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="training/models/mappo_academy_3_vs_1_with_keeper_trained.pt",
+        default="training/models/mappo_academy_3_vs_1_with_keeper_best.pt",
         help="Path to trained MAPPO checkpoint (.pt)",
     )
     parser.add_argument(

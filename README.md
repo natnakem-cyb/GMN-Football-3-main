@@ -290,7 +290,7 @@ npm run test:validation   # rl_validation_suite.py
 Current Status
 --------------
 **Neural Policy Checkpoint Status:**
-- The MAPPO checkpoint the browser actually loads (via `public/models/mappo_policy.onnx`, exported from `training/models/mappo_academy_3_vs_1_with_keeper_trained.pt`) is a ~200k-step run on `academy_3_vs_1_with_keeper` under the 127-dim role-aware contract.
+- The MAPPO checkpoint the browser actually loads (via `public/models/mappo_policy.onnx`, exported from `training/models/mappo_academy_3_vs_1_with_keeper_seed44_best.pt` — see the pinned SHA in `src/agents/mappo_weights.ts`) is trained on `academy_3_vs_1_with_keeper` under the 127-dim role-aware contract.
 - This is the checkpoint actively used by the in-browser "Neural" controller (`TrainedPolicyAgent`) — it is **not** a fallback to `RuleBasedAgent`.
 - IPPO has a completed (non-smoke) 200k-step run on `academy_3_vs_1_with_keeper` with ~68% goal rate. PPO has a completed run on `academy_empty_goal` with ~96% goal rate.
 - `5_vs_5` has early MAPPO checkpoints (~20k steps, ~2% goal rate) but no converged policy yet. `11_vs_11` has no training checkpoints.
