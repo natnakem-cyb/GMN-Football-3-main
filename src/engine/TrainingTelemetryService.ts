@@ -80,14 +80,18 @@ export class TrainingTelemetryService {
   private static instance: TrainingTelemetryService;
 
   public hyperparameters: TrainingHyperparameters = {
+    // Mirrors training/train_mappo.py / train_mappo_shaped.py actual values.
+    // entropyCoef anneals 0.01 -> 0.005 (cosine) in the trainers; the single
+    // number here is the initial value.
     learningRate: 3e-4,
-    clipRange: 0.2,
+    clipRange: 0.15,
     entropyCoef: 0.01,
     valueCoef: 0.5,
-    miniBatchSize: 64,
+    miniBatchSize: 256,
     nEpochs: 4,
     gamma: 0.99,
     gaeLambda: 0.95,
+    // train_mappo.py default is 200k; train_mappo_shaped.py targets 500k.
     targetTimesteps: 200000,
     maxGradNorm: 0.5,
   };

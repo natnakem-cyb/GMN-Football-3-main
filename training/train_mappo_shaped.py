@@ -3,6 +3,14 @@ GMN-Football-3 -- Multi-Agent PPO (MAPPO) with Cooperative Reward Shaping
 Trains a parameter-shared policy network and centralized team critic on cooperative
 football scenarios with explicit pass-chain and assisted-goal incentives.
 
+CANONICAL-TRAINER NOTE (see TASKS.md Item 2):
+- train_mappo.py        = canonical PLAIN trainer (baseline; no shaping).
+- train_mappo_shaped.py = canonical SHAPED trainer (this file). Shaped rewards
+  come from CooperativeRewardShaper, wired end-to-end and covered by
+  training/tests/test_reward_shaper.py + training/test_reward_shape_e2e.py.
+  Policies from the two trainers are NOT directly comparable: shaped
+  checkpoints encode pass-chain incentives.
+
 Hyperparameters:
 - Timesteps: 500,000
 - Rollout length (n_steps): 256

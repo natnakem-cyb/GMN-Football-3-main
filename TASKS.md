@@ -15,8 +15,8 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [x] Revisit `PASS_COMPLETED`-at-initiation semantics (over-counts; emit real `PASS_FAILED`) — pending-pass state machine in `GMNMultiAgentEnv._resolve_pending_pass()`: PASS_COMPLETED deferred until a teammate gains possession; PASS_FAILED on right-team possession / turnover event / 60-step loose-ball timeout; 5 new unit tests (17 passed) + e2e wire re-verified
 
 ## Item 2 — One canonical MAPPO trainer
-- [ ] Decide shaped vs plain as canonical path
-- [ ] Ensure the canonical trainer is committed; document divergence
+- [x] Decide shaped vs plain as canonical path — `train_mappo.py` = canonical plain (baseline); `train_mappo_shaped.py` = canonical shaped variant (documented in its header). Not directly comparable by design.
+- [x] Ensure the canonical trainer is committed; document divergence — both committed; header note in `train_mappo_shaped.py`; shaped checkpoints tracked (`..._seed42_shaped_*.pt`)
 
 ## Item 3 — Repo hygiene: commit / ignore untracked work
 - [ ] Commit `train_mappo_shaped.py`, `training/runs/`, shaped + rondo checkpoints (or .gitignore temp/backup)
@@ -24,7 +24,7 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [ ] Verify `git status` is clean/coherent
 
 ## Item 4 — Frontend hyperparameters match trainer
-- [ ] Fix `TrainingTelemetryService` defaults (clip 0.15, entropy 0.01 -> 0.005, etc.) to match `train_mappo.py`
+- [x] Fix `TrainingTelemetryService` defaults to match trainers — clipRange 0.2→0.15, miniBatchSize 64→256, targetTimesteps 200k (train_mappo.py default; shaped targets 500k, noted in comment), entropy anneal 0.01→0.005 documented. `npx tsc --noEmit` passes.
 
 ## Item 5 — Reconciled eval/README checkpoint paths
 - [ ] Point `eval_mappo.py`, `validate_learned_policy.py`, README at an existing checkpoint
