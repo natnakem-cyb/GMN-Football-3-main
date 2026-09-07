@@ -230,3 +230,65 @@ class TestCooperativeRewardShaper:
         assert total_pass > total_shot, (
             f"Pass-chain total reward {total_pass} must exceed solitary-shot total {total_shot}"
         )
+
+
+class TestPendingPassStateMachine:
+    """Tests for GMNMultiAgentEnv._resolve_pending_pass (no bridge required)."""
+
+    @staticmethod
+    def _make_env(agents):
+        import types
+
+        from training.gmn_pettingzoo import GMNMultiAgentEnv
+
+        dummy = types.SimpleNamespace(
+            agents=list(agents),
+            _pending_pass=None,
+            enable_reward_shaping=True,
+            reward_shaper=object(),  # any non-None marker
+        )
+        # Bind the real method to the dummy so production logic is exercised.
+        dummy._resolve_pending_pass = GMNMultiAgentEnv._resolve_pending_pass.__get__(dummy)
+        return dummy
+
+    def test_pass_resolves_completed_when_teammate_gains_possession(self):
+        env = self._make_env(["left_0", "left_1"])
+        # Pass initiated by left_0 (owner still left_0 on the initiation frame).
+        events = env._resolve_pending_pass(0, "pass")
+        assert events == []
+        assert env._pending_pass["agent_id"] == "left_0"
+        # Ball loose in flight for a step (owner byte 255).
+        assert env._resolve_pending_pass(255, None) == []
+        # Teammate left_1 gains possession.
+        events = env._resolve_pending_pass(1, None)
+        assert events == [{"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_0"}]
+        assert env._pending_pass is None
+
+    def test_pass_resolves_failed_when_right_team_gains_possession(self):
+        env = self._make_env(["left_0", "right_0"])
+        env._resolve_pending_pass(0, "pass")
+        events = env._resolve_pending_pass(1, None)
+        assert events == [{"type": "PASS_FAILED", "team": "left", "agent_id": "left_0"}]
+
+    def test_pass_resolves_failed_on_turnover_event_while_loose(self):
+        env = self._make_env(["left_0", "left_1"])
+        env._resolve_pending_pass(0, "pass")
+        events = env._resolve_pending_pass(255, "interception")
+        assert events == [{"type": "PASS_FAILED", "team": "left", "agent_id": "left_0"}]
+
+    def test_loose_ball_pass_times_out_to_failed(self):
+        env = self._make_env(["left_0", "left_1"])
+        env._resolve_pending_pass(0, "pass")
+        for _ in range(60):
+            env._resolve_pending_pass(255, None)  # ball loose, no outcome
+        events = env._resolve_pending_pass(255, None)  # timeout step
+        assert events == [{"type": "PASS_FAILED", "team": "left", "agent_id": "left_0"}]
+
+    def test_new_pass_finalizes_previous_as_completed(self):
+        env = self._make_env(["left_0", "left_1", "left_2"])
+        env._resolve_pending_pass(0, "pass")
+        # Rapid second pass before possession was observable: previous completes.
+        events = env._resolve_pending_pass(1, "pass")
+        assert events == [{"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_0"}]
+        assert env._pending_pass["agent_id"] == "left_1"
+

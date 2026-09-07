@@ -230,6 +230,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
         self.reward_shaper = CooperativeRewardShaper() if enable_reward_shaping else None
+        # Pending-pass state machine: the engine emits "pass" at pass *initiation*,
+        # so PASS_COMPLETED is deferred until a teammate gains possession, and
+        # PASS_FAILED is emitted if possession flips to the right team, a turnover
+        # event fires, or the pass times out loose.
+        self._pending_pass: Optional[Dict[str, Any]] = None
 
         self._step_count = 0
         self.agents: List[str] = []
@@ -406,6 +411,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         self._step_count = 0
         if self.reward_shaper is not None:
             self.reward_shaper.reset()
+        self._pending_pass = None
 
         target_scenario = self.scenario
         if options and "scenario" in options:
@@ -454,6 +460,69 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         infos: Dict[str, Any] = {agent: dict(info_data) for agent in self.agents}
         return observations, infos
+
+    def _resolve_pending_pass(
+        self,
+        ball_owner_agent_idx: int,
+        current_ev_type: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        """
+        Pending-pass state machine over per-step possession.
+
+        The engine emits "pass" at initiation. A pass is resolved as:
+          - PASS_COMPLETED: a controllable LEFT agent other than the passer gains
+            possession (the passer re-gaining it also counts, benignly).
+          - PASS_FAILED: possession flips to the right team, a turnover/out-of-play
+            event fires, or the ball stays loose beyond `pending timeout`.
+        Resolution events are ordered BEFORE any same-step frame event by the caller.
+        """
+        events: List[Dict[str, Any]] = []
+
+        # A new pass attempt while one is pending: best-effort finalize the
+        # previous pass as completed (possession-tracking already resolved it
+        # if the outcome was observable).
+        if current_ev_type == "pass" and self._pending_pass is not None:
+            events.append(
+                {
+                    "type": "PASS_COMPLETED",
+                    "team": "left",
+                    "agent_id": self._pending_pass["agent_id"],
+                }
+            )
+            self._pending_pass = None
+
+        if self._pending_pass is not None:
+            self._pending_pass["age"] += 1
+            resolved_type: Optional[str] = None
+            if 0 <= ball_owner_agent_idx < len(self.agents):
+                owner_id = self.agents[ball_owner_agent_idx]
+                if owner_id != self._pending_pass["agent_id"]:
+                    resolved_type = (
+                        "PASS_FAILED" if owner_id.startswith("right_") else "PASS_COMPLETED"
+                    )
+            elif current_ev_type in ("interception", "tackle", "foul", "out_of_bounds", "offside"):
+                resolved_type = "PASS_FAILED"
+            if resolved_type is None and self._pending_pass["age"] > 60:
+                resolved_type = "PASS_FAILED"
+            if resolved_type is not None:
+                events.append(
+                    {
+                        "type": resolved_type,
+                        "team": "left",
+                        "agent_id": self._pending_pass["agent_id"],
+                    }
+                )
+                self._pending_pass = None
+
+        if current_ev_type == "pass" and self._pending_pass is None:
+            passer = (
+                self.agents[ball_owner_agent_idx]
+                if 0 <= ball_owner_agent_idx < len(self.agents)
+                else None
+            )
+            self._pending_pass = {"agent_id": passer, "age": 0}
+
+        return events
 
     def step(
         self,
@@ -564,7 +633,10 @@ class GMNMultiAgentEnv(ParallelEnv):
                 shaper_type = None
                 shaper_team = "left"
                 if ev_type == "pass":
-                    shaper_type = "PASS_COMPLETED"
+                    # Engine emits "pass" at initiation. Do NOT credit a completed
+                    # pass here; _resolve_pending_pass() finalizes it when a
+                    # teammate gains possession (or it fails / times out).
+                    shaper_type = None
                 elif ev_type in ("shot", "shot_saved", "shot_missed"):
                     shaper_type = "SHOT_TAKEN"
                 elif ev_type == "goal":
@@ -580,6 +652,17 @@ class GMNMultiAgentEnv(ParallelEnv):
                     if 0 <= ball_owner_agent_idx < len(self.agents):
                         event_dict["agent_id"] = self.agents[ball_owner_agent_idx]
                     step_events.append(event_dict)
+
+        # Resolve the pending pass (state machine over possession) and prepend the
+        # resolution so a completed pass is credited before a same-step SHOT_TAKEN
+        # (keeps chain-aware shaping ordering correct).
+        if self.enable_reward_shaping and self.reward_shaper is not None:
+            current_ev_type = (
+                EVENT_CODE_MAP[event_code] if 0 < event_code < len(EVENT_CODE_MAP) else None
+            )
+            step_events = (
+                self._resolve_pending_pass(ball_owner_agent_idx, current_ev_type) + step_events
+            )
 
         observations: Dict[str, np.ndarray] = {}
         rewards: Dict[str, float] = {}

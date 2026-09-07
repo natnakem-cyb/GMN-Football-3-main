@@ -12,7 +12,7 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 ## Item 1b — Secure verified Item-1 fixes (prevents loss on checkout)
 - [x] Commit the 7 verified modified source files
 - [x] Add a TRUE end-to-end wire test (boot bridge → `GMNMultiAgentEnv.step()`) asserting shaped rewards differ for passing vs solitary-shooting — `training/test_reward_shape_e2e.py`: shaped +1.2126 vs unshaped +1.2627, `holder_ticks=36`, `ball_hogging_count=6` → PASS
-- [ ] Revisit `PASS_COMPLETED`-at-initiation semantics (over-counts; emit real `PASS_FAILED`)
+- [x] Revisit `PASS_COMPLETED`-at-initiation semantics (over-counts; emit real `PASS_FAILED`) — pending-pass state machine in `GMNMultiAgentEnv._resolve_pending_pass()`: PASS_COMPLETED deferred until a teammate gains possession; PASS_FAILED on right-team possession / turnover event / 60-step loose-ball timeout; 5 new unit tests (17 passed) + e2e wire re-verified
 
 ## Item 2 — One canonical MAPPO trainer
 - [ ] Decide shaped vs plain as canonical path
