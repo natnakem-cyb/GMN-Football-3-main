@@ -219,6 +219,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         enable_reward_shaping: bool = True,
         opponent_difficulty: str = "medium",
         opponent_pool: Optional[Any] = None,
+        batch_size: int = 1,
     ):
         super().__init__()
         self.scenario = scenario
@@ -230,20 +231,16 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.render_mode = render_mode
         self.enable_reward_shaping = enable_reward_shaping
         self.opponent_difficulty = opponent_difficulty
-        # Optional OpponentPool (training/opponent_pool.py): when provided, a
-        # pool opponent is selected and applied on every reset() (self-play /
-        # opponent-pool training). Entries with kind == "snapshot" are recorded
-        # but not yet executable by the Node bridge.
         self.opponent_pool = opponent_pool
         self.current_opponent: Optional[Dict[str, Any]] = None
+        self.batch_size = max(1, int(batch_size))
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
         self.reward_shaper = CooperativeRewardShaper() if enable_reward_shaping else None
-        # Pending-pass state machine: the engine emits "pass" at pass *initiation*,
-        # so PASS_COMPLETED is deferred until a teammate gains possession, and
-        # PASS_FAILED is emitted if possession flips to the right team, a turnover
-        # event fires, or the pass times out loose.
         self._pending_pass: Optional[Dict[str, Any]] = None
+        # Per-env rollout state for batched mode: list of dicts with keys
+        # obs_dict, ep_rew, ep_len, agents, possible_agents, agent_order, obs_dim
+        self._batch_envs: List[Dict[str, Any]] = []
 
         self._step_count = 0
         self.agents: List[str] = []
@@ -288,6 +285,174 @@ class GMNMultiAgentEnv(ParallelEnv):
             )
         except Exception:
             pass  # older bridges without /opponent keep the default difficulty
+
+    def _init_batch_envs(self, batch_results: List[Dict[str, Any]]) -> None:
+        """Initialize per-env rollout state from a batch reset response."""
+        self._batch_envs = []
+        for result in batch_results:
+            info_data = result.get("info", {})
+            controllable_ids = info_data.get("controllableAgentIds", [])
+            if not controllable_ids:
+                controlled_id = info_data.get("controlledPlayerId", "left_1")
+                controllable_ids = [controlled_id]
+            raw_obs_list = result.get("observations", [])
+            if not raw_obs_list and "observation" in result:
+                raw_obs_list = [result["observation"]]
+            observations: Dict[str, np.ndarray] = {}
+            for idx, agent in enumerate(controllable_ids):
+                if idx < len(raw_obs_list):
+                    obs = np.array(raw_obs_list[idx], dtype=np.float32)
+                else:
+                    obs = np.zeros(OBSERVATION_DIM, dtype=np.float32)
+                observations[agent] = obs
+            self._batch_envs.append({
+                "obs_dict": observations,
+                "possible_agents": list(controllable_ids),
+                "agents": list(controllable_ids),
+                "agent_order": list(controllable_ids),
+                "obs_dim": OBSERVATION_DIM,
+                "ep_rew": 0.0,
+                "ep_len": 0,
+                "info": dict(info_data),
+            })
+
+    def reset_batch(self, seeds: Optional[List[int]] = None) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
+        """Reset all sub-environments in the batch and return per-env (obs, info) tuples."""
+        if not self._batch_envs:
+            seeds = seeds or [42] * self.batch_size
+            requests = []
+            for idx, s in enumerate(seeds[: self.batch_size]):
+                req: Dict[str, Any] = {"scenario": self.scenario}
+                if s is not None:
+                    req["seed"] = int(s)
+                else:
+                    req["seed"] = 42 + idx
+                requests.append(req)
+            while len(requests) < self.batch_size:
+                requests.append({"scenario": self.scenario, "seed": 42 + len(requests)})
+            payload = json.dumps({"type": "reset_batch", "environments": requests})
+            if self.ws_client is None:
+                self._connect_ws()
+            try:
+                self.ws_client.send(payload)
+                data = self._recv_reset_batch_response()
+            except Exception:
+                self._connect_ws()
+                self.ws_client.send(payload)
+                data = self._recv_reset_batch_response()
+            parsed = json.loads(data) if isinstance(data, str) else {}
+            if not isinstance(parsed, dict):
+                raise RuntimeError(f"[GMN-Batch] Expected dict reset response, got {type(parsed)}")
+            results = parsed.get("results", [])
+            if len(results) != self.batch_size:
+                raise RuntimeError(f"[GMN-Batch] Expected {self.batch_size} reset results, got {len(results)}: {list(parsed.keys())}")
+            self._init_batch_envs(results)
+        # Return per-env tuples for the caller (trainer can index by env_idx)
+        return [
+            (env_state["obs_dict"], {a: env_state["info"] for a in env_state["agents"]})
+            for env_state in self._batch_envs
+        ]
+
+    def step_batch(
+        self, action_sets: List[Dict[str, int]]
+    ) -> List[Tuple[Dict[str, np.ndarray], Dict[str, float], Dict[str, bool], Dict[str, bool], Dict[str, Any]]]:
+        """Step all sub-environments with their respective action dicts."""
+        if len(action_sets) != self.batch_size:
+            raise RuntimeError(f"[GMN-Batch] step_batch expects {self.batch_size} action dicts, got {len(action_sets)}")
+        action_bytes_per_env: List[bytes] = []
+        controllable_ids_per_env: List[List[str]] = []
+        for env_idx, actions in enumerate(action_sets):
+            env_state = self._batch_envs[env_idx]
+            current_agents = env_state["agents"]
+            num_agents = len(current_agents)
+            action_bytes = bytearray(num_agents)
+            for i, agent in enumerate(current_agents):
+                act = int(actions.get(agent, 0))
+                if not (0 <= act < ACTION_SPACE_SIZE):
+                    raise ValueError(f"[GMN-Batch] Invalid action {act} for agent {agent}")
+                action_bytes[i] = act
+            action_bytes_per_env.append(bytes(action_bytes))
+            controllable_ids_per_env.append(current_agents)
+        # Build batched binary frame: [B (1B)] [N (1B)] [B * N action bytes]
+        N = len(controllable_ids_per_env[0]) if controllable_ids_per_env else 0
+        frame = bytearray(2 + self.batch_size * N)
+        frame[0] = self.batch_size
+        frame[1] = N
+        for env_idx, action_bytes in enumerate(action_bytes_per_env):
+            offset = 2 + env_idx * N
+            frame[offset : offset + N] = action_bytes
+        if self.ws_client is None:
+            self._connect_ws()
+        try:
+            self.ws_client.send(bytes(frame))
+            data = self._recv_batch_response()
+        except Exception:
+            self._connect_ws()
+            self.ws_client.send(bytes(frame))
+            data = self._recv_batch_response()
+        if isinstance(data, str):
+            raise RuntimeError(f"[GMN-Batch] Bridge sent text error: {data}")
+        obs_bytes = OBSERVATION_DIM * 4
+        frame_size = 18 + obs_bytes * N
+        expected_len = 2 + self.batch_size * frame_size
+        if len(data) != expected_len:
+            raise RuntimeError(
+                f"[GMN-Batch Frame Length Error] Expected {expected_len} bytes, got {len(data)} bytes"
+            )
+        results: List[Tuple[Dict[str, np.ndarray], Dict[str, float], Dict[str, bool], Dict[str, bool], Dict[str, Any]]] = []
+        for env_idx in range(self.batch_size):
+            env_state = self._batch_envs[env_idx]
+            base_offset = 2 + env_idx * frame_size
+            reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, ball_owner_agent_idx = struct.unpack_from(
+                "<f??BBffBB", data, base_offset
+            )
+            shared_reward = float(reward)
+            shared_term = bool(term)
+            shared_trunc = bool(trunc)
+            shared_info: Dict[str, Any] = {
+                "score": {"left": int(score_l), "right": int(score_r)},
+                "checkpointReward": float(cp_reward),
+                "ballDistanceToGoal": float(dist_goal),
+                "eventCode": int(event_code),
+                "step": env_state.get("ep_len", 0),
+            }
+            if 0 < event_code < len(EVENT_CODE_MAP):
+                ev_type = EVENT_CODE_MAP[event_code]
+                if ev_type:
+                    shared_info["event"] = {"type": ev_type}
+            observations: Dict[str, np.ndarray] = {}
+            for i, agent in enumerate(env_state["agents"]):
+                offset = base_offset + 18 + i * obs_bytes
+                obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
+                observations[agent] = obs
+            env_state["obs_dict"] = observations
+            env_state["ep_rew"] += shared_reward
+            env_state["ep_len"] += 1
+            if shared_term or shared_trunc:
+                env_state["agents"] = []
+            results.append((observations, shared_reward, shared_term, shared_trunc, shared_info))
+        return results
+
+    def _recv_batch_response(self) -> bytes:
+        """Receive one batched binary step response, skipping unsolicited broadcast frames."""
+        for _ in range(60):
+            data = self._recv_frame("step_batch")
+            if isinstance(data, (bytes, bytearray)):
+                return bytes(data)
+        raise RuntimeError("[GMN-Batch] No binary batch response received (only broadcast frames)")
+
+    def _recv_reset_batch_response(self) -> str:
+        """Receive a reset_batch JSON response, skipping unsolicited broadcast frames."""
+        for _ in range(60):
+            data = self._recv_frame("reset_batch")
+            if isinstance(data, str):
+                try:
+                    parsed = json.loads(data)
+                    if isinstance(parsed, dict) and parsed.get("type") == "reset_batch_result":
+                        return data
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+        raise RuntimeError("[GMN-Batch] No reset_batch_result received (only broadcast frames)")
 
     def _ensure_bridge_running(self):
         """Verifies connection to bridge server or starts it via npx tsx."""
@@ -453,6 +618,16 @@ class GMNMultiAgentEnv(ParallelEnv):
         if options and "scenario" in options:
             target_scenario = options["scenario"]
 
+        # Batched mode: reset all sub-envs via the bridge pool and expose the
+        # first sub-env through the standard PettingZoo reset() contract.
+        if self.batch_size > 1:
+            seeds = [int(seed) + i if seed is not None else None for i in range(self.batch_size)]
+            batch_results = self.reset_batch(seeds)
+            first_obs, first_info = batch_results[0]
+            self.possible_agents = list(first_obs.keys())
+            self.agents = list(self.possible_agents)
+            return first_obs, first_info
+
         payload: Dict[str, Any] = {
             "type": "reset",
             "scenario": target_scenario,
@@ -574,6 +749,14 @@ class GMNMultiAgentEnv(ParallelEnv):
         Executes a multi-agent joint action step.
         actions: mapping from agent ID to discrete action (0..18).
         """
+        # Batched mode: delegate to step_batch for all sub-environments and
+        # return only the first sub-env's result through the standard contract.
+        if self.batch_size > 1:
+            batch_results = self.step_batch([actions])
+            if not batch_results:
+                return {}, {}, {}, {}, {}
+            return batch_results[0]
+
         if not self.agents:
             return {}, {}, {}, {}, {}
 

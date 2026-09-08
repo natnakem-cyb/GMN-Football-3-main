@@ -366,3 +366,168 @@ def compute_gae(
         advantages[t] = last_gae
     returns = advantages + values
     return advantages, returns
+
+
+def collect_rollout_batched(
+    env: Any,
+    actor: SharedActor,
+    critic: CentralizedCritic,
+    num_steps: int = 256,
+    batch_size: int = 2,
+) -> Dict[str, Any]:
+    """
+    Vectorized rollout collection using the bridge's batched step protocol.
+
+    Unlike ``collect_rollout_parallel``, this sends one stacked binary frame per
+    step instead of N sequential round-trips. The returned buffer layout is
+    identical so ``ppo_update`` is unchanged.
+    """
+    buffers: Dict[str, list] = {
+        "local_obs": [],
+        "global_state": [],
+        "actions": [],
+        "logprobs": [],
+        "values": [],
+        "rewards": [],
+        "dones": [],
+        "terminated": [],
+        "truncated": [],
+    }
+    completed_episodes: List[Dict[str, Any]] = []
+    total_steps = 0
+
+    # Initialize all sub-environments via the batch reset path.
+    batch_init = env.reset_batch([42 + i for i in range(batch_size)])
+    if len(batch_init) != batch_size:
+        raise RuntimeError(f"[collect_rollout_batched] Expected {batch_size} envs, got {len(batch_init)}")
+
+    # Per-env rollout state, indexed by env_idx.
+    env_states: List[Dict[str, Any]] = []
+    ref_obs_dict, _ = batch_init[0]
+    agent_order = list(ref_obs_dict.keys())
+    num_agents = len(agent_order)
+    obs_dim = ref_obs_dict[agent_order[0]].shape[0]
+
+    for env_idx in range(batch_size):
+        obs_dict, info = batch_init[env_idx]
+        env_states.append({
+            "obs_dict": obs_dict,
+            "agents": list(obs_dict.keys()),
+            "agent_order": agent_order,
+            "obs_dim": obs_dim,
+            "ep_rew": 0.0,
+            "ep_len": 0,
+            "info": info,
+        })
+
+    for _ in range(num_steps):
+        # Build per-env action dicts from a single shared policy forward.
+        action_sets: List[Dict[str, int]] = []
+        local_obs_stack = []
+        for env_idx in range(batch_size):
+            state = env_states[env_idx]
+            current_agents = state["agents"]
+            local_obs = np.stack([state["obs_dict"][a] for a in current_agents], axis=0).astype(np.float32)
+            local_obs_stack.append(local_obs)
+            with torch.no_grad():
+                dist = actor(torch.tensor(local_obs, dtype=torch.float32))
+                actions_t = dist.sample()
+                logprobs_t = dist.log_prob(actions_t)
+                value_t = critic(torch.tensor(local_obs.flatten(), dtype=torch.float32).unsqueeze(0))
+            action_dict = {a: int(actions_t[i].item()) for i, a in enumerate(current_agents)}
+            action_sets.append(action_dict)
+            state["_last_logprobs"] = logprobs_t.cpu().numpy()
+            state["_last_value"] = float(value_t.item())
+
+        # One batched step across all sub-environments.
+        batch_results = env.step_batch(action_sets)
+
+        for env_idx in range(batch_size):
+            state = env_states[env_idx]
+            observations, reward, terminated, truncated, info = batch_results[env_idx]
+            shared_reward = float(reward)
+            shared_term = bool(terminated)
+            shared_trunc = bool(truncated)
+            current_agents = state["agents"]
+            local_obs = np.stack([state["obs_dict"][a] for a in current_agents], axis=0).astype(np.float32)
+            global_state = local_obs.flatten().astype(np.float32)
+
+            buffers["local_obs"].append(local_obs)
+            buffers["global_state"].append(global_state)
+            buffers["actions"].append(np.array([action_sets[env_idx][a] for a in current_agents], dtype=np.int64))
+            buffers["logprobs"].append(state["_last_logprobs"])
+            buffers["values"].append(state["_last_value"])
+            buffers["rewards"].append(shared_reward)
+            buffers["dones"].append(shared_term)
+            buffers["terminated"].append(shared_term)
+            buffers["truncated"].append(shared_trunc)
+
+            state["obs_dict"] = observations
+            state["ep_rew"] += shared_reward
+            state["ep_len"] += 1
+            total_steps += 1
+
+            if shared_term or shared_trunc:
+                goal_scored = 0
+                for agent_info in (info or {}).values():
+                    if isinstance(agent_info, dict) and agent_info.get("score", {}).get("left", 0) > 0:
+                        goal_scored = 1
+                        break
+                completed_episodes.append({
+                    "reward": state["ep_rew"],
+                    "length": state["ep_len"],
+                    "goal": goal_scored,
+                    "env": env_idx,
+                })
+                state["ep_rew"] = 0.0
+                state["ep_len"] = 0
+                state["agents"] = []
+
+    # Reconcile agent order from the last known-good state.
+    ref_env_state = env_states[0]
+    if not ref_env_state["agents"] and batch_init:
+        ref_obs_dict, _ = batch_init[0]
+        agent_order = list(ref_obs_dict.keys())
+    else:
+        agent_order = ref_env_state["agent_order"]
+
+    res_buffer: Dict[str, Any] = {}
+    res_buffer["local_obs"] = np.stack(buffers["local_obs"], axis=0).astype(np.float32)
+    res_buffer["global_state"] = np.stack(buffers["global_state"], axis=0).astype(np.float32)
+    res_buffer["actions"] = np.stack(buffers["actions"], axis=0).astype(np.int64)
+    res_buffer["logprobs"] = np.stack(buffers["logprobs"], axis=0).astype(np.float32)
+    res_buffer["values"] = np.array(buffers["values"], dtype=np.float32)
+    res_buffer["rewards"] = np.array(buffers["rewards"], dtype=np.float32)
+    res_buffer["dones"] = np.array(buffers["dones"], dtype=bool)
+    res_buffer["terminated"] = np.array(buffers["terminated"], dtype=bool)
+    res_buffer["truncated"] = np.array(buffers["truncated"], dtype=bool)
+    res_buffer["next_local_obs"] = np.stack([env_states[0]["obs_dict"][a] for a in agent_order], axis=0).astype(np.float32)
+    res_buffer["completed_episodes"] = completed_episodes
+    res_buffer["total_steps"] = total_steps
+
+    # Shape assertions mirroring collect_rollout_parallel.
+    assert res_buffer["local_obs"].shape == (num_steps, batch_size * num_agents, obs_dim), (
+        f"local_obs shape mismatch: got {res_buffer['local_obs'].shape}"
+    )
+    assert res_buffer["global_state"].shape == (num_steps, obs_dim * num_agents), (
+        f"global_state shape mismatch: got {res_buffer['global_state'].shape}"
+    )
+    assert res_buffer["actions"].shape == (num_steps, num_agents), (
+        f"actions shape mismatch: got {res_buffer['actions'].shape}"
+    )
+    assert res_buffer["logprobs"].shape == (num_steps, num_agents), (
+        f"logprobs shape mismatch: got {res_buffer['logprobs'].shape}"
+    )
+    assert res_buffer["values"].shape == (num_steps,), (
+        f"values shape mismatch: got {res_buffer['values'].shape}"
+    )
+    assert res_buffer["rewards"].shape == (num_steps,), (
+        f"rewards shape mismatch: got {res_buffer['rewards'].shape}"
+    )
+    assert res_buffer["dones"].shape == (num_steps,), (
+        f"dones shape mismatch: got {res_buffer['dones'].shape}"
+    )
+    assert res_buffer["next_local_obs"].shape == (num_agents, obs_dim), (
+        f"next_local_obs shape mismatch: got {res_buffer['next_local_obs'].shape}"
+    )
+    return res_buffer

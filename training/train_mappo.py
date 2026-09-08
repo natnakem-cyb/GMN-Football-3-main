@@ -29,7 +29,7 @@ import torch
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv, OBSERVATION_DIM, ACTION_SPACE_SIZE
 from training.mappo_networks import SharedActor, CentralizedCritic
-from training.mappo_rollout import collect_rollout, collect_rollout_parallel, compute_gae
+from training.mappo_rollout import collect_rollout, collect_rollout_parallel, collect_rollout_batched, compute_gae
 from training.mappo_update import ppo_update
 from training.eval_progress import evaluate_checkpoint_progress, persist_trend_snapshots
 
@@ -91,20 +91,30 @@ def run_mappo_training(
         )
         print(f"   Self-play enabled: {opponent_pool.describe()}")
 
-    # Parallel mode: each env runs its own bridge instance on a distinct port
-    # (5050, 5051, ...). n_envs=1 keeps the original single-env workflow.
-    envs = []
-    for i in range(max(1, n_envs)):
-        envs.append(
-            GMNMultiAgentEnv(
-                scenario=scenario,
-                auto_start_bridge=True,
-                port=5050 + i if i > 0 else None,
-                opponent_difficulty=opponent_difficulty,
-                opponent_pool=opponent_pool,
-            )
+    # Parallel mode: n_envs > 1 uses a single batched bridge with pooled engines
+    # instead of N separate bridge processes. n_envs=1 keeps the legacy path.
+    if n_envs > 1:
+        env = GMNMultiAgentEnv(
+            scenario=scenario,
+            auto_start_bridge=True,
+            batch_size=n_envs,
+            opponent_difficulty=opponent_difficulty,
+            opponent_pool=opponent_pool,
         )
-    env = envs[0]
+        envs = [env]
+    else:
+        envs = []
+        for i in range(max(1, n_envs)):
+            envs.append(
+                GMNMultiAgentEnv(
+                    scenario=scenario,
+                    auto_start_bridge=True,
+                    port=5050 + i if i > 0 else None,
+                    opponent_difficulty=opponent_difficulty,
+                    opponent_pool=opponent_pool,
+                )
+            )
+        env = envs[0]
     num_agents = len(env.possible_agents)
     obs_dim = OBSERVATION_DIM
     global_state_dim = obs_dim * num_agents
@@ -185,9 +195,9 @@ def run_mappo_training(
     total_steps_elapsed_at_start = total_steps_elapsed
 
     for update_idx in range(start_update, start_update + n_updates):
-        # 1. Collect Rollout (parallel across n_envs bridges when n_envs > 1)
+        # 1. Collect Rollout
         if n_envs > 1:
-            buffer = collect_rollout_parallel(envs, actor, critic, num_steps=n_steps)
+            buffer = collect_rollout_batched(env, actor, critic, num_steps=n_steps, batch_size=n_envs)
             total_steps_elapsed += n_steps * n_envs
         else:
             buffer = collect_rollout(env, actor, critic, num_steps=n_steps)
