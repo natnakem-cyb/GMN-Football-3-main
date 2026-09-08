@@ -82,12 +82,34 @@ class OpponentPool:
     def apply(self, entry: Dict[str, Any], env: Any) -> bool:
         """
         Apply the selected opponent to an environment. Returns True if the
-        opponent was actually applied (rule-based difficulties only, today).
+        opponent was actually applied.
         """
         if entry["kind"] == "difficulty":
             env.set_opponent_difficulty(entry["difficulty"])
             return True
-        # Learned snapshots cannot yet be executed by the Node bridge.
+        if entry["kind"] == "snapshot":
+            try:
+                import requests
+                payload = {"kind": "snapshot", "path": entry["path"]}
+                resp = requests.post(
+                    f"http://{env.host}:{env.port}/opponent",
+                    json=payload,
+                    timeout=5.0,
+                )
+                if resp.status_code == 200 and resp.json().get("status") == "ok":
+                    return True
+            except Exception as e:
+                print(f"[OpponentPool] Snapshot apply failed ({entry['path']}): {e}")
+            # Fallback: pick a difficulty entry if available, otherwise re-raise.
+            difficulty_entries = [e for e in self.entries if e["kind"] == "difficulty"]
+            if difficulty_entries:
+                fallback = difficulty_entries[0]
+                print(f"[OpponentPool] Falling back to difficulty={fallback['difficulty']}")
+                env.set_opponent_difficulty(fallback["difficulty"])
+                return True
+            raise RuntimeError(
+                f"[OpponentPool] Cannot apply snapshot opponent '{entry['path']}' and no difficulty fallback available."
+            )
         return False
 
     def report_result(self, entry: Dict[str, Any], score: float, k: float = 16.0) -> None:
