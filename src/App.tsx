@@ -471,7 +471,7 @@ export default function App() {
           {/* Neural Policy Unavailable Banner */}
           {neuralFallbackActive && (
             <div className="mb-2 p-2 rounded-lg bg-amber-900/80 border border-amber-600 text-amber-100 text-xs font-semibold text-center">
-              âš ï¸ Neural Policy Unavailable â€” Using Rule-Based Fallback.
+              âš ï¸ Neural Policy Unavailable — Using Rule-Based Fallback.
               {modelError ? ` Error: ${modelError}` : ' No trained checkpoint loaded.'}
             </div>
           )}
@@ -580,7 +580,7 @@ export default function App() {
                     (trainedAgentRef.current.isSessionReady() || trainedAgentRef.current.isValidCheckpoint());
                   if (!hasValidOnnx) {
                     setNeuralFallbackActive(true);
-                    setModelError('Neural Model Unavailable â€“ Reverting to Rule-Based');
+                    setModelError('Neural Model Unavailable — Reverting to Rule-Based');
                     // Keep controller as 'neural' to preserve user selection;
                     // the game loop already falls back to NeuralHeuristicAgent internally.
                   } else {

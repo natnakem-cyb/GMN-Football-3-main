@@ -3,7 +3,7 @@
  * to determine whether goals come from dribbling past defenders, shooting, or
  * other mechanisms.
  *
- * This is a permanent, committed artifact â€” not a throwaway script.
+ * This is a permanent, committed artifact — not a throwaway script.
  * It loads the smoke-test ONNX model, runs deterministic episodes through
  * GameEngine with active rule-based defenders, and logs per-step actions,
  * ball ownership, player positions, and events.
@@ -103,7 +103,7 @@ async function main() {
             const maxLogit = Math.max(...logitsArray);
             const actionIdx = logitsArray.indexOf(maxLogit);
             if (actionIdx < 0 || actionIdx > 18) {
-              console.error(`[warn] Invalid action index ${actionIdx} at tick ${tick}, seed ${seed} â€” using IDLE`);
+              console.error(`[warn] Invalid action index ${actionIdx} at tick ${tick}, seed ${seed} — using IDLE`);
               action = { type: 0 };
             } else {
               action = mapDiscreteAction(actionIdx);

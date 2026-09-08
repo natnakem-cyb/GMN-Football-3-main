@@ -76,7 +76,7 @@ export class RuleBasedAgent implements IAgent {
         targetY += (rnd() - 0.5) * variance;
 
         // Final arrival y at the goal line reduces to targetY exactly, since shootDir.x
-        // is unchanged â€” clamp once here rather than re-tuning each branch's constants.
+        // is unchanged — clamp once here rather than re-tuning each branch's constants.
         targetY = Math.max(-maxSafeY, Math.min(maxSafeY, targetY));
 
         const goalCenter: Vector2D = { x: opponentGoalX, y: targetY };
@@ -205,7 +205,7 @@ export class RuleBasedAgent implements IAgent {
     if (opponentWithBall) {
       const distToOpponent = Vec2.distance(keeper.position, opponentWithBall.position);
       if (distToOpponent < 0.055) {
-        // Tackle range only â€” do NOT sprint out to press from distance
+        // Tackle range only — do NOT sprint out to press from distance
         return { type: ActionType.TACKLE };
       }
     }

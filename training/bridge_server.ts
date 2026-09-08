@@ -208,7 +208,7 @@ export class GMNBridgeService {
       actionMap.set(id, mapDiscreteAction(actionIndices[i]));
     });
 
-    // 2. Automated bots for other players (if any) â€” skipped for rondo
+    // 2. Automated bots for other players (if any) — skipped for rondo
     if (!isRondoScenario) {
       this.engine.players.forEach((player) => {
         if (controllableIds.includes(player.id)) return;
@@ -240,7 +240,7 @@ export class GMNBridgeService {
     const result = this.engine.step(actionMap, 1 / 60);
 
     // 4. Re-encode one observation per controlled agent from the
-    // already-updated post-step state â€” do not step the engine again
+    // already-updated post-step state — do not step the engine again
     const observations = controllableIds.map((id) =>
       ObservationEncoder.encode(
         this.engine.players,
@@ -627,10 +627,10 @@ wss.on('connection', (ws: WebSocket, req) => {
       if (isBinary) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
         if (buf.length === 1) {
-          // existing single-agent path â€” unchanged
+          // existing single-agent path — unchanged
           const actionIdx = buf.readUInt8(0);
           if (actionIdx >= ACTION_SPACE_SIZE) {
-            // P0 #5: NEVER silently drop â€” send a deterministic binary error
+            // P0 #5: NEVER silently drop — send a deterministic binary error
             // frame so Python clients cannot hang waiting for a response.
             ws.send(encodeErrorStepBinary(1), { binary: true });
             return;
@@ -701,7 +701,7 @@ wss.on('connection', (ws: WebSocket, req) => {
           });
           ws.send(JSON.stringify({ status: 'broadcast_ok' }));
         } else if (parsed.type === 'subscribe_metrics') {
-          // Runtime subscription â€” dashboard can subscribe after connecting
+          // Runtime subscription — dashboard can subscribe after connecting
           metricsBroadcaster.subscribe(ws);
           ws.send(JSON.stringify({ status: 'subscribed_metrics' }));
         } else if (parsed.type === 'unsubscribe_metrics') {

@@ -196,7 +196,7 @@ export class TrainingTelemetryService {
    *
    * Priority:
    *   1. `VITE_WS_URL` build-time env (production / remote bridge deployments).
-   *   2. Same-origin `/ws` path â€” served by the Vite dev proxy in development
+   *   2. Same-origin `/ws` path — served by the Vite dev proxy in development
    *      (vite.config.ts proxies `/ws` -> ws://127.0.0.1:5050) and by any
    *      production reverse proxy that forwards `/ws` to the bridge.
    *
@@ -311,7 +311,7 @@ export class TrainingTelemetryService {
               this.liveLogs.push(`[BRIDGE ERROR] ${parsed.data?.message || parsed.error || 'unknown error'}`);
               this.notify();
             }
-            // Unknown/unsupported message types are ignored â€” telemetry must
+            // Unknown/unsupported message types are ignored — telemetry must
             // never crash the connection.
           }
         } catch (err) {

@@ -1,5 +1,5 @@
 /**
- * GMN-Football-3 â€” Master Policy Validation & Evidence Chain Runner
+ * GMN-Football-3 — Master Policy Validation & Evidence Chain Runner
  * 
  * Executes the complete 10-point scientific validation pipeline to objectively evaluate whether
  * a trained RL policy has learned genuine, generalizing football behavior.
@@ -48,7 +48,7 @@ export class PolicyValidationMasterRunner {
     baseSeed = 100000
   ): MasterValidationReport {
     console.log('========================================================================');
-    console.log('       GMN-FOOTBALL-3 â€” MASTER POLICY VALIDATION & EVIDENCE PIPELINE     ');
+    console.log('       GMN-FOOTBALL-3 — MASTER POLICY VALIDATION & EVIDENCE PIPELINE     ');
     console.log('========================================================================\n');
 
     const criteria: ValidationCriterionResult[] = [];
@@ -227,7 +227,7 @@ export class PolicyValidationMasterRunner {
 
   private formatMarkdownReport(report: MasterValidationReport): string {
     const lines: string[] = [];
-    lines.push('# GMN-Football-3 â€” Policy Validation & Scientific Evidence Report');
+    lines.push('# GMN-Football-3 — Policy Validation & Scientific Evidence Report');
     lines.push(`\n**Date of Evaluation:** ${report.timestamp}`);
     lines.push(`**Target Scenario:** \`${report.scenario}\``);
     lines.push(`**Algorithm:** \`${report.policyAlgorithm}\``);

@@ -4,7 +4,7 @@
  * Connects to the bridge server WebSocket, starts a short MAPPO training job,
  * and captures real parsed metrics flowing through the pipeline.
  *
- * This is a permanent, committed artifact â€” not a throwaway script.
+ * This is a permanent, committed artifact — not a throwaway script.
  */
 
 import WebSocket from 'ws';

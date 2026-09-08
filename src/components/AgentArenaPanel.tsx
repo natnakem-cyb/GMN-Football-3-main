@@ -85,7 +85,7 @@ export const AgentArenaPanel: React.FC<AgentArenaPanelProps> = ({
                 <option value="rule_based">ðŸ¤– Tactical Rule AI</option>
                 {!modelError ? (
                   <option value="neural">
-                    ðŸ§  Neural Policy (Trained MAPPO â€” ONNX / 127-dim)
+                    ðŸ§  Neural Policy (Trained MAPPO — ONNX / 127-dim)
                   </option>
                 ) : (
                   <option value="neural" disabled>
@@ -98,7 +98,7 @@ export const AgentArenaPanel: React.FC<AgentArenaPanelProps> = ({
               {modelError && (
                 <div className="mt-2 p-2 rounded-lg bg-amber-950/80 border border-amber-600/80 text-[11px] text-amber-300 flex items-center gap-1.5 font-semibold animate-fadeIn">
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Neural Model Unavailable â€“ Reverting to Rule-Based ({modelError})</span>
+                  <span>Neural Model Unavailable — Reverting to Rule-Based ({modelError})</span>
                 </div>
               )}
             </div>

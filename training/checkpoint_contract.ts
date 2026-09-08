@@ -1,5 +1,5 @@
 ﻿/**
- * GMN-Football-3 â€” Checkpoint Contract & Metadata Validation System
+ * GMN-Football-3 — Checkpoint Contract & Metadata Validation System
  * Ensures all evaluated and trained checkpoints satisfy the authoritative environment contracts,
  * valid schema dimensions, non-padded weight criteria, and full metadata provenance.
  */

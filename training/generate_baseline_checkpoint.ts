@@ -1,5 +1,5 @@
 /**
- * GMN-Football-3 â€” Baseline 127-Dimensional Checkpoint Generator & ONNX Exporter
+ * GMN-Football-3 — Baseline 127-Dimensional Checkpoint Generator & ONNX Exporter
  * 
  * Generates a valid, non-zero-padded 127-dimensional role-aware MAPPO trained policy,
  * compiles the binary ONNX protobuf model for public/models/mappo_policy.onnx,
