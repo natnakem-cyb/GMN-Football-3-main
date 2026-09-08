@@ -122,3 +122,12 @@ items (A) first, then Medium (B).
 - [x] Sample commands, flag tables, environment notes included
 - [x] Root `README.md` updated with pointer to `training/README.md`
 - [x] Resolve report content thrash / FILE_NOT_FOUND class conflicts — SHA cross-check proves the seemingly contradictory reports used different checkpoints (seed42_best vs seed44_best vs best); documented in RESULTS_INDEX.md. Remaining sub-item: mark the legacy `comprehensive_eval_*` JSONs with `_legacy` suffix when regenerating next eval run.
+
+## Follow-up — Critical bridge/engine bug fixes (5 commits)
+**Problem:** Five verified bugs in the bridge/engine pipeline, each fixed and pushed as a separate commit.
+- [x] Bug 1: `encodeErrorStepBinary()` used 17-byte header instead of 18-byte (non-rondo) / 22-byte (rondo). Added `isRondo` parameter, explicit `ballOwnerAgentId` at offset 17, and `defenderReward` at offset 20 for rondo. Updated all 4 call sites. Commit `5ccdc03`.
+- [x] Bug 2: 3x `forEach(async ...)` race conditions in `stepBatch()`, `step()`, and `stepMulti()` where `engine.step()` fired before ONNX inference resolved. Replaced with `await Promise.all(...)`. Commit `1b9c408`.
+- [x] Bug 2 follow-up: POST `/step_multi` HTTP handler missed `await` on `bridge.stepMulti()`, serializing a Promise (`{}`) instead of the real result. Added `await` and end-to-end regression test `training/tests/test_step_multi_http.py` (real HTTP request, asserts non-empty JSON shape). Commit `f32ce94`.
+- [x] Bug 3: `RondoScenarioHandler.ts` overwrote `prevDefenderDistToBall` before passing it to `computeRondoReward()`, making the distance-closing bonus dead code. Added `currentDefenderDistToBall` field, pass current distance as `defenderDistToBall`, previous as `prevDefenderDistToBall`, then update prev after reward computation. Commit `d79f241`.
+- [x] Bug 4: `GameEngine.ts` `resetToKickoff()` did not clear `lastScenarioResolutionEmitted`, permanently suppressing `scenario_complete`/`scenario_failed` events after a kickoff reset. Added `this.lastScenarioResolutionEmitted = false`. Commit `02bdcf2`.
+- [x] Verified after each fix: `npx tsc --noEmit` clean, `python -m pytest training/tests/ -x -q` → 33 passed. All commits pushed to origin/main.
