@@ -436,7 +436,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                 if ev_type:
                     shared_info["event"] = {"type": ev_type}
             observations: Dict[str, np.ndarray] = {}
-            for i, agent in enumerate(env_state["agents"]):
+            terminal_agents = list(env_state["agents"])
+            for i, agent in enumerate(terminal_agents):
                 offset = base_offset + header_size + i * obs_bytes
                 obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
                 observations[agent] = obs
@@ -448,7 +449,7 @@ class GMNMultiAgentEnv(ParallelEnv):
             if is_rondo:
                 env_rewards = {
                     agent: defender_reward if agent.startswith("right_") else shared_reward
-                    for agent in env_state["agents"]
+                    for agent in terminal_agents
                 }
             else:
                 env_rewards = shared_reward
