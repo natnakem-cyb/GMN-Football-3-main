@@ -17,6 +17,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
   private lastPassCompleted = false;
   private lastPassTeam: TeamSide | null = null;
   private prevDefenderDistToBall = 0;
+  private currentDefenderDistToBall = 0;
   private consecutivePossessionTime = 0;
   private lastPossessionTeam: TeamSide | null = null;
   private ballOutOfAreaTime = 0;
@@ -50,13 +51,15 @@ export class RondoScenarioHandler implements ScenarioHandler {
 
     // Defender distance to ball
     const defender = engine.players.find((p) => p.team === 'right');
+    let currentDefenderDistToBall = 0;
     if (defender) {
       const defenderPos = defender.position;
       const ballPos = engine.ball.position;
-      this.prevDefenderDistToBall = Math.hypot(
+      currentDefenderDistToBall = Math.hypot(
         defenderPos.x - ballPos.x,
         defenderPos.y - ballPos.y
       );
+      this.currentDefenderDistToBall = currentDefenderDistToBall;
     }
 
     // Defender possession timer
@@ -119,12 +122,13 @@ export class RondoScenarioHandler implements ScenarioHandler {
       ballOwnerTeam,
       lastPassTeam: this.lastPassTeam,
       lastPassCompleted: this.lastPassCompleted,
-      defenderDistToBall: this.prevDefenderDistToBall,
+      defenderDistToBall: this.currentDefenderDistToBall,
       prevDefenderDistToBall: this.prevDefenderDistToBall,
       drillRadius: 0.35,
       consecutivePossessionTime: this.consecutivePossessionTime,
     });
     this.lastDefenderReward = defenderReward;
+    this.prevDefenderDistToBall = this.currentDefenderDistToBall;
     return attackerReward;
   }
 
