@@ -56,10 +56,15 @@ def ppo_update(
     flat_actions = buffer["actions"].reshape(T * num_agents)
     flat_old_logprobs = buffer["logprobs"].reshape(T * num_agents)
 
-    # Broadcast the shared per-timestep advantage/return to every agent at
-    # that timestep — np.repeat's default ordering matches the reshape above.
-    flat_advantages = np.repeat(advantages, num_agents)
-    flat_returns = np.repeat(returns, num_agents)
+    # Support both shared (T,) and per-agent (T, num_agents) advantage/return shapes.
+    if advantages.ndim == 2:
+        # Per-agent advantages (e.g. rondo asymmetric rewards): flatten directly.
+        flat_advantages = advantages.reshape(-1)
+        flat_returns = returns.reshape(-1)
+    else:
+        # Shared advantages (standard MAPPO): broadcast to every agent.
+        flat_advantages = np.repeat(advantages, num_agents)
+        flat_returns = np.repeat(returns, num_agents)
 
     # Normalize advantages — standard PPO practice
     adv_std = flat_advantages.std()

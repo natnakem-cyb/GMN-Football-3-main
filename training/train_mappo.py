@@ -219,6 +219,7 @@ def run_mappo_training(
             bootstrap_value=0.0,
             next_local_obs=buffer["next_local_obs"],
             critic=critic,
+            per_agent_rewards=buffer.get("per_agent_rewards"),
         )
 
         # 3. PPO Update Step
