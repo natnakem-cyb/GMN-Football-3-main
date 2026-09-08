@@ -77,6 +77,7 @@ class CurriculumScheduler:
         self.current_idx: int = 0
         self.window: List[bool] = []
         self.total_episodes: int = 0
+        self.episodes_in_stage: int = 0
         self.history: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------
@@ -97,6 +98,7 @@ class CurriculumScheduler:
         """
         self.window.append(success)
         self.total_episodes += 1
+        self.episodes_in_stage += 1
         if len(self.window) > self.window_size:
             self.window.pop(0)
 
@@ -111,7 +113,7 @@ class CurriculumScheduler:
         """
         current = self.stages[self.current_idx]
 
-        if self.total_episodes < self.min_episodes or not self.window:
+        if self.episodes_in_stage < self.min_episodes or not self.window:
             return current
 
         success_rate = sum(self.window) / len(self.window)
@@ -125,6 +127,7 @@ class CurriculumScheduler:
             self.current_idx += 1
             new_stage = self.stages[self.current_idx]
             self.window = []
+            self.episodes_in_stage = 0
             self.history.append({
                 "timestamp": time.time(),
                 "from": old_stage,
@@ -144,6 +147,7 @@ class CurriculumScheduler:
             self.current_idx -= 1
             new_stage = self.stages[self.current_idx]
             self.window = []
+            self.episodes_in_stage = 0
             self.history.append({
                 "timestamp": time.time(),
                 "from": old_stage,
@@ -170,6 +174,7 @@ class CurriculumScheduler:
             "current_idx": self.current_idx,
             "window": self.window,
             "total_episodes": self.total_episodes,
+            "episodes_in_stage": self.episodes_in_stage,
             "history": self.history,
             "window_size": self.window_size,
             "promote_threshold": self.promote_threshold,
@@ -198,5 +203,6 @@ class CurriculumScheduler:
         scheduler.current_idx = state.get("current_idx", 0)
         scheduler.window = [bool(x) for x in state.get("window", [])]
         scheduler.total_episodes = int(state.get("total_episodes", 0))
+        scheduler.episodes_in_stage = int(state.get("episodes_in_stage", 0))
         scheduler.history = state.get("history", [])
         return scheduler
