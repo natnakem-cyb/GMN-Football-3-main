@@ -179,13 +179,16 @@ export class ObservationEncoder {
   }
 
   /**
-   * Reward shaping computation:
-   * +1.0 for scoring a goal
-   * -1.0 for conceding a goal
-   * Checkpoint reward for monotonically advancing ball closer to opponent goal (up to +0.05)
-   * Shot-attempt shaping bonus conditioned on trajectory quality:
-   *   +0.03 if the shot projects onto the goal mouth (on-target threat)
-   *   +0.001 if the shot is off-target or too weak to threaten the goal
+   * Reward shaping computation (revised to reduce progress dominance and
+   * add explicit per-event incentives for passing and shooting):
+   *
+   * Goal scored: +2.0 (terminal)
+   * Goal conceded: -1.0 (terminal)
+   * Ball progress checkpoint: max(+0.02, deltaX * 0.2) per step, only on new high-water mark
+   * Pass completion: +0.15 per successful pass
+   * Shot taken: +0.1 per shot
+   * Shot-quality bonus (on-target): +0.1
+   * Shot-quality bonus (off-target/weak): +0.01
    */
   static computeReward(
     prevBallX: number,
@@ -196,12 +199,10 @@ export class ObservationEncoder {
     maxBallProgressX?: number,
     ballPosition?: { x: number; y: number; z: number },
     ballVelocity?: { x: number; y: number; z: number },
-    ballAngularVelocity?: { x: number; y: number; z: number }
+    ballAngularVelocity?: { x: number; y: number; z: number },
+    passCompletedByTargetTeam = false,
+    shotEventByTargetTeam = false,
   ): { reward: number; checkpoint: number; newMaxBallProgressX: number } {
-    // Controlled-team invariant (stabilization release #7): the reward shaping,
-    // shot-quality bonus and bridge metrics assume the controlled team is LEFT
-    // and the attacking goal is RIGHT. Guard explicitly so a future right-team
-    // experiment fails loudly instead of silently receiving meaningless rewards.
     if (targetTeam !== CONTROLLED_TRAINING_TEAM) {
       throw new Error(
         `[GMN Reward Invariant Violation] computeReward targetTeam='${targetTeam}' but ` +
@@ -215,21 +216,20 @@ export class ObservationEncoder {
     let checkpoint = 0;
     let newMaxBallProgressX = maxBallProgressX !== undefined ? maxBallProgressX : prevBallX;
 
+    // Terminal goal events dominate intermediate shaping.
     if (goalScoredTeam === CONTROLLED_TRAINING_TEAM) {
-      reward += 1.0;
+      reward += 2.0;
     } else if (goalScoredTeam) {
       reward -= 1.0;
     }
 
-    // Monotonic checkpoint reward: only pays when exceeding the episode high-water mark
-    // (for left team, progress is positive X). The controlled-team invariant above
-    // guarantees targetTeam === 'left' here; use a non-narrowed flag for the branch.
+    // Reduced monotonic checkpoint reward: pays only on new high-water mark.
     const isLeftControlled = targetTeam === CONTROLLED_TRAINING_TEAM;
     if (isLeftControlled) {
       if (currBallX > newMaxBallProgressX) {
         const deltaX = currBallX - newMaxBallProgressX;
         if (deltaX > 0.005) {
-          checkpoint = Math.min(0.05, deltaX * 0.5);
+          checkpoint = Math.min(0.02, deltaX * 0.2);
           reward += checkpoint;
         }
         newMaxBallProgressX = currBallX;
@@ -238,25 +238,30 @@ export class ObservationEncoder {
       if (currBallX < newMaxBallProgressX) {
         const deltaX = newMaxBallProgressX - currBallX;
         if (deltaX > 0.005) {
-          checkpoint = Math.min(0.05, deltaX * 0.5);
+          checkpoint = Math.min(0.02, deltaX * 0.2);
           reward += checkpoint;
         }
         newMaxBallProgressX = currBallX;
       }
     }
 
+    // Explicit pass-completion reward: encourages meaningful passing.
+    if (passCompletedByTargetTeam) {
+      reward += 0.15;
+    }
+
+    // Explicit shot-attempt reward: encourages taking shots.
+    if (shotEventByTargetTeam) {
+      reward += 0.1;
+    }
+
     // Shot-quality conditioned bonus — encourages aiming at the goal mouth.
-    // Uses the authoritative goal-mouth geometry (isGoalMouthPoint) with a
-    // discrete ballistic projection of the shot trajectory onto the goal line,
-    // so a shot that would cross the goal line above the crossbar is NOT
-    // considered on-target (consistency with goal detection).
     if (shotTakenByTargetTeam) {
-      const ON_TARGET_BONUS = 0.03;
-      const OFF_TARGET_BONUS = 0.001;
+      const ON_TARGET_BONUS = 0.1;
+      const OFF_TARGET_BONUS = 0.01;
 
       let shotQualityBonus = OFF_TARGET_BONUS;
       if (ballPosition && ballVelocity && Math.abs(ballVelocity.x) > 0.05) {
-        // Controlled team = LEFT attacks the RIGHT goal (contract invariant).
         const opponentGoalX = PITCH.maxX;
         const crossing = PhysicsEngine.projectShotAtGoalLine(
           ballPosition,

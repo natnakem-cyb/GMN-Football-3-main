@@ -532,6 +532,8 @@ export class GameEngine {
     }
 
     const shotTakenByLeft = newEventsThisTick.some((e) => e.type === 'shot' && e.team === 'left');
+    const passCompletedByLeft = newEventsThisTick.some((e) => e.type === 'pass' && e.team === 'left');
+    const shotEventByLeft = shotTakenByLeft;
 
     let { reward, checkpoint, newMaxBallProgressX } = ObservationEncoder.computeReward(
       prevBallX,
@@ -542,7 +544,9 @@ export class GameEngine {
       this.maxBallProgressX,
       this.ball.position,
       this.ball.velocity,
-      this.ball.angularVelocity
+      this.ball.angularVelocity,
+      passCompletedByLeft,
+      shotEventByLeft,
     );
     this.maxBallProgressX = newMaxBallProgressX;
 

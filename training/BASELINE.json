@@ -1,0 +1,484 @@
+{
+  "timestamp_iso": "2026-09-08T19:50:48.968658Z",
+  "commit": "912f2dcf0fd3f30c901a7390170e6d7ac473b8b0",
+  "branch": "main",
+  "tsc": "PASS",
+  "pytest": "21 passed",
+  "rondo_references_in_GameEngine_ts": 0,
+  "checkpoints": [
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_100352.pt",
+      "size_bytes": 430203,
+      "sha256": "02e69aab8c14c3257ad9b9229404e61799074642975a58859834db98fda6b172"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_150528.pt",
+      "size_bytes": 430203,
+      "sha256": "5755d3a3eca167726e8f92056bcf38fcc40f18313a5058a3358513067153dc0d"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_200000_new.pt",
+      "size_bytes": 430015,
+      "sha256": "8fec6dfc01c184c0ba4b5365bfa96b4d2bba6488913a25149f87d35f5270686e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_200704.pt",
+      "size_bytes": 430203,
+      "sha256": "b21791a9dedcff8ecd60525bbdc6154101f80a0070ebb327407e6c3fdc34281e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_250880.pt",
+      "size_bytes": 430203,
+      "sha256": "c90db3866de43558786e24dcddcc9d6068262859ad91ecd7e6e2578557b6f938"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_301056.pt",
+      "size_bytes": 430203,
+      "sha256": "feb1d415b3f70418bdf790876865108fc7bf29b2619b97078a41643faf036eba"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_351232.pt",
+      "size_bytes": 430203,
+      "sha256": "325f7cfd16bf4df380a1f9f53dea33342758ae189ce207b609335b27f08d44cf"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_401408.pt",
+      "size_bytes": 430203,
+      "sha256": "ee0df1aead33b68271650629cdc97a6ffeda2416c7b4700111cf0e2568564c30"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_451584.pt",
+      "size_bytes": 430203,
+      "sha256": "ec956987d292499854c789677e63fed9ec6d4748ff93e2890c14fc76ba92a396"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_500k.pt",
+      "size_bytes": 430015,
+      "sha256": "c40b4d909b5d99b5b88aaa2c5d1a08e6591e0e64b654cce4e95c463be63b9234"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_50176.pt",
+      "size_bytes": 430141,
+      "sha256": "96630820c8802c6893dd17e9498dc84070735bb1696af3037595b7a97c03fb8f"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_best.pt",
+      "size_bytes": 430079,
+      "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_rolling_best.pt",
+      "size_bytes": 430575,
+      "sha256": "52cea96581fce7a9a6308a1de697d9d608b96a5c541c9a70228d9fa52a9046f9"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137.pt",
+      "size_bytes": 430079,
+      "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_100352.pt",
+      "size_bytes": 430699,
+      "sha256": "15b6baba00f9be38fc002773d8014c44802bcc4d2ccfc6367881172655084111"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_150528.pt",
+      "size_bytes": 430699,
+      "sha256": "fc3f3c655d834de1d1b262caf5fd1faebeed4d9d9c35c2b2d47e3dea906c67d7"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_200704.pt",
+      "size_bytes": 430699,
+      "sha256": "2a187f06f63bc2faea49627e07aa3cdb156123c605acea800415561308139f2c"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_250880.pt",
+      "size_bytes": 430699,
+      "sha256": "41a72113ec25de9c0daeaaaaa2244d3f652fe721c4d43d866992eb1af1b58fc4"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_301056.pt",
+      "size_bytes": 430699,
+      "sha256": "480c0fde4d206aff60f134d1a915ec530d6e17727bc44fc78b86738f76a2a5bf"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_351232.pt",
+      "size_bytes": 430699,
+      "sha256": "d742c0f548c07689b4077f6e6160505734265b06fc3076891aadd8f23b998652"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_401408.pt",
+      "size_bytes": 430699,
+      "sha256": "63b101adf0e4f3abddcb3e3707fa00c064178f67beae3cba4a625c4b2d686d1e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_451584.pt",
+      "size_bytes": 430699,
+      "sha256": "ffad4fc9beca97c5f6bf70af53be98c3c3e37344c1e38dc58a8bc0f0e55c2873"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_50176.pt",
+      "size_bytes": 430637,
+      "sha256": "46f50dd1784950e618c294a2170e7851d5f20dac2ba5896687b37e8cf0e133cd"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_best.pt",
+      "size_bytes": 430575,
+      "sha256": "7b6e1bc2be89298673177df93b9020ca319acd32ba6aa6f3edc3df43db20691f"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_rolling_best.pt",
+      "size_bytes": 431071,
+      "sha256": "a7bdfd19d48a64759b38ed54cc3fed7bb390fd4f4e9ebf900f20cf89c165321c"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed137_trained.pt",
+      "size_bytes": 430575,
+      "sha256": "7b6e1bc2be89298673177df93b9020ca319acd32ba6aa6f3edc3df43db20691f"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42.pt",
+      "size_bytes": 430513,
+      "sha256": "3108a90af3879e5c489d40d66a7c1761b135102a545437e7c5d26c829d32e50a"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_100352.pt",
+      "size_bytes": 430637,
+      "sha256": "964a43889ca6e5f88dfc46b7b58568243d8030a3d9c81151c4dafb9209e84feb"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_150528.pt",
+      "size_bytes": 430637,
+      "sha256": "5601aaecd1bcd8e76d0cf782ff0a9715a258ba4d19dc8682425e76b265a68342"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_200704.pt",
+      "size_bytes": 430637,
+      "sha256": "e2e7db88832172401c7aaa85ea4b35faf319bcd57efa624214ee9440d3df82e0"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_250880.pt",
+      "size_bytes": 430637,
+      "sha256": "ec04c73aab7635c13d9ca08944994334e01dc73636cbfb2fdd4aed1ca096ae08"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_301056.pt",
+      "size_bytes": 430637,
+      "sha256": "44264051bd18c9d92f50ba228d6e6a1fd1c69eacbbcc7328ac8c2142ac327634"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_351232.pt",
+      "size_bytes": 430637,
+      "sha256": "b8f366605ee915a4a3e315978afba523fc098eef847ab98294a131f72cefe820"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_401408.pt",
+      "size_bytes": 430637,
+      "sha256": "38eb69e350ebb662ae7395dcf07c50c8e12ff6a14b82bd20506e7fd38af4d418"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_451584.pt",
+      "size_bytes": 430637,
+      "sha256": "1f7fad35d7150281cd490742bff5e277f861fd5137379e6dac1bc0da0f25d154"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_50176.pt",
+      "size_bytes": 430575,
+      "sha256": "5f4b3f10c883517f838401cd56285ca882b7c7f204e6943f9478d7afbf131997"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_best.pt",
+      "size_bytes": 430513,
+      "sha256": "9757c68807c8293ea4b85212bf338ddc2b8138efaaf5fe674c701fb0ad0b29c7"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_rolling_best.pt",
+      "size_bytes": 431009,
+      "sha256": "187a3f44bd8d7a4491592120e0a985ce7a65d020e5dfbc64a37d27232f2a54f5"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_100352.pt",
+      "size_bytes": 431071,
+      "sha256": "cfa4ca56d0e233983c33acec1371ff11071a609443288ae13eca5c6533c59acc"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_150528.pt",
+      "size_bytes": 431071,
+      "sha256": "a0b85c70df27aacc8debcd228a6e5e61d767f3a7e07875ffaf0ca8b6f8e81904"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_200704.pt",
+      "size_bytes": 431071,
+      "sha256": "1f6966612a8f9c4a795a34eb64f0af604f95d4eb541a8149f0bb8be742f48885"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_250880.pt",
+      "size_bytes": 431071,
+      "sha256": "60439cf12448438fabc247cd0f991ff3ac430d78edbbf6beb2758909f13e0834"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_301056.pt",
+      "size_bytes": 431071,
+      "sha256": "d361a9dada377461ba46c873f1789633da416b1e5e8582e9c505c3f3741bca74"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_50176.pt",
+      "size_bytes": 431009,
+      "sha256": "a6ae6651d8e8367adcbe2965420c76350913cb023d24cd7364b4ccdb8603cbaf"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_best.pt",
+      "size_bytes": 430947,
+      "sha256": "3ee67fe3a78595f188eb97d7235f91ceb866064bebc18f5ff0d0cae2fa03c6ae"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_rolling_best.pt",
+      "size_bytes": 431699,
+      "sha256": "7dcf3e725765c48c47c4bc00daad76b113d29e4f9d5e44afbb9713e0e5d9e3d2"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_shaped_temp.pt",
+      "size_bytes": 430947,
+      "sha256": "34e075039b74248780fc39ec0bf7cb8edac292ee9f0fc97fffaadd3555f42ab3"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed42_trained.pt",
+      "size_bytes": 430513,
+      "sha256": "ddaf4d38558cf39aca4adb409f7ff1ab3a1ab2024ca42f7c1742e12439fbef48"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43.pt",
+      "size_bytes": 430079,
+      "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_100352.pt",
+      "size_bytes": 430637,
+      "sha256": "81efb8bbd66c167b427abae4ce220201690d7651bf2af47821eab88bff8036f2"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_150528.pt",
+      "size_bytes": 430637,
+      "sha256": "76835c9150a6b80087c302a840f32db9dcb78654696a752729f27c760ec27525"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_200704.pt",
+      "size_bytes": 430637,
+      "sha256": "ecdffe6862e2ce3bc5e5d32e26ac03d80fa68db1ca646a91c3e77b4f275a6235"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_250880.pt",
+      "size_bytes": 430637,
+      "sha256": "a1196580a79ab399a2e356b339333181e9a1ece7a724efadba0f219f1ed080ab"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_301056.pt",
+      "size_bytes": 430637,
+      "sha256": "df62629373cbe9dd9a26a475f622bf2c2d3230b86e24108fef937454b9e0a45e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_351232.pt",
+      "size_bytes": 430637,
+      "sha256": "4c86a73108f4c3eb1e81324fd3eefc1d562a4c40ec15d250d2afd34bce8af955"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_401408.pt",
+      "size_bytes": 430637,
+      "sha256": "56ccb92c02c352a4cd5dcd5b64c648217c7ba1172ad1916748a7cbb84f29a46f"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_451584.pt",
+      "size_bytes": 430637,
+      "sha256": "5e19690d2f38caae8b3fa7fe654954863b2d1d011df0b4bc0d1e447f54b7017e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_50176.pt",
+      "size_bytes": 430575,
+      "sha256": "79750ffc5851e5be0cb50ad4028e513179e97aef8f9aaf6e541a1cbee8650469"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_best.pt",
+      "size_bytes": 430513,
+      "sha256": "fc6467dabe22c322d3b0e99546e571e6c71f33d0413f3be2cd8a1feddd712e34"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_rolling_best.pt",
+      "size_bytes": 431009,
+      "sha256": "91e3c5ff41735df0f746f7a827855efd8f0326d09d64d12dc5a840d493492a05"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed43_trained.pt",
+      "size_bytes": 430513,
+      "sha256": "fc6467dabe22c322d3b0e99546e571e6c71f33d0413f3be2cd8a1feddd712e34"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44.pt",
+      "size_bytes": 430079,
+      "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_100352.pt",
+      "size_bytes": 430637,
+      "sha256": "809b4433644affeba091d0efdb63ff39733cf3b5a21eeba96274aab152e239d0"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_150528.pt",
+      "size_bytes": 430637,
+      "sha256": "593981ca910c60548ce9f72d2e4290e2d5e6eba719b9a4faad952e08863e4648"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_200704.pt",
+      "size_bytes": 430637,
+      "sha256": "bd1dc290fda3861d46ae8aeea5ffa27e2a22365d7cc49fff2e7107c8ea46e34e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_250880.pt",
+      "size_bytes": 430637,
+      "sha256": "807a205865116c936b1b36c45b1abb561ebe73f57c2e50b9a23eed6fcebf5d56"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_301056.pt",
+      "size_bytes": 430637,
+      "sha256": "9f7e2e6404cc90ae2ac33788acb27629db64d3233de766930c114806d1865a25"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_351232.pt",
+      "size_bytes": 430637,
+      "sha256": "affd85c845f18bdf0ef2d85af4321e860d13fa51a78e6076239f0d64372c1e97"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_401408.pt",
+      "size_bytes": 430637,
+      "sha256": "8cb2c78202fa8b76a77b229a3fa5d4260860c3cab00ba7d0d39457d41d8e1195"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_451584.pt",
+      "size_bytes": 430637,
+      "sha256": "d76e96a878e62b3be2ffba38957f0dad2c2305b2ce8bbe4eef9648cb83bfdb17"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_50176.pt",
+      "size_bytes": 430575,
+      "sha256": "2a8d08b3a2e02ed132b90457b11eaba389bc006e7832a26c3799f0fa2635455e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_best.pt",
+      "size_bytes": 430513,
+      "sha256": "6fb28ff1a56a60d8ae24c1752fba307a01fdac0c63c29087c4b5c7e336f8ac42"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_rolling_best.pt",
+      "size_bytes": 431009,
+      "sha256": "993000ecb4ebe3e146d5bf7657f527f5e10138ae74076e7346d7c9e2d6c7ee8e"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_seed44_trained.pt",
+      "size_bytes": 430513,
+      "sha256": "6fb28ff1a56a60d8ae24c1752fba307a01fdac0c63c29087c4b5c7e336f8ac42"
+    },
+    {
+      "name": "mappo_academy_3_vs_1_with_keeper_shotquality.pt",
+      "size_bytes": 430015,
+      "sha256": "b2edd1b3481fbae323d03fabe4c5fcbcebd16bebf80afce1fa016bf325e23ae4"
+    },
+    {
+      "name": "mappo_academy_empty_goal_best.pt",
+      "size_bytes": 429583,
+      "sha256": "a26b0c971005cb2e65b040f4c420b880993c0965d23ee53df44db7cc25e1d109"
+    },
+    {
+      "name": "mappo_academy_rondo_4v1_seed42_100352.pt",
+      "size_bytes": 430079,
+      "sha256": "2ec5a807150a4ec564e771d3f32320184fb80ce02170cc636dcbc36cc7a586cd"
+    },
+    {
+      "name": "mappo_academy_rondo_4v1_seed42_150528.pt",
+      "size_bytes": 430079,
+      "sha256": "de20dcab5aab209eaafa5e622342b2e3b8d1765d5cac1d096b98352d1a019026"
+    },
+    {
+      "name": "mappo_academy_rondo_4v1_seed42_50176.pt",
+      "size_bytes": 430017,
+      "sha256": "0eb4c7affdd6af29cdc3b12e20ed6a4f8c299aa0266e047f32bff5c8f3dc812e"
+    },
+    {
+      "name": "mappo_academy_rondo_4v1_seed42_best.pt",
+      "size_bytes": 429955,
+      "sha256": "f2254e1cecab041ee9f19b365228381e770117255b615ae428106a8b298810a1"
+    },
+    {
+      "name": "mappo_academy_rondo_4v1_seed42_rolling_best.pt",
+      "size_bytes": 430451,
+      "sha256": "ee6a46ec454510eb4427b101b6a0a63dda770b483cbab27c7da826c0b8c71f9b"
+    },
+    {
+      "name": "mappo_academy_rondo_4v1_seed42_smoke.pt",
+      "size_bytes": 429955,
+      "sha256": "cb0125736cb06bac72a93145ecbc87e415616a0f3bb02ae221a4f3d89e671d4b"
+    },
+    {
+      "name": "mappo_academy_rondo_4v1_seed42_trained.pt",
+      "size_bytes": 429955,
+      "sha256": "f2254e1cecab041ee9f19b365228381e770117255b615ae428106a8b298810a1"
+    },
+    {
+      "name": "mappo_smoke_parallel_seed42.pt",
+      "size_bytes": 430513,
+      "sha256": "9757c68807c8293ea4b85212bf338ddc2b8138efaaf5fe674c701fb0ad0b29c7"
+    },
+    {
+      "name": "smoke_test.pt",
+      "size_bytes": 429583,
+      "sha256": "a26b0c971005cb2e65b040f4c420b880993c0965d23ee53df44db7cc25e1d109"
+    }
+  ],
+  "trainer_configs": {
+    "train_mappo.py": {
+      "clip_range": "0.15",
+      "entropy_start": null,
+      "entropy_end": null,
+      "n_epochs": null,
+      "batch_size": null,
+      "value_coef": null,
+      "max_grad_norm": null,
+      "gamma": null,
+      "gae_lambda": null,
+      "n_envs": null,
+      "n_steps": null,
+      "scenario": null,
+      "seed": null,
+      "timesteps": null,
+      "enable_reward_shaping": null
+    },
+    "train_mappo_shaped.py": {
+      "clip_range": "0.15",
+      "entropy_start": null,
+      "entropy_end": null,
+      "n_epochs": null,
+      "batch_size": null,
+      "value_coef": null,
+      "max_grad_norm": null,
+      "gamma": null,
+      "gae_lambda": null,
+      "n_envs": null,
+      "n_steps": null,
+      "scenario": null,
+      "seed": null,
+      "timesteps": null,
+      "enable_reward_shaping": null
+    }
+  },
+  "evaluation_commands": [
+    "python -m pytest training/tests/ -x -q",
+    "python training/eval_mappo.py --checkpoint training/models/mappo_academy_3_vs_1_with_keeper_seed42_best.pt --episodes 500",
+    "python training/eval_progress.py --checkpoint training/models/mappo_academy_3_vs_1_with_keeper_seed42_best.pt"
+  ],
+  "key_findings": {
+    "pass_accuracy": "0.0% across all checkpoints",
+    "shots_per_episode": "0.00",
+    "completed_passes_per_episode": "0.00\u20130.44",
+    "goal_rate_range": "13.2%\u201337.4%",
+    "rl_maturity": "Level B (Learning)",
+    "reward_exploitation": "VERIFIED"
+  }
+}

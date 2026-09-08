@@ -988,6 +988,38 @@ export function encodeErrorStepBinary(nAgents = 1): Buffer {
   return buf;
 }
 
+/**
+ * Decompose a step result's scalar reward into components for debug/evaluation.
+ * This is an instrumentation-only helper; it does not affect production behavior.
+ */
+function computeRewardComponents(stepResult: any): any {
+  const components: any = {
+    total: stepResult.reward || 0,
+    goal: 0,
+    progress: stepResult.info?.checkpointReward || 0,
+    shot: 0,
+    pass_shaper: 0,
+    defensive: 0,
+    other: 0,
+  };
+
+  const event = typeof stepResult.info?.event === 'string'
+    ? stepResult.info.event
+    : stepResult.info?.event?.type;
+
+  if (event === 'goal') {
+    components.goal = components.total - components.progress;
+  } else if (event === 'shot') {
+    components.shot = components.total - components.progress;
+  } else if (event === 'pass') {
+    components.pass_shaper = components.total - components.progress;
+  } else if (event === 'interception' || event === 'tackle') {
+    components.defensive = components.total - components.progress;
+  }
+
+  return components;
+}
+
 // Attach WebSocket Server to the same HTTP Server instance
 const wss = new WebSocketServer({ server });
 
@@ -1014,6 +1046,10 @@ wss.on('connection', (ws: WebSocket, req) => {
     return;
   }
 
+  // Detect debug subscribers by URL query parameter
+  const debugRewards = url.includes('debug=rewards');
+  const debugState = debugRewards ? { components: { goal: 0, progress: 0, shot: 0, pass_shaper: 0, defensive: 0 } } : null;
+
   TrainingJobService.registerWebSocket(ws);
   ws.on('message', async (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
     try {
@@ -1038,6 +1074,12 @@ wss.on('connection', (ws: WebSocket, req) => {
               ...stepResult.info.ground_truth,
             };
             ws.send(JSON.stringify(episodeStats));
+          }
+
+          // Debug reward breakdown
+          if (debugState) {
+            const components = computeRewardComponents(stepResult);
+            ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
           }
 
           const ownerId = bridge['engine'].ball.ownerId as string | null;
@@ -1081,6 +1123,10 @@ wss.on('connection', (ws: WebSocket, req) => {
             for (const stats of episodeStatsList) {
               ws.send(JSON.stringify(stats));
             }
+            if (debugState) {
+              const components = computeRewardComponents(batchResults[0]);
+              ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
+            }
             ws.send(encodeBatchedStepBinary(batchResults), { binary: true });
             } else if (buf.length > 1) {
               // existing multi-agent path — unchanged
@@ -1102,11 +1148,16 @@ wss.on('connection', (ws: WebSocket, req) => {
                 ...multiResult.info.ground_truth,
               };
              ws.send(JSON.stringify(episodeStats));
-            }
+             }
  
-            const defenderReward = (bridge['engine'].getActiveScenarioHandler() as any)?.getLastDefenderReward?.() ?? 0;
-            const isRondo = bridge['engine'].activeScenario?.id === 'academy_rondo_4v1';
-            ws.send(encodeMultiStepBinary(multiResult, isRondo, defenderReward), { binary: true });
+             if (debugState) {
+               const components = computeRewardComponents(multiResult);
+               ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
+             }
+
+             const defenderReward = (bridge['engine'].getActiveScenarioHandler() as any)?.getLastDefenderReward?.() ?? 0;
+             const isRondo = bridge['engine'].activeScenario?.id === 'academy_rondo_4v1';
+             ws.send(encodeMultiStepBinary(multiResult, isRondo, defenderReward), { binary: true });
           }
         }
       } else {

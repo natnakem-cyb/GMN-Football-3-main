@@ -1,0 +1,269 @@
+{
+  "phase": 1,
+  "title": "Baseline Freeze",
+  "timestamp_iso": "2026-09-08T20:40:00Z",
+  "commit": "912f2dcf0fd3f30c901a7390170e6d7ac473b8b0",
+  "branch": "main",
+  "tsc": "PASS",
+  "pytest": "20 passed, 1 failed (test_onnx_opponent.py::test_learned_opponent_snapshot — WebSocket timeout, pre-existing)",
+  "rondo_references_in_GameEngine_ts": 0,
+  "working_tree": {
+    "modified": [
+      "training/bridge_server.ts",
+      "training/gmn_pettingzoo.py"
+    ],
+    "untracked": [
+      "training/BASELINE.json",
+      "training/REWARD_AUDIT.md",
+      "training/freeze_baseline.py",
+      "training/measure_rewards.py",
+      "training/reproduce_exploits.py",
+      "training/reward_auditor.py",
+      "training/models/ppo_11_vs_11_100.zip",
+      "training/models/ppo_11_vs_11_100_vecnormalize.pkl",
+      "training/models/ppo_academy_empty_goal_10k.zip"
+    ]
+  },
+  "training_configuration": {
+    "canonical_trainers": {
+      "train_mappo.py": {
+        "timesteps": 200000,
+        "rollout_length_n_steps": 256,
+        "mini_batch_size": 256,
+        "ppo_epochs": 4,
+        "learning_rate": "3e-4 (Adam, cosine anneal to 3e-5)",
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.15,
+        "value_coef": 0.5,
+        "entropy_coef": "0.01 -> 0.005 (linear schedule)",
+        "max_grad_norm": 0.5,
+        "scenario_default": "academy_3_vs_1_with_keeper",
+        "seed_default": 42,
+        "n_envs": 1,
+        "architecture": "SharedActor (Mlp 64x64) + CentralizedCritic (Deep Sets Pooling)"
+      },
+      "train_mappo_shaped.py": {
+        "timesteps": 500000,
+        "rollout_length_n_steps": 256,
+        "mini_batch_size": 256,
+        "ppo_epochs": 4,
+        "learning_rate": "3e-4 (Adam, cosine anneal to 3e-5)",
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.15,
+        "value_coef": 0.5,
+        "entropy_coef": "0.01 -> 0.005 (linear schedule)",
+        "max_grad_norm": 0.5,
+        "scenario_default": "academy_3_vs_1_with_keeper",
+        "seed_default": 42,
+        "reward_shaping": {
+          "pass_completion_bonus": 0.25,
+          "assisted_goal_bonus": 0.50,
+          "solitary_shot_penalty": -0.30,
+          "ball_hogging_penalty": -0.005,
+          "max_unassisted_hold_ticks": 30
+        }
+      }
+    }
+  },
+  "scenario_configuration": {
+    "primary_scenario": "academy_3_vs_1_with_keeper",
+    "stage": 4,
+    "difficulty": "Intermediate",
+    "team_left_players": 3,
+    "team_right_players": 2,
+    "has_goalkeeper_right": true,
+    "time_limit_seconds": 30,
+    "terminate_on_opponent_possession": true,
+    "position_jitter": 0.05,
+    "objectives": [
+      "create_triangle: Connect 2+ passes without losing possession",
+      "score_goal: Score past the goalkeeper"
+    ],
+    "scenario_rewards_config": {
+      "scoring": 1.0,
+      "completion": 500
+    },
+    "scenario_handler": "None — uses base ObservationEncoder.computeReward"
+  },
+  "reward_configuration": {
+    "source_file": "src/engine/ObservationEncoder.ts",
+    "function": "ObservationEncoder.computeReward",
+    "controlled_team": "left",
+    "components": [
+      {
+        "name": "goal_scored",
+        "value": "+1.0",
+        "frequency": "terminal",
+        "recipient": "all left agents (shared broadcast)",
+        "conditions": "goalScoredTeam === CONTROLLED_TRAINING_TEAM",
+        "terminal": true,
+        "type": "task reward",
+        "exploit_risk": "LOW — terminal event, cannot be farmed"
+      },
+      {
+        "name": "goal_conceded",
+        "value": "-1.0",
+        "frequency": "terminal",
+        "recipient": "all left agents (shared broadcast)",
+        "conditions": "goalScoredTeam === right",
+        "terminal": true,
+        "type": "task penalty",
+        "exploit_risk": "LOW — terminal event"
+      },
+      {
+        "name": "ball_progress_checkpoint",
+        "value": "max(+0.05, deltaX * 0.5) per step, only when currBallX > newMaxBallProgressX and deltaX > 0.005",
+        "frequency": "per-step (dense)",
+        "recipient": "all left agents (shared broadcast)",
+        "conditions": "currBallX exceeds episode high-water mark",
+        "terminal": false,
+        "type": "dense shaping",
+        "exploit_risk": "HIGH — incentivizes dribbling forward without passing; passing may temporarily reduce ball X"
+      },
+      {
+        "name": "shot_quality_bonus",
+        "value": "+0.03 on-target, +0.001 off-target/weak",
+        "frequency": "per-shot",
+        "recipient": "all left agents (shared broadcast)",
+        "conditions": "shotTakenByTargetTeam === true",
+        "terminal": false,
+        "type": "dense shaping",
+        "exploit_risk": "MEDIUM — small magnitude, may not overcome progress farming incentive"
+      }
+    ],
+    "cooperative_shaper_enabled_by_default": true,
+    "cooperative_shaper_source": "training/gmn_pettingzoo.py: CooperativeRewardShaper",
+    "cooperative_shaper_components": [
+      {
+        "name": "pass_completion_bonus",
+        "value": "+0.25",
+        "frequency": "per completed pass",
+        "recipient": "passing agent only",
+        "conditions": "PASS_COMPLETED event for left team",
+        "terminal": false,
+        "type": "task shaping",
+        "exploit_risk": "MEDIUM — could incentivize rapid pass cycling between teammates"
+      },
+      {
+        "name": "assisted_goal_bonus",
+        "value": "+0.50",
+        "frequency": "per goal",
+        "recipient": "all active left agents",
+        "conditions": "GOAL_SCORED event AND pass_chain_length > 0",
+        "terminal": false,
+        "type": "task shaping",
+        "exploit_risk": "LOW — requires actual goal"
+      },
+      {
+        "name": "solitary_shot_penalty",
+        "value": "-0.30",
+        "frequency": "per shot",
+        "recipient": "shooting agent only",
+        "conditions": "SHOT_TAKEN event AND pass_chain_length == 0",
+        "terminal": false,
+        "type": "penalty shaping",
+        "exploit_risk": "LOW — discourages unassisted shooting"
+      },
+      {
+        "name": "ball_hogging_penalty",
+        "value": "-0.005/tick after 30 ticks of continuous possession",
+        "frequency": "per-tick (dense)",
+        "recipient": "current ball holder only",
+        "conditions": "holder_ticks > max_unassisted_hold_ticks (30)",
+        "terminal": false,
+        "type": "penalty shaping",
+        "exploit_risk": "MEDIUM — penalty is very small relative to progress reward; agent may still prefer dribbling"
+      }
+    ]
+  },
+  "mappo_configuration": {
+    "algorithm": "MAPPO with Centralized Critic",
+    "policy": "SharedActor (parameter-shared across left-team agents)",
+    "critic": "CentralizedCritic (Deep Sets permutation-invariant pooling)",
+    "observation_dim": 127,
+    "action_dim": 19,
+    "rollout_buffer": {
+      "n_steps": 256,
+      "rewards_shape": "(256,)",
+      "values_shape": "(256,)",
+      "actions_shape": "(256, 3)",
+      "logprobs_shape": "(256, 3)",
+      "local_obs_shape": "(256, 3, 127)",
+      "global_state_shape": "(256, 381)"
+    },
+    "gae": {
+      "gamma": 0.99,
+      "lambda": 0.95,
+      "bootstrap_value": 0.0
+    },
+    "ppo_update": {
+      "n_epochs": 4,
+      "batch_size": 256,
+      "clip_range": 0.15,
+      "value_coef": 0.5,
+      "entropy_coef": "0.01 -> 0.005",
+      "max_grad_norm": 0.5
+    },
+    "per_agent_rewards": "VERIFIED in 9e0cbae — buffer stores per-agent rewards via buffer.get('per_agent_rewards')"
+  },
+  "available_checkpoints": [
+    {"name": "mappo_academy_3_vs_1_with_keeper_100352.pt", "size_bytes": 430203, "sha256": "02e69aab8c14c3257ad9b9229404e61799074642975a58859834db98fda6b172"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_150528.pt", "size_bytes": 430203, "sha256": "5755d3a3eca167726e8f92056bcf38fcc40f18313a5058a3358513067153dc0d"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_200000_new.pt", "size_bytes": 430015, "sha256": "8fec6dfc01c184c0ba4b5365bfa96b4d2bba6488913a25149f87d35f5270686e"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_200704.pt", "size_bytes": 430203, "sha256": "b21791a9dedcff8ecd60525bbdc6154101f80a0070ebb327407e6c3fdc34281e"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_250880.pt", "size_bytes": 430203, "sha256": "c90db3866de43558786e24dcddcc9d6068262859ad91ecd7e6e2578557b6f938"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_301056.pt", "size_bytes": 430203, "sha256": "feb1d415b3f70418bdf790876865108fc7bf29b2619b97078a41643faf036eba"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_351232.pt", "size_bytes": 430203, "sha256": "325f7cfd16bf4df380a1f9f53dea33342758ae189ce207b609335b27f08d44cf"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_401408.pt", "size_bytes": 430203, "sha256": "ee0df1aead33b68271650629cdc97a6ffeda2416c7b4700111cf0e2568564c30"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_451584.pt", "size_bytes": 430203, "sha256": "ec956987d292499854c789677e63fed9ec6d4748ff93e2890c14fc76ba92a396"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_500k.pt", "size_bytes": 430015, "sha256": "c40b4d909b5d99b5b88aaa2c5d1a08e6591e0e64b654cce4e95c463be63b9234"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_50176.pt", "size_bytes": 430141, "sha256": "96630820c8802c6893dd17e9498dc84070735bb1696af3037595b7a97c03fb8f"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_best.pt", "size_bytes": 430079, "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_rolling_best.pt", "size_bytes": 430575, "sha256": "52cea96581fce7a9a6308a1de697d9d608b96a5c541c9a70228d9fa52a9046f9"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed137.pt", "size_bytes": 430079, "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed137_best.pt", "size_bytes": 430575, "sha256": "7b6e1bc2be89298673177df93b9020ca319acd32ba6aa6f3edc3df43db20691f"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed137_rolling_best.pt", "size_bytes": 431071, "sha256": "a7bdfd19d48a64759b38ed54cc3fed7bb390fd4f4e9ebf900f20cf89c165321c"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed137_trained.pt", "size_bytes": 430575, "sha256": "7b6e1bc2be89298673177df93b9020ca319acd32ba6aa6f3edc3df43db20691f"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed42.pt", "size_bytes": 430513, "sha256": "3108a90af3879e5c489d40d66a7c1761b135102a545437e7c5d26c829d32e50a"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed42_best.pt", "size_bytes": 430513, "sha256": "9757c68807c8293ea4b85212bf338ddc2b8138efaaf5fe674c701fb0ad0b29c7"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed42_rolling_best.pt", "size_bytes": 431009, "sha256": "187a3f44bd8d7a4491592120e0a985ce7a65d020e5dfbc64a37d27232f2a54f5"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed42_trained.pt", "size_bytes": 430513, "sha256": "ddaf4d38558cf39aca4adb409f7ff1ab3a1ab2024ca42f7c1742e12439fbef48"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed43.pt", "size_bytes": 430079, "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed43_best.pt", "size_bytes": 430513, "sha256": "fc6467dabe22c322d3b0e99546e571e6c71f33d0413f3be2cd8a1feddd712e34"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed43_rolling_best.pt", "size_bytes": 431009, "sha256": "91e3c5ff41735df0f746f7a827855efd8f0326d09d64d12dc5a840d493492a05"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed43_trained.pt", "size_bytes": 430513, "sha256": "fc6467dabe22c322d3b0e99546e571e6c71f33d0413f3be2cd8a1feddd712e34"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed44.pt", "size_bytes": 430079, "sha256": "939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed44_best.pt", "size_bytes": 430513, "sha256": "6fb28ff1a56a60d8ae24c1752fba307a01fdac0c63c29087c4b5c7e336f8ac42"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed44_rolling_best.pt", "size_bytes": 431009, "sha256": "993000ecb4ebe3e146d5bf7657f527f5e10138ae74076e7346d7c9e2d6c7ee8e"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_seed44_trained.pt", "size_bytes": 430513, "sha256": "6fb28ff1a56a60d8ae24c1752fba307a01fdac0c63c29087c4b5c7e336f8ac42"},
+    {"name": "mappo_academy_3_vs_1_with_keeper_shotquality.pt", "size_bytes": 430015, "sha256": "b2edd1b3481fbae323d03fabe4c5fcbcebd16bebf80afce1fa016bf325e23ae4"},
+    {"name": "mappo_academy_empty_goal_best.pt", "size_bytes": 429583, "sha256": "a26b0c971005cb2e65b040f4c420b880993c0965d23ee53df44db7cc25e1d109"},
+    {"name": "mappo_academy_rondo_4v1_seed42_100352.pt", "size_bytes": 430079, "sha256": "2ec5a807150a4ec564e771d3f32320184fb80ce02170cc636dcbc36cc7a586cd"},
+    {"name": "mappo_academy_rondo_4v1_seed42_150528.pt", "size_bytes": 430079, "sha256": "de20dcab5aab209eaafa5e622342b2e3b8d1765d5cac1d096b98352d1a019026"},
+    {"name": "mappo_academy_rondo_4v1_seed42_50176.pt", "size_bytes": 430017, "sha256": "0eb4c7affdd6af29cdc3b12e20ed6a4f8c299aa0266e047f32bff5c8f3dc812e"},
+    {"name": "mappo_academy_rondo_4v1_seed42_best.pt", "size_bytes": 429955, "sha256": "f2254e1cecab041ee9f19b365228381e770117255b615ae428106a8b298810a1"},
+    {"name": "mappo_academy_rondo_4v1_seed42_rolling_best.pt", "size_bytes": 430451, "sha256": "ee6a46ec454510eb4427b101b6a0a63dda770b483cbab27c7da826c0b8c71f9b"},
+    {"name": "mappo_academy_rondo_4v1_seed42_smoke.pt", "size_bytes": 429955, "sha256": "cb0125736cb06bac72a93145ecbc87e415616a0f3bb02ae221a4f3d89e671d4b"},
+    {"name": "mappo_academy_rondo_4v1_seed42_trained.pt", "size_bytes": 429955, "sha256": "f2254e1cecab041ee9f19b365228381e770117255b615ae428106a8b298810a1"},
+    {"name": "mappo_smoke_parallel_seed42.pt", "size_bytes": 430513, "sha256": "9757c68807c8293ea4b85212bf338ddc2b8138efaaf5fe674c701fb0ad0b29c7"},
+    {"name": "smoke_test.pt", "size_bytes": 429583, "sha256": "a26b0c971005cb2e65b040f4c420b880993c0965d23ee53df44db7cc25e1d109"}
+  ],
+  "checkpoint_promotion_bug": {
+    "status": "OBSERVED",
+    "details": "mappo_academy_3_vs_1_with_keeper_best.pt, mappo_academy_3_vs_1_with_keeper_seed43.pt, mappo_academy_3_vs_1_with_keeper_seed44.pt, and mappo_academy_3_vs_1_with_keeper_seed137.pt all share identical SHA-256 (939e6ceefb95c880d2021067bee0103cf4a770258b1ecf01ea892a756d0afe50). The per-seed _trained.pt files are unique, indicating the plain seed{N}.pt files were overwritten with the best checkpoint during promotion/preservation."
+  },
+  "evaluation_commands": [
+    "python -m pytest training/tests/ -x -q",
+    "python training/eval_mappo.py --checkpoint training/models/mappo_academy_3_vs_1_with_keeper_seed42_best.pt --episodes 500",
+    "python training/eval_progress.py --checkpoint training/models/mappo_academy_3_vs_1_with_keeper_seed42_best.pt"
+  ],
+  "evaluation_metrics": {
+    "pass_accuracy": "0.0% across all checkpoints",
+    "shots_per_episode": "0.00",
+    "completed_passes_per_episode": "0.00–0.44",
+    "goal_rate_range": "13.2%–37.4%",
+    "rl_maturity": "Level B (Learning)"
+  }
+}
