@@ -275,33 +275,35 @@ export class GMNBridgeService {
         actionMap.set(id, mapDiscreteAction(actions[idx]));
       });
       if (!isRondoScenario) {
-        engine.players.forEach(async (player) => {
-          if (controllableIds.includes(player.id)) return;
+        await Promise.all(
+          engine.players.map(async (player) => {
+            if (controllableIds.includes(player.id)) return;
 
-          if (this.opponentSpec?.kind === 'snapshot' && player.team === 'right') {
-            let session = this.getSnapshotSession(engine, this.opponentSpec.path);
+            if (this.opponentSpec?.kind === 'snapshot' && player.team === 'right') {
+              let session = this.getSnapshotSession(engine, this.opponentSpec.path);
+              try {
+              } catch (e) {}
+              if (!session) {
+                this._applyRuleBasedAction(player, actionMap, engine);
+                return;
+              }
             try {
-            } catch (e) {}
-            if (!session) {
-              this._applyRuleBasedAction(player, actionMap, engine);
+              const actionIdx = await this.runOnnxInference(session, this.engine, player);
+              actionMap.set(player.id, mapDiscreteAction(actionIdx));
+              try {
+              } catch (e) {}
+            } catch (err: any) {
+              try {
+              } catch (e) {}
+              console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
+              this._applyRuleBasedAction(player, actionMap);
+            }
               return;
             }
-          try {
-            const actionIdx = await this.runOnnxInference(session, this.engine, player);
-            actionMap.set(player.id, mapDiscreteAction(actionIdx));
-            try {
-            } catch (e) {}
-          } catch (err: any) {
-            try {
-            } catch (e) {}
-            console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
-            this._applyRuleBasedAction(player, actionMap);
-          }
-            return;
-          }
 
-          this._applyRuleBasedAction(player, actionMap, engine);
-        });
+            this._applyRuleBasedAction(player, actionMap, engine);
+          })
+        );
       }
       const stepResult = engine.step(actionMap, 1 / 60);
       const observations = controllableIds.map((id) =>
@@ -415,35 +417,37 @@ export class GMNBridgeService {
     }
 
     // 2. Automated bots for other players (if any)
-    this.engine.players.forEach(async (player) => {
-      if (player.id === controlledPlayer?.id) return;
+    await Promise.all(
+      this.engine.players.map(async (player) => {
+        if (player.id === controlledPlayer?.id) return;
 
-      if (this.opponentSpec?.kind === 'snapshot') {
-        if (player.team === 'right') {
-          let session = this.getSnapshotSession(this.engine, this.opponentSpec.path);
-          try {
-          } catch (e) {}
-          if (!session) {
-            this._applyRuleBasedAction(player, actionMap);
+        if (this.opponentSpec?.kind === 'snapshot') {
+          if (player.team === 'right') {
+            let session = this.getSnapshotSession(this.engine, this.opponentSpec.path);
+            try {
+            } catch (e) {}
+            if (!session) {
+              this._applyRuleBasedAction(player, actionMap);
+              return;
+            }
+            try {
+              const actionIdx = await this.runOnnxInference(session, this.engine, player);
+              actionMap.set(player.id, mapDiscreteAction(actionIdx));
+              try {
+              } catch (e) {}
+            } catch (err: any) {
+              try {
+              } catch (e) {}
+              console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
+              this._applyRuleBasedAction(player, actionMap);
+            }
             return;
           }
-          try {
-            const actionIdx = await this.runOnnxInference(session, this.engine, player);
-            actionMap.set(player.id, mapDiscreteAction(actionIdx));
-            try {
-            } catch (e) {}
-          } catch (err: any) {
-            try {
-            } catch (e) {}
-            console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
-            this._applyRuleBasedAction(player, actionMap);
-          }
-          return;
         }
-      }
 
-      this._applyRuleBasedAction(player, actionMap);
-    });
+        this._applyRuleBasedAction(player, actionMap);
+      })
+    );
 
     // 3. Execute deterministic physics tick (1/60s)
     const result = this.engine.step(actionMap, 1 / 60);
@@ -500,33 +504,35 @@ export class GMNBridgeService {
 
     // 2. Automated bots for other players (if any) — skipped for rondo
     if (!isRondoScenario) {
-      this.engine.players.forEach(async (player) => {
-        if (controllableIds.includes(player.id)) return;
+      await Promise.all(
+        this.engine.players.map(async (player) => {
+          if (controllableIds.includes(player.id)) return;
 
-        if (this.opponentSpec?.kind === 'snapshot' && player.team === 'right') {
-          let session = this.getSnapshotSession(this.engine, this.opponentSpec.path);
-          try {
-          } catch (e) {}
-          if (!session) {
-            // Session not yet loaded; fall back to rule-based for this tick.
-            // The /opponent endpoint pre-loads the session, so this path is
-            // only hit if the bridge was restarted or the spec changed without
-            // going through /opponent.
-            this._applyRuleBasedAction(player, actionMap);
+          if (this.opponentSpec?.kind === 'snapshot' && player.team === 'right') {
+            let session = this.getSnapshotSession(this.engine, this.opponentSpec.path);
+            try {
+            } catch (e) {}
+            if (!session) {
+              // Session not yet loaded; fall back to rule-based for this tick.
+              // The /opponent endpoint pre-loads the session, so this path is
+              // only hit if the bridge was restarted or the spec changed without
+              // going through /opponent.
+              this._applyRuleBasedAction(player, actionMap);
+              return;
+            }
+            try {
+              const actionIdx = await this.runOnnxInference(session, this.engine, player);
+              actionMap.set(player.id, mapDiscreteAction(actionIdx));
+            } catch (err: any) {
+              console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
+              this._applyRuleBasedAction(player, actionMap);
+            }
             return;
           }
-          try {
-            const actionIdx = await this.runOnnxInference(session, this.engine, player);
-            actionMap.set(player.id, mapDiscreteAction(actionIdx));
-          } catch (err: any) {
-            console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
-            this._applyRuleBasedAction(player, actionMap);
-          }
-          return;
-        }
 
-        this._applyRuleBasedAction(player, actionMap);
-      });
+          this._applyRuleBasedAction(player, actionMap);
+        })
+      );
     }
 
     // 3. Execute deterministic physics tick (1/60s)
