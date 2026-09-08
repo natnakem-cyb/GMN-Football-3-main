@@ -36,6 +36,10 @@ export class GMNBridgeService {
   private scenarioMap: Map<string, ScenarioConfig>;
   public currentScenarioName = 'academy_empty_goal';
 
+  // Batched IPC pool: additional engines for vectorized multi-env stepping.
+  private pool: GameEngine[] = [];
+  public poolSize = 0;
+
   // Live RL Training & Telemetry Tracking
   public totalSteps = 0;
   public episodeCount = 0;
@@ -61,6 +65,137 @@ export class GMNBridgeService {
     if (defaultScenario) {
       this.engine.loadScenario(defaultScenario);
     }
+  }
+
+  public ensurePool(size: number) {
+    if (this.poolSize >= size) return;
+    while (this.pool.length < size) {
+      const newEngine = new GameEngine();
+      const sc = this.scenarioMap.get(this.currentScenarioName) || this.scenarioMap.get('academy_empty_goal');
+      if (sc) {
+        newEngine.loadScenario(sc);
+      } else {
+        newEngine.resetToKickoff(false);
+      }
+      this.pool.push(newEngine);
+    }
+    this.poolSize = size;
+  }
+
+  public resetBatch(requests: Array<{ scenario: string; seed?: number }>) {
+    this.ensurePool(requests.length);
+    const results: any[] = [];
+    for (let i = 0; i < requests.length; i++) {
+      const req = requests[i];
+      const engine = i === 0 ? this.engine : this.pool[i - 1];
+      engine.loadScenario(this.scenarioMap.get(req.scenario) || this.scenarioMap.get('academy_empty_goal')!, req.seed);
+      const isRondo = engine.activeScenario?.id === 'academy_rondo_4v1';
+      const controllableIds = isRondo
+        ? engine.players.map((p) => p.id)
+        : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
+      const perAgentObservations = controllableIds.map((id) =>
+        ObservationEncoder.encode(
+          engine.players,
+          engine.ball,
+          id,
+          engine.score,
+          engine.tickCount,
+          engine.activeScenario ? engine.activeScenario.timeLimitSeconds * 60 : 3600,
+          engine.gameMode
+        ).rawVector
+      );
+      results.push({
+        observation: engine.getObservation().rawVector,
+        observations: perAgentObservations,
+        info: {
+          score: { ...engine.score },
+          ballDistanceToGoal: Vec2.distance({ x: engine.ball.position.x, y: engine.ball.position.y }, { x: 1.0, y: 0 }),
+          scenario: engine.activeScenario?.codeName || 'free_play',
+          controlledPlayerId: engine.controlledPlayerId,
+          controllableAgentIds: controllableIds,
+        },
+      });
+    }
+    return results;
+  }
+
+  public stepBatch(actionSets: Array<{ actions: number[]; controllableIds: string[] }>) {
+    this.ensurePool(actionSets.length);
+    const results: any[] = [];
+    for (let i = 0; i < actionSets.length; i++) {
+      const { actions, controllableIds } = actionSets[i];
+      const engine = i === 0 ? this.engine : this.pool[i - 1];
+      const isRondoScenario = engine.activeScenario?.id === 'academy_rondo_4v1';
+      const expectedControllableIds = isRondoScenario
+        ? engine.players.map((p) => p.id)
+        : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
+      if (actions.length !== expectedControllableIds.length) {
+        throw new Error(`[GMN Batch] Env ${i}: expected ${expectedControllableIds.length} actions, got ${actions.length}`);
+      }
+      const actionMap = new Map<string, AgentAction>();
+      controllableIds.forEach((id, idx) => {
+        actionMap.set(id, mapDiscreteAction(actions[idx]));
+      });
+      if (!isRondoScenario) {
+        engine.players.forEach((player) => {
+          if (controllableIds.includes(player.id)) return;
+          if (!this.botAgents.has(player.id)) {
+            this.botAgents.set(player.id, new RuleBasedAgent(`bot_${player.id}`, player.name, this.botDifficulty));
+          }
+          const bot = this.botAgents.get(player.id)!;
+          actionMap.set(player.id, bot.decide({
+            player,
+            teammates: engine.players.filter((p) => p.team === player.team),
+            opponents: engine.players.filter((p) => p.team !== player.team),
+            ball: engine.ball,
+            allPlayers: engine.players,
+            teamSide: player.team,
+            controlledPlayerId: engine.controlledPlayerId,
+            matchTime: engine.matchTimeSeconds,
+            rng: engine.rng,
+          }));
+        });
+      }
+      const stepResult = engine.step(actionMap, 1 / 60);
+      const observations = controllableIds.map((id) =>
+        ObservationEncoder.encode(
+          engine.players,
+          engine.ball,
+          id,
+          engine.score,
+          engine.tickCount,
+          engine.activeScenario ? engine.activeScenario.timeLimitSeconds * 60 : 3600,
+          engine.gameMode
+        ).rawVector
+      );
+      results.push({
+        observations,
+        reward: stepResult.reward,
+        terminated: stepResult.terminated,
+        truncated: stepResult.truncated,
+        info: {
+          score: stepResult.info.score,
+          event: stepResult.info.event,
+          checkpointReward: stepResult.info.checkpointReward,
+          ballDistanceToGoal: stepResult.info.ballDistanceToGoal,
+          ground_truth: {
+            possession_left_pct: engine.stats.possession.left,
+            completed_passes_left: engine.stats.completedPasses.left,
+            attempted_passes_left: engine.stats.passes.left,
+            shots_on_target_left: engine.stats.shotsOnTarget.left,
+            total_shots_left: engine.stats.shots.left,
+            current_ball_owner: engine.ball.ownerId != null
+              ? (() => {
+                  const owner = engine.players.find((p) => p.id === engine.ball.ownerId);
+                  return owner ? { agent_id: owner.id, team: owner.team } : null;
+                })()
+              : null,
+          },
+        },
+        controllableIds,
+      });
+    }
+    return results;
   }
 
   public reset(scenarioName = 'academy_empty_goal', seed?: number) {
@@ -501,7 +636,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// Binary step-response layout: (17 + OBSERVATION_DIM * 4) bytes total (525B for 127-float obs), all little-endian
+// Binary step-response layout: (18 + OBSERVATION_DIM * 4) bytes total (530B for 127-float obs), all little-endian
 // Offset 0 (4B float32): reward
 // Offset 4 (1B uint8): terminated (0/1)
 // Offset 5 (1B uint8): truncated (0/1)
@@ -579,6 +714,54 @@ export function encodeMultiStepBinary(multiResult: ReturnType<typeof bridge.step
 
   return buf;
 }
+
+/**
+ * Batched Binary step-response layout:
+ *   Header: [B (1 byte)] [N (1 byte)] where B = env count, N = agents per env
+ *   Body:   B concatenated frames, each 18 + N*OBSERVATION_DIM*4 bytes
+ *           Frame i starts at offset header_size + i * frame_size
+ *           Each frame matches encodeMultiStepBinary layout.
+ */
+export function encodeBatchedStepBinary(results: Array<ReturnType<typeof bridge.stepMulti>>): Buffer {
+  const B = results.length;
+  if (B === 0) return Buffer.allocUnsafe(0);
+  const N = results[0].observations.length;
+  const frameSize = 18 + OBSERVATION_DIM * 4 * N;
+  const buf = Buffer.allocUnsafe(2 + B * frameSize);
+  buf.writeUInt8(B, 0);
+  buf.writeUInt8(N, 1);
+
+  for (let envIdx = 0; envIdx < B; envIdx++) {
+    const multiResult = results[envIdx];
+    const baseOffset = 2 + envIdx * frameSize;
+    buf.writeFloatLE(multiResult.reward || 0.0, baseOffset + 0);
+    buf.writeUInt8(multiResult.terminated ? 1 : 0, baseOffset + 4);
+    buf.writeUInt8(multiResult.truncated ? 1 : 0, baseOffset + 5);
+    buf.writeUInt8(Math.max(0, Math.min(255, multiResult.info.score?.left ?? 0)), baseOffset + 6);
+    buf.writeUInt8(Math.max(0, Math.min(255, multiResult.info.score?.right ?? 0)), baseOffset + 7);
+    buf.writeFloatLE(multiResult.info.checkpointReward ?? 0.0, baseOffset + 8);
+    buf.writeFloatLE(multiResult.info.ballDistanceToGoal ?? 0.0, baseOffset + 12);
+
+    const eventType = typeof multiResult.info.event === 'string' ? multiResult.info.event : (multiResult.info.event as any)?.type;
+    const eventCode = getEventCode(eventType);
+    buf.writeUInt8(eventCode, baseOffset + 16);
+
+    const ownerId = multiResult.info.ground_truth?.current_ball_owner?.agent_id;
+    const controllableIds = multiResult.controllableIds || [];
+    const ballOwnerAgentIdx = ownerId ? controllableIds.indexOf(ownerId) : 255;
+    buf.writeUInt8(ballOwnerAgentIdx >= 0 ? ballOwnerAgentIdx : 255, baseOffset + 17);
+
+    for (let agentIdx = 0; agentIdx < N; agentIdx++) {
+      const obs = multiResult.observations[agentIdx];
+      const obsBase = baseOffset + 18 + agentIdx * (OBSERVATION_DIM * 4);
+      for (let i = 0; i < OBSERVATION_DIM; i++) {
+        buf.writeFloatLE(obs[i] ?? 0.0, obsBase + i * 4);
+      }
+    }
+  }
+
+  return buf;
+}
 /**
  * Deterministic binary error frame (P0 #5): same layout/length as a normal
  * step frame so Python clients can decode it without hanging. Carries a
@@ -650,29 +833,66 @@ wss.on('connection', (ws: WebSocket, req) => {
           const controlledPlayerId = bridge['engine'].controlledPlayerId as string;
           const ballOwnerAgentIdx = (ownerId && ownerId === controlledPlayerId) ? 0 : 255;
           ws.send(encodeStepBinary(stepResult, ballOwnerAgentIdx), { binary: true })
-        } else if (buf.length > 1) {
-          // new multi-agent path
-          const actionIndices = Array.from(buf); // one uint8 per controlled agent, in controllableAgentIds order
-          const invalidIdx = actionIndices.findIndex((a) => a >= ACTION_SPACE_SIZE);
-          if (invalidIdx >= 0) {
-            // P0 #5: deterministic multi-agent error frame (same length as a
-            // normal multi-agent response for this agent count).
-            ws.send(encodeErrorStepBinary(actionIndices.length), { binary: true });
-            return;
-          }
-          const multiResult = bridge.stepMulti(actionIndices);
+        } else if (buf.length >= 2) {
+          // batched vectorized path: [B (1B)] [N (1B)] [B*N action bytes]
+          const B = buf.readUInt8(0);
+          const N = buf.readUInt8(1);
+          const expectedLen = 2 + B * N;
+          if (B > 0 && N > 0 && buf.length === expectedLen) {
+            const actionSets: Array<{ actions: number[]; controllableIds: string[] }> = [];
+            for (let envIdx = 0; envIdx < B; envIdx++) {
+              const envActions: number[] = [];
+              const baseOffset = 2 + envIdx * N;
+              for (let a = 0; a < N; a++) {
+                const act = buf.readUInt8(baseOffset + a);
+                if (act >= ACTION_SPACE_SIZE) {
+                  ws.send(encodeErrorStepBinary(N), { binary: true });
+                  return;
+                }
+                envActions.push(act);
+              }
+              const engine = envIdx === 0 ? bridge['engine'] : bridge['pool'][envIdx - 1];
+              const isRondoScenario = engine.activeScenario?.id === 'academy_rondo_4v1';
+              const controllableIds = isRondoScenario
+                ? engine.players.map((p) => p.id)
+                : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
+              actionSets.push({ actions: envActions, controllableIds });
+            }
+            const batchResults = bridge.stepBatch(actionSets);
+            const episodeStatsList: any[] = [];
+            for (const r of batchResults) {
+              if (r.terminated || r.truncated) {
+                episodeStatsList.push({ type: 'EPISODE_STATS', ...r.info.ground_truth });
+              }
+            }
+            for (const stats of episodeStatsList) {
+              ws.send(JSON.stringify(stats));
+            }
+            ws.send(encodeBatchedStepBinary(batchResults), { binary: true });
+          } else if (buf.length > 1) {
+            // existing multi-agent path — unchanged
+            const actionIndices = Array.from(buf); // one uint8 per controlled agent, in controllableAgentIds order
+            const invalidIdx = actionIndices.findIndex((a) => a >= ACTION_SPACE_SIZE);
+            if (invalidIdx >= 0) {
+              // P0 #5: deterministic multi-agent error frame (same length as a
+              // normal multi-agent response for this agent count).
+              ws.send(encodeErrorStepBinary(actionIndices.length), { binary: true });
+              return;
+            }
+            const multiResult = bridge.stepMulti(actionIndices);
 
-          // Send ground-truth episode stats as JSON BEFORE the binary frame,
-          // so the Python client can capture it in _recv_step_response.
-          if (multiResult.terminated || multiResult.truncated) {
-            const episodeStats = {
-              type: 'EPISODE_STATS',
-              ...multiResult.info.ground_truth,
-            };
-            ws.send(JSON.stringify(episodeStats));
-          }
+            // Send ground-truth episode stats as JSON BEFORE the binary frame,
+            // so the Python client can capture it in _recv_step_response.
+            if (multiResult.terminated || multiResult.truncated) {
+              const episodeStats = {
+                type: 'EPISODE_STATS',
+                ...multiResult.info.ground_truth,
+              };
+              ws.send(JSON.stringify(episodeStats));
+            }
 
-          ws.send(encodeMultiStepBinary(multiResult), { binary: true });
+            ws.send(encodeMultiStepBinary(multiResult), { binary: true });
+          }
         }
       } else {
         const text = data.toString('utf8');
@@ -680,6 +900,9 @@ wss.on('connection', (ws: WebSocket, req) => {
         if (parsed.type === 'reset') {
           const resetResult = bridge.reset(parsed.scenario, parsed.seed);
           ws.send(JSON.stringify(resetResult));
+        } else if (parsed.type === 'reset_batch') {
+          const batchResult = bridge.resetBatch(parsed.environments);
+          ws.send(JSON.stringify({ type: 'reset_batch_result', results: batchResult }));
         } else if (parsed.type === 'close') {
           ws.close();
         } else if (parsed.type === 'info') {
