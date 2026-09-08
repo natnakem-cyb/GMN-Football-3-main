@@ -1,9 +1,11 @@
 import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
+import * as ort from 'onnxruntime-node';
+import fs from 'fs';
 import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
-import { AgentAction, ScenarioConfig } from '../src/types/football';
+import { AgentAction, Player, ScenarioConfig } from '../src/types/football';
 import { mapDiscreteAction } from './action_mapping';
 import {
   GMN_ENV_VERSION,
@@ -29,10 +31,14 @@ export const metricsBroadcaster = new MetricsBroadcaster();
 let hardwareStop: (() => void) | null = null;
 
 export class GMNBridgeService {
-  private engine: GameEngine;
+  public engine: GameEngine;
   private botAgents: Map<string, RuleBasedAgent>;
   /** Per-pool-engine bot agent maps, so each sub-env has independent RNG streams. */
   private poolBotAgents: Map<GameEngine, Map<string, RuleBasedAgent>>;
+  /** Per-pool-engine cached ONNX sessions for learned-policy opponents. */
+  private poolSnapshotSessions: Map<GameEngine, { session: any; path: string }>;
+  /** Current opponent spec: difficulty or snapshot ONNX path. */
+  public opponentSpec: { kind: 'difficulty'; difficulty: string } | { kind: 'snapshot'; path: string } | null = null;
   /** Difficulty level used when creating right-team / non-controlled bot agents. */
   public botDifficulty: 'easy' | 'medium' | 'hard' | 'master' = 'medium';
   private scenarioMap: Map<string, ScenarioConfig>;
@@ -56,6 +62,7 @@ export class GMNBridgeService {
     this.engine = new GameEngine();
     this.botAgents = new Map();
     this.poolBotAgents = new Map();
+    this.poolSnapshotSessions = new Map();
     this.scenarioMap = new Map();
 
     ACADEMY_SCENARIOS.forEach((sc) => {
@@ -84,6 +91,133 @@ export class GMNBridgeService {
       this.poolBotAgents.set(newEngine, new Map());
     }
     this.poolSize = size;
+  }
+
+  /** Load (and cache) an ONNX session for the given engine/path. */
+  public async getOrCreateSnapshotSession(engine: GameEngine, modelPath: string): Promise<any> {
+    const cached = this.poolSnapshotSessions.get(engine);
+    if (cached && cached.path === modelPath) {
+      return cached.session;
+    }
+    const resolved = path.isAbsolute(modelPath)
+      ? modelPath
+      : path.join(process.cwd(), modelPath.replace(/^\//, ''));
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`[GMN Snapshot] ONNX model not found at: ${resolved}`);
+    }
+    const modelBuffer = fs.readFileSync(resolved);
+    const session = await ort.InferenceSession.create(modelBuffer, {
+      executionProviders: ['cpu'],
+      graphOptimizationLevel: 'all',
+    });
+    this.poolSnapshotSessions.set(engine, { session, path: modelPath });
+    return session;
+  }
+
+  /** Synchronous cache lookup for already-loaded sessions. */
+  public getSnapshotSession(engine: GameEngine, modelPath: string): any {
+    const cached = this.poolSnapshotSessions.get(engine);
+    if (cached && cached.path === modelPath) {
+      return cached.session;
+    }
+    return null;
+  }
+
+  /** Mirror a 127-dim left-team observation so a right-team player can use the same model. */
+  private static mirrorObservationForRightTeam(obs: number[]): number[] {
+    if (obs.length !== OBSERVATION_DIM) return obs;
+    const mirrored = new Array(OBSERVATION_DIM);
+    // 0..21 <-> 44..65 (positions)
+    for (let i = 0; i < 22; i++) {
+      mirrored[i] = obs[44 + i];
+      mirrored[44 + i] = obs[i];
+    }
+    // 22..43 <-> 66..87 (velocities)
+    for (let i = 0; i < 22; i++) {
+      mirrored[22 + i] = obs[66 + i];
+      mirrored[66 + i] = obs[22 + i];
+    }
+    // 88..90 ball position: negate x
+    mirrored[88] = -obs[88];
+    mirrored[89] = obs[89];
+    mirrored[90] = obs[90];
+    // 91..93 ball velocity: negate x
+    mirrored[91] = -obs[91];
+    mirrored[92] = obs[92];
+    mirrored[93] = obs[93];
+    // 94..96 ball ownership one-hot: flip left/right
+    mirrored[94] = obs[94]; // no-one stays
+    mirrored[95] = obs[96]; // left <-> right
+    mirrored[96] = obs[95]; // right <-> left
+    // 97..107 active player: keep as-is (set by caller)
+    for (let i = 97; i <= 107; i++) {
+      mirrored[i] = obs[i];
+    }
+    // 108..114 game mode: keep as-is
+    for (let i = 108; i <= 114; i++) {
+      mirrored[i] = obs[i];
+    }
+    // 115..126 role: keep as-is (inferPlayerRole already handles right-team mirroring)
+    for (let i = 115; i <= 126; i++) {
+      mirrored[i] = obs[i];
+    }
+    return mirrored;
+  }
+
+  /** Run ONNX inference for a right-team player and return the discrete action index. */
+  private async runOnnxInference(session: any, engine: GameEngine, player: Player): Promise<number> {
+    const obs = ObservationEncoder.encode(
+      engine.players,
+      engine.ball,
+      player.id,
+      engine.score,
+      engine.tickCount,
+      engine.activeScenario ? engine.activeScenario.timeLimitSeconds * 60 : 3600,
+      engine.gameMode
+    );
+    const inputObs = OBSERVATION_DIM === obs.rawVector.length
+      ? GMNBridgeService.mirrorObservationForRightTeam(obs.rawVector)
+      : obs.rawVector;
+    const tensor = new ort.Tensor('float32', Float32Array.from(inputObs), [1, OBSERVATION_DIM]);
+    const feeds: Record<string, ort.Tensor> = { [session.inputNames[0] || 'obs']: tensor };
+    const results = await session.run(feeds);
+    const outputName = session.outputNames[0] || 'action_logits';
+    const outputTensor = results[outputName] || Object.values(results)[0];
+    const logits = (outputTensor.data || outputTensor.cpuData) as Float32Array;
+    let bestIdx = 0;
+    let bestVal = -Infinity;
+    for (let i = 0; i < logits.length; i++) {
+      if (logits[i] > bestVal) {
+        bestVal = logits[i];
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
+  /** Fallback: apply rule-based bot action for a player. */
+  private _applyRuleBasedAction(player: Player, actionMap: Map<string, AgentAction>, engine = this.engine): void {
+    if (!this.botAgents.has(player.id)) {
+      this.botAgents.set(
+        player.id,
+        new RuleBasedAgent(`bot_${player.id}`, player.name, this.botDifficulty)
+      );
+    }
+    const bot = this.botAgents.get(player.id)!;
+    actionMap.set(
+      player.id,
+      bot.decide({
+        player,
+        teammates: engine.players.filter((p) => p.team === player.team),
+        opponents: engine.players.filter((p) => p.team !== player.team),
+        ball: engine.ball,
+        allPlayers: engine.players,
+        teamSide: player.team,
+        controlledPlayerId: engine.controlledPlayerId,
+        matchTime: engine.matchTimeSeconds,
+        rng: engine.rng,
+      })
+    );
   }
 
   public resetBatch(requests: Array<{ scenario: string; seed?: number }>) {
@@ -123,7 +257,7 @@ export class GMNBridgeService {
     return results;
   }
 
-  public stepBatch(actionSets: Array<{ actions: number[]; controllableIds: string[] }>) {
+  public async stepBatch(actionSets: Array<{ actions: number[]; controllableIds: string[] }>): Promise<any> {
     this.ensurePool(actionSets.length);
     const results: any[] = [];
     for (let i = 0; i < actionSets.length; i++) {
@@ -141,24 +275,32 @@ export class GMNBridgeService {
         actionMap.set(id, mapDiscreteAction(actions[idx]));
       });
       if (!isRondoScenario) {
-        const engineBotAgents = this.poolBotAgents.get(engine) || this.botAgents;
-        engine.players.forEach((player) => {
+        engine.players.forEach(async (player) => {
           if (controllableIds.includes(player.id)) return;
-          if (!engineBotAgents.has(player.id)) {
-            engineBotAgents.set(player.id, new RuleBasedAgent(`bot_${player.id}`, player.name, this.botDifficulty));
+
+          if (this.opponentSpec?.kind === 'snapshot' && player.team === 'right') {
+            let session = this.getSnapshotSession(engine, this.opponentSpec.path);
+            try {
+            } catch (e) {}
+            if (!session) {
+              this._applyRuleBasedAction(player, actionMap, engine);
+              return;
+            }
+          try {
+            const actionIdx = await this.runOnnxInference(session, this.engine, player);
+            actionMap.set(player.id, mapDiscreteAction(actionIdx));
+            try {
+            } catch (e) {}
+          } catch (err: any) {
+            try {
+            } catch (e) {}
+            console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
+            this._applyRuleBasedAction(player, actionMap);
           }
-          const bot = engineBotAgents.get(player.id)!;
-          actionMap.set(player.id, bot.decide({
-            player,
-            teammates: engine.players.filter((p) => p.team === player.team),
-            opponents: engine.players.filter((p) => p.team !== player.team),
-            ball: engine.ball,
-            allPlayers: engine.players,
-            teamSide: player.team,
-            controlledPlayerId: engine.controlledPlayerId,
-            matchTime: engine.matchTimeSeconds,
-            rng: engine.rng,
-          }));
+            return;
+          }
+
+          this._applyRuleBasedAction(player, actionMap, engine);
         });
       }
       const stepResult = engine.step(actionMap, 1 / 60);
@@ -257,7 +399,7 @@ export class GMNBridgeService {
     };
   }
 
-  public step(actionIdx: number) {
+  public async step(actionIdx: number): Promise<any> {
     const actionMap = new Map<string, AgentAction>();
 
     // 1. Controlled player action from RL agent
@@ -271,28 +413,34 @@ export class GMNBridgeService {
     }
 
     // 2. Automated bots for other players (if any)
-    this.engine.players.forEach((player) => {
+    this.engine.players.forEach(async (player) => {
       if (player.id === controlledPlayer?.id) return;
 
-      if (!this.botAgents.has(player.id)) {
-        this.botAgents.set(
-          player.id,
-          new RuleBasedAgent(`bot_${player.id}`, player.name, this.botDifficulty)
-        );
+      if (this.opponentSpec?.kind === 'snapshot') {
+        if (player.team === 'right') {
+          let session = this.getSnapshotSession(this.engine, this.opponentSpec.path);
+          try {
+          } catch (e) {}
+          if (!session) {
+            this._applyRuleBasedAction(player, actionMap);
+            return;
+          }
+          try {
+            const actionIdx = await this.runOnnxInference(session, this.engine, player);
+            actionMap.set(player.id, mapDiscreteAction(actionIdx));
+            try {
+            } catch (e) {}
+          } catch (err: any) {
+            try {
+            } catch (e) {}
+            console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
+            this._applyRuleBasedAction(player, actionMap);
+          }
+          return;
+        }
       }
-      const bot = this.botAgents.get(player.id)!;
-      const context = {
-        player,
-        teammates: this.engine.players.filter((p) => p.team === player.team),
-        opponents: this.engine.players.filter((p) => p.team !== player.team),
-        ball: this.engine.ball,
-        allPlayers: this.engine.players,
-        teamSide: player.team,
-        controlledPlayerId: this.engine.controlledPlayerId,
-        matchTime: this.engine.matchTimeSeconds,
-        rng: this.engine.rng,
-      };
-      actionMap.set(player.id, bot.decide(context));
+
+      this._applyRuleBasedAction(player, actionMap);
     });
 
     // 3. Execute deterministic physics tick (1/60s)
@@ -327,7 +475,7 @@ export class GMNBridgeService {
     };
   }
 
-  public stepMulti(actionIndices: number[]) {
+  public async stepMulti(actionIndices: number[]): Promise<any> {
     const isRondoScenario = this.engine.activeScenario?.id === 'academy_rondo_4v1';
     const controllableIds = isRondoScenario
       ? this.engine.players.map((p) => p.id)
@@ -350,29 +498,32 @@ export class GMNBridgeService {
 
     // 2. Automated bots for other players (if any) — skipped for rondo
     if (!isRondoScenario) {
-      this.engine.players.forEach((player) => {
+      this.engine.players.forEach(async (player) => {
         if (controllableIds.includes(player.id)) return;
-        if (!this.botAgents.has(player.id)) {
-          this.botAgents.set(
-            player.id,
-            new RuleBasedAgent(`bot_${player.id}`, player.name, 'medium')
-          );
+
+        if (this.opponentSpec?.kind === 'snapshot' && player.team === 'right') {
+          let session = this.getSnapshotSession(this.engine, this.opponentSpec.path);
+          try {
+          } catch (e) {}
+          if (!session) {
+            // Session not yet loaded; fall back to rule-based for this tick.
+            // The /opponent endpoint pre-loads the session, so this path is
+            // only hit if the bridge was restarted or the spec changed without
+            // going through /opponent.
+            this._applyRuleBasedAction(player, actionMap);
+            return;
+          }
+          try {
+            const actionIdx = await this.runOnnxInference(session, this.engine, player);
+            actionMap.set(player.id, mapDiscreteAction(actionIdx));
+          } catch (err: any) {
+            console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
+            this._applyRuleBasedAction(player, actionMap);
+          }
+          return;
         }
-        const bot = this.botAgents.get(player.id)!;
-        actionMap.set(
-          player.id,
-          bot.decide({
-            player,
-            teammates: this.engine.players.filter((p) => p.team === player.team),
-            opponents: this.engine.players.filter((p) => p.team !== player.team),
-            ball: this.engine.ball,
-            allPlayers: this.engine.players,
-            teamSide: player.team,
-            controlledPlayerId: this.engine.controlledPlayerId,
-            matchTime: this.engine.matchTimeSeconds,
-            rng: this.engine.rng,
-          })
-        );
+
+        this._applyRuleBasedAction(player, actionMap);
       });
     }
 
@@ -461,7 +612,7 @@ const server = http.createServer((req, res) => {
     body += chunk;
   });
 
-  req.on('end', () => {
+  req.on('end', async () => {
     try {
       const parsedBody = body ? JSON.parse(body) : {};
 
@@ -588,7 +739,7 @@ const server = http.createServer((req, res) => {
           res.end(JSON.stringify({ error: `Invalid action: ${parsedBody.action}. Must be integer in [0, ${ACTION_SPACE_SIZE - 1}].` }));
           return;
         }
-        const stepResult = bridge.step(parsedBody.action);
+        const stepResult = await bridge.step(parsedBody.action);
         res.writeHead(200);
         res.end(JSON.stringify(stepResult));
         return;
@@ -608,7 +759,30 @@ const server = http.createServer((req, res) => {
 
       if (req.method === 'POST' && req.url === '/opponent') {
         // Opponent-pool integration: switch the difficulty of rule-based bot
-        // agents (applied to newly created bots and on the next /reset).
+        // agents or load a learned ONNX snapshot for the right team.
+        const kind = parsedBody.kind || 'difficulty';
+        if (kind === 'snapshot') {
+          const modelPath = parsedBody.path;
+          if (!modelPath || typeof modelPath !== 'string') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: "snapshot opponent requires 'path' to ONNX model" }));
+            return;
+          }
+          try {
+            bridge.opponentSpec = { kind: 'snapshot', path: modelPath };
+            // Pre-load and cache the session for the main engine so the first
+            // step does not pay the file-read + session-create cost.
+            await bridge.getOrCreateSnapshotSession(bridge.engine, modelPath);
+            res.writeHead(200);
+            res.end(JSON.stringify({ status: 'ok', kind: 'snapshot', path: modelPath }));
+          } catch (err: any) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ success: false, error: `Failed to load ONNX snapshot: ${err.message}` }));
+          }
+          return;
+        }
+
+        // Default: rule-based difficulty
         const d = parsedBody.difficulty || parsedBody.botDifficulty;
         if (!['easy', 'medium', 'hard', 'master'].includes(d)) {
           res.writeHead(400);
@@ -616,10 +790,11 @@ const server = http.createServer((req, res) => {
           return;
         }
         bridge.botDifficulty = d;
+        bridge.opponentSpec = { kind: 'difficulty', difficulty: d };
         // Clear existing bots so the new difficulty takes effect immediately.
         bridge.reset(bridge.currentScenarioName);
         res.writeHead(200);
-        res.end(JSON.stringify({ status: 'ok', difficulty: d }));
+        res.end(JSON.stringify({ status: 'ok', kind: 'difficulty', difficulty: d }));
         return;
       }
 
@@ -652,7 +827,7 @@ const server = http.createServer((req, res) => {
 // Offset 16 (1B uint8): eventCode
 // Offset 17 (1B uint8): ballOwnerAgentId (0 = controlled player owns ball, 255 = no controllable owner)
 // Offset 18 ((OBSERVATION_DIM * 4) B): OBSERVATION_DIM * float32 observation
-export function encodeStepBinary(stepResult: ReturnType<typeof bridge.step>, ballOwnerAgentIdx: number): Buffer {
+export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
   const buf = Buffer.allocUnsafe(18 + obsBytes);
   buf.writeFloatLE(stepResult.reward || 0.0, 0);
@@ -688,7 +863,7 @@ export function encodeStepBinary(stepResult: ReturnType<typeof bridge.step>, bal
 //   Offset 16 (1B uint8): eventCode
 //   Offset 17 (1B uint8): ballOwnerAgentId (0..N-1 index into controllableAgentIds, 255 = no controllable owner)
 //   Offset 18 ((OBSERVATION_DIM * 4) * N B): N observations, OBSERVATION_DIM * float32 each, in controllableAgentIds order
-export function encodeMultiStepBinary(multiResult: ReturnType<typeof bridge.stepMulti>): Buffer {
+export function encodeMultiStepBinary(multiResult: any): Buffer {
   const N = multiResult.observations.length;
   const obsBytes = OBSERVATION_DIM * 4;
   const buf = Buffer.allocUnsafe(18 + obsBytes * N);
@@ -727,7 +902,7 @@ export function encodeMultiStepBinary(multiResult: ReturnType<typeof bridge.step
  *           Frame i starts at offset header_size + i * frame_size
  *           Each frame matches encodeMultiStepBinary layout.
  */
-export function encodeBatchedStepBinary(results: Array<ReturnType<typeof bridge.stepMulti>>): Buffer {
+export function encodeBatchedStepBinary(results: any[]): Buffer {
   const B = results.length;
   if (B === 0) return Buffer.allocUnsafe(0);
   const N = results[0].observations.length;
@@ -810,7 +985,7 @@ wss.on('connection', (ws: WebSocket, req) => {
   }
 
   TrainingJobService.registerWebSocket(ws);
-  ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+  ws.on('message', async (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
     try {
       if (isBinary) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
@@ -823,7 +998,7 @@ wss.on('connection', (ws: WebSocket, req) => {
             ws.send(encodeErrorStepBinary(1), { binary: true });
             return;
           }
-          const stepResult = bridge.step(actionIdx);
+          const stepResult = await bridge.step(actionIdx);
 
           // Send ground-truth episode stats as JSON BEFORE the binary frame
           if (stepResult.terminated || stepResult.truncated) {
@@ -863,7 +1038,7 @@ wss.on('connection', (ws: WebSocket, req) => {
                 : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
               actionSets.push({ actions: envActions, controllableIds });
             }
-            const batchResults = bridge.stepBatch(actionSets);
+            const batchResults = await bridge.stepBatch(actionSets);
             const episodeStatsList: any[] = [];
             for (const r of batchResults) {
               if (r.terminated || r.truncated) {
@@ -884,7 +1059,7 @@ wss.on('connection', (ws: WebSocket, req) => {
               ws.send(encodeErrorStepBinary(actionIndices.length), { binary: true });
               return;
             }
-            const multiResult = bridge.stepMulti(actionIndices);
+            const multiResult = await bridge.stepMulti(actionIndices);
 
             // Send ground-truth episode stats as JSON BEFORE the binary frame,
             // so the Python client can capture it in _recv_step_response.
@@ -913,10 +1088,10 @@ wss.on('connection', (ws: WebSocket, req) => {
         } else if (parsed.type === 'info') {
           ws.send(JSON.stringify(bridge.getInfo()));
         } else if (parsed.type === 'step') {
-          const stepResult = bridge.step(parsed.action);
+          const stepResult = await bridge.step(parsed.action);
           ws.send(JSON.stringify(stepResult));
         } else if (parsed.type === 'step_multi') {
-          const multiResult = bridge.stepMulti(parsed.actions);
+          const multiResult = await bridge.stepMulti(parsed.actions);
           ws.send(JSON.stringify(multiResult));
         } else if (parsed.type === 'telemetry_metrics') {
           // Deprecated relay (no Python producers remain). Normalizes the
