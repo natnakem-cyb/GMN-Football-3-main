@@ -7,10 +7,10 @@ non-learning (right) team. Two kinds of opponents are supported:
 1. **Rule-based difficulty levels** ('easy' | 'medium' | 'hard' | 'master').
    These are executable today: the pool selects a level each episode and the
    wrapper applies it to the bridge via ``POST /opponent``.
-2. **Learned policy snapshots** (path to a saved actor checkpoint). Snapshotting
-   works today (periodic ``torch.save`` of the training policy); *playing*
-   against a learned snapshot requires the bridge to load and run that policy
-   for the right team, which is future work (tracked in training/README.md).
+2. **Learned policy snapshots** (path to a saved actor checkpoint). The bridge
+   loads and runs these snapshots for the right team via ONNX inference
+   (commits 2d87e77/19c7809), so both snapshot creation and playback are
+   wired and verified today.
 
 Selection strategies:
 - ``uniform``   — sample uniformly at random each episode (default)

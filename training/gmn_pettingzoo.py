@@ -297,6 +297,18 @@ class GMNMultiAgentEnv(ParallelEnv):
         except Exception:
             pass  # older bridges without /opponent keep the default difficulty
 
+    def set_scenario(self, scenario: str) -> None:
+        """Switch the active scenario and clear rollout state so the next reset uses it."""
+        self.scenario = scenario
+        # Clear MAPPO rollout scratch state so collect_rollout() re-initializes
+        # from the new scenario rather than replaying stale observations.
+        self._mappo_obs = None
+        self._mappo_ep_rew = 0.0
+        self._mappo_ep_len = 0
+        self._pending_pass = None
+        if hasattr(self, "_batch_envs"):
+            self._batch_envs = []
+
     def _init_batch_envs(self, batch_results: List[Dict[str, Any]]) -> None:
         """Initialize per-env rollout state from a batch reset response."""
         self._batch_envs = []

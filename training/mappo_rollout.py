@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from mappo_networks import SharedActor, CentralizedCritic
+from training.curriculum_scheduler import is_scenario_success
 
 
 def collect_rollout(
@@ -111,15 +112,23 @@ def collect_rollout(
         if done:
             # Check if left team scored a goal in the terminal step
             goal_scored = 0
-            for agent_info in infos.values():
+            terminal_info = {}
+            for agent_id, agent_info in infos.items():
                 if agent_info.get("score", {}).get("left", 0) > 0:
                     goal_scored = 1
-                    break
+                terminal_info = agent_info  # any agent's info contains the shared score/event
+                break
+
+            success = is_scenario_success(
+                getattr(env, "scenario", "academy_empty_goal"),
+                terminal_info,
+            )
 
             completed_episodes.append({
                 "reward": float(env._mappo_ep_rew),
                 "length": int(env._mappo_ep_len),
                 "goal": goal_scored,
+                "success": success,
             })
             env._mappo_ep_rew = 0.0
             env._mappo_ep_len = 0
