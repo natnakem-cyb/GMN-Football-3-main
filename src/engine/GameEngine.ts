@@ -89,6 +89,10 @@ export class GameEngine {
 
   private scenarioHandler: ScenarioHandler | null = null;
 
+  public getActiveScenarioHandler(): ScenarioHandler | null {
+    return this.scenarioHandler;
+  }
+
   private static readonly SCENARIO_HANDLER_REGISTRY: Record<string, () => ScenarioHandler> = {
     [RondoScenarioHandler.SCENARIO_ID]: () => new RondoScenarioHandler(),
   };

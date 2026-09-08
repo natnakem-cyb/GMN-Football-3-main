@@ -30,4 +30,7 @@ export interface ScenarioHandler {
 
   /** Extra termination conditions beyond the standard 'fulltime'/academy-goal checks. */
   checkExtraTermination(engine: GameEngine): boolean;
+
+  /** Defenders-only reward for the most recent tick (0 for non-rondo scenarios). */
+  getLastDefenderReward(): number;
 }

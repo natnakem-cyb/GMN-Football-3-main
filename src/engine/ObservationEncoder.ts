@@ -290,6 +290,7 @@ export class ObservationEncoder {
    *
    * @param prevBallX previous ball x position (unused but kept for signature stability)
    * @param currBallX current ball x position
+   * @param currBallY current ball y position
    * @param ballOwnerTeam team that currently possesses the ball, or null
    * @param lastPassTeam team that completed the most recent pass
    * @param lastPassCompleted whether a pass was completed this tick
@@ -320,45 +321,46 @@ export class ObservationEncoder {
     prevDefenderDistToBall: number;
     drillRadius?: number;
     consecutivePossessionTime?: number;
-  }): number {
-    let reward = 0;
+  }): { attackerReward: number; defenderReward: number } {
+    let attackerReward = 0;
+    let defenderReward = 0;
 
     // Attackers: small per-tick reward for possession inside the drill area
     if (ballOwnerTeam === 'left') {
       if (Math.abs(currBallX) <= drillRadius && Math.abs(currBallY) <= drillRadius) {
-        reward += 0.01;
+        attackerReward += 0.01;
       }
     }
 
     // Completed attacker pass bonus
     if (lastPassCompleted && lastPassTeam === 'left') {
-      reward += 0.1;
+      attackerReward += 0.1;
     }
 
     // Defender: reward for winning possession via interception/tackle
     if (ballOwnerTeam === 'right') {
-      reward += 0.2;
+      defenderReward += 0.2;
 
       // Shaping: reward defender for closing distance to ball
       const distDelta = prevDefenderDistToBall - defenderDistToBall;
       if (distDelta > 0) {
-        reward += Math.min(0.05, distDelta * 0.5);
+        defenderReward += Math.min(0.05, distDelta * 0.5);
       }
     }
 
     // Temporal possession-retention bonuses for the attacking side
     if (ballOwnerTeam === 'left' && consecutivePossessionTime > 0) {
       if (consecutivePossessionTime >= 20.0) {
-        reward += 1.0;
+        attackerReward += 1.0;
       } else if (consecutivePossessionTime >= 15.0) {
-        reward += 0.8;
+        attackerReward += 0.8;
       } else if (consecutivePossessionTime >= 10.0) {
-        reward += 0.5;
+        attackerReward += 0.5;
       } else if (consecutivePossessionTime >= 5.0) {
-        reward += 0.3;
+        attackerReward += 0.3;
       }
     }
 
-    return reward;
+    return { attackerReward, defenderReward };
   }
 }
