@@ -32,6 +32,7 @@ from training.mappo_networks import SharedActor, CentralizedCritic
 from training.mappo_rollout import collect_rollout, collect_rollout_parallel, collect_rollout_batched, compute_gae
 from training.mappo_update import ppo_update
 from training.eval_progress import evaluate_checkpoint_progress, persist_trend_snapshots
+from training.curriculum_scheduler import CurriculumScheduler, CURRICULUM_STAGES
 
 
 def run_mappo_training(
@@ -44,6 +45,12 @@ def run_mappo_training(
     self_play: bool = False,
     opponent_difficulty: str = "medium",
     opponent_strategy: str = "uniform",
+    curriculum: bool = False,
+    curriculum_state_path: str = None,
+    curriculum_window_size: int = 100,
+    curriculum_promote_threshold: float = 0.6,
+    curriculum_demote_threshold: float = 0.1,
+    curriculum_min_episodes: int = 200,
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -154,6 +161,33 @@ def run_mappo_training(
         total_steps_elapsed = int(ckpt.get("timesteps", 0))
         print(f"   [OK] Checkpoint loaded successfully. Resuming from step {total_steps_elapsed}.")
 
+    # ------------------------------------------------------------------
+    # Curriculum scheduler (performance-threshold-driven promotion/demotion)
+    # ------------------------------------------------------------------
+    if curriculum:
+        default_start = CURRICULUM_STAGES[0]
+        effective_start = scenario or default_start
+        default_curriculum_path = os.path.join(
+            logs_dir, f"curriculum_state_seed{seed}.json"
+        )
+        curriculum_state_path = curriculum_state_path or default_curriculum_path
+        scheduler = CurriculumScheduler.load(curriculum_state_path) or CurriculumScheduler(
+            stages=CURRICULUM_STAGES,
+            window_size=curriculum_window_size,
+            promote_threshold=curriculum_promote_threshold,
+            demote_threshold=curriculum_demote_threshold,
+            min_episodes_before_promotion=curriculum_min_episodes,
+        )
+        # Always start from the scheduler's current stage (which may differ from
+        # the CLI --scenario if resuming a crashed run).
+        scenario = scheduler.current_stage
+        print(
+            f"\n   [Curriculum] Enabled. Starting stage: {scenario} "
+            f"(episodes so far: {scheduler.total_episodes})"
+        )
+    else:
+        scheduler = None
+
     n_steps = 256
     effective_steps_per_update = n_steps * max(1, n_envs)
     remaining_timesteps = max(0, timesteps - total_steps_elapsed)
@@ -189,12 +223,60 @@ def run_mappo_training(
 
     last_check_step = total_steps_elapsed
     last_checkpoint_step = (total_steps_elapsed // 50_000) * 50_000
+    last_logged_stage = scheduler.current_stage if scheduler else scenario
 
     print(f"\n3. Starting MAPPO Training for {remaining_timesteps} steps...")
     start_time = time.time()
     total_steps_elapsed_at_start = total_steps_elapsed
 
     for update_idx in range(start_update, start_update + n_updates):
+        # Curriculum: evaluate and possibly switch scenario BEFORE this rollout.
+        if scheduler is not None:
+            new_stage = scheduler.evaluate_and_step()
+            if new_stage != last_logged_stage:
+                transition = next(
+                    (h for h in reversed(scheduler.history) if h["to"] == new_stage),
+                    None,
+                )
+                direction = transition["type"] if transition else "change"
+                rate = transition["success_rate"] if transition else 0.0
+                print(
+                    f"\n   [Curriculum] {direction.capitalize()} → {new_stage} "
+                    f"(episode {scheduler.total_episodes}, window success rate: {rate:.1%})\n",
+                    flush=True,
+                )
+                # Save a stage-transition checkpoint so the exact policy at the
+                # boundary is recoverable later.
+                transition_ckpt = os.path.join(
+                    models_dir,
+                    f"mappo_curriculum_{direction}_to_{new_stage}_step{total_steps_elapsed}.pt",
+                )
+                torch.save(
+                    {
+                        "actor": actor.state_dict(),
+                        "critic": critic.state_dict(),
+                        "actor_opt": actor_opt.state_dict(),
+                        "critic_opt": critic_opt.state_dict(),
+                        "obs_dim": obs_dim,
+                        "global_state_dim": global_state_dim,
+                        "action_dim": action_dim,
+                        "timesteps": total_steps_elapsed,
+                        "curriculum_stage": new_stage,
+                        "curriculum_history": scheduler.history,
+                    },
+                    transition_ckpt,
+                )
+                print(
+                    f"   [Curriculum] Transition checkpoint saved: {transition_ckpt}",
+                    flush=True,
+                )
+                # Switch env scenario and reset so the new stage starts fresh.
+                env.set_scenario(new_stage)
+                env.reset()
+                last_logged_stage = new_stage
+                # Persist scheduler state after every transition.
+                scheduler.save(curriculum_state_path)
+
         # 1. Collect Rollout
         if n_envs > 1:
             buffer = collect_rollout_batched(env, actor, critic, num_steps=n_steps, batch_size=n_envs)
@@ -208,6 +290,8 @@ def run_mappo_training(
             episode_rewards.append(ep_info["reward"])
             episode_lengths.append(ep_info["length"])
             episode_goals.append(ep_info["goal"])
+            if scheduler is not None:
+                scheduler.record_result(ep_info.get("success", bool(ep_info["goal"])))
 
         # 2. Compute GAE Advantages and Returns
         advantages, returns = compute_gae(
@@ -551,7 +635,17 @@ if __name__ == "__main__":
     parser.add_argument("--self-play", action="store_true", help="Enable the self-play opponent pool for the right team")
     parser.add_argument("--opponent-difficulty", type=str, default="medium", choices=["easy", "medium", "hard", "master"], help="Fixed rule-based opponent difficulty when self-play is disabled")
     parser.add_argument("--opponent-strategy", type=str, default="uniform", choices=["uniform", "cyclic", "elo"], help="Opponent pool selection strategy")
+    parser.add_argument("--curriculum", action="store_true", help="Enable performance-threshold-driven curriculum promotion")
+    parser.add_argument("--curriculum-state-path", type=str, default=None, help="Path to persist/load curriculum scheduler state (JSON)")
+    parser.add_argument("--curriculum-window-size", type=int, default=100, help="Rolling window size for curriculum success rate")
+    parser.add_argument("--curriculum-promote-threshold", type=float, default=0.6, help="Success rate threshold to promote to next stage")
+    parser.add_argument("--curriculum-demote-threshold", type=float, default=0.1, help="Success rate threshold to demote after regression")
+    parser.add_argument("--curriculum-min-episodes", type=int, default=200, help="Minimum episodes before promotion is allowed")
     args = parser.parse_args()
+
+    if args.curriculum and args.scenario:
+        # --scenario is used as the starting stage; scheduler drives subsequent changes.
+        pass
 
     run_mappo_training(
         timesteps=args.timesteps,
@@ -563,4 +657,10 @@ if __name__ == "__main__":
         self_play=args.self_play,
         opponent_difficulty=args.opponent_difficulty,
         opponent_strategy=args.opponent_strategy,
+        curriculum=args.curriculum,
+        curriculum_state_path=args.curriculum_state_path,
+        curriculum_window_size=args.curriculum_window_size,
+        curriculum_promote_threshold=args.curriculum_promote_threshold,
+        curriculum_demote_threshold=args.curriculum_demote_threshold,
+        curriculum_min_episodes=args.curriculum_min_episodes,
     )
