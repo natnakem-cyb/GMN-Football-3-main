@@ -19,8 +19,8 @@ from training.mappo_networks import SharedActor
 
 
 def _build_actor():
-    actor = SharedActor(obs_dim=OBSERVATION_DIM, action_dim=ACTION_SPACE_SIZE, hidden=64)
     torch.manual_seed(424242)
+    actor = SharedActor(obs_dim=OBSERVATION_DIM, action_dim=ACTION_SPACE_SIZE, hidden=64)
     for p in actor.parameters():
         if p.dim() > 1:
             torch.nn.init.xavier_uniform_(p)
