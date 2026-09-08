@@ -112,8 +112,14 @@ class CooperativeRewardShaper:
     ) -> Dict[str, float]:
         """
         Calculates shaped rewards for all active left-team agents.
+        Right-team agents (e.g. the defender in academy_rondo_4v1) are intentionally
+        excluded because pass/assist/hogging terms are attacker-specific concepts.
         """
-        shaped_rewards = {agent_id: base_rewards.get(agent_id, 0.0) for agent_id in active_agents}
+        shaped_rewards = {
+            agent_id: base_rewards.get(agent_id, 0.0)
+            for agent_id in active_agents
+            if not agent_id.startswith("right_")
+        }
 
         # 1. Track Possession & Apply Ball-Hogging Penalties
         ball_owner = info_ground_truth.get("current_ball_owner") if info_ground_truth else None
@@ -392,7 +398,9 @@ class GMNMultiAgentEnv(ParallelEnv):
         if isinstance(data, str):
             raise RuntimeError(f"[GMN-Batch] Bridge sent text error: {data}")
         obs_bytes = OBSERVATION_DIM * 4
-        frame_size = 18 + obs_bytes * N
+        is_rondo = self.scenario == "academy_rondo_4v1"
+        header_size = 22 if is_rondo else 18
+        frame_size = header_size + obs_bytes * N
         expected_len = 2 + self.batch_size * frame_size
         if len(data) != expected_len:
             raise RuntimeError(
@@ -405,6 +413,9 @@ class GMNMultiAgentEnv(ParallelEnv):
             reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, ball_owner_agent_idx = struct.unpack_from(
                 "<f??BBffBB", data, base_offset
             )
+            defender_reward = 0.0
+            if is_rondo:
+                defender_reward = struct.unpack_from("<f", data, base_offset + 20)[0]
             shared_reward = float(reward)
             shared_term = bool(term)
             shared_trunc = bool(trunc)
@@ -421,7 +432,7 @@ class GMNMultiAgentEnv(ParallelEnv):
                     shared_info["event"] = {"type": ev_type}
             observations: Dict[str, np.ndarray] = {}
             for i, agent in enumerate(env_state["agents"]):
-                offset = base_offset + 18 + i * obs_bytes
+                offset = base_offset + header_size + i * obs_bytes
                 obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
                 observations[agent] = obs
             env_state["obs_dict"] = observations
@@ -429,7 +440,14 @@ class GMNMultiAgentEnv(ParallelEnv):
             env_state["ep_len"] += 1
             if shared_term or shared_trunc:
                 env_state["agents"] = []
-            results.append((observations, shared_reward, shared_term, shared_trunc, shared_info))
+            if is_rondo:
+                env_rewards = {
+                    agent: defender_reward if agent.startswith("right_") else shared_reward
+                    for agent in env_state["agents"]
+                }
+            else:
+                env_rewards = shared_reward
+            results.append((observations, env_rewards, shared_term, shared_trunc, shared_info))
         return results
 
     def _recv_batch_response(self) -> bytes:
@@ -564,18 +582,25 @@ class GMNMultiAgentEnv(ParallelEnv):
             return True
         return False
 
-    def _recv_step_response(self, num_agents: int) -> Tuple[bytes, Optional[Dict[str, Any]]]:
+    def _recv_step_response(self, num_agents: int) -> Tuple[bytes, Optional[Dict[str, Any]], float]:
         """Receive a binary step response, skipping unsolicited broadcast frames ON the shared WS.
         
         Also collects any EPISODE_STATS JSON frames that arrive alongside the binary response.
+        Returns (binary_data, episode_stats, defender_reward).
         """
         obs_bytes = OBSERVATION_DIM * 4
-        expected_len = 18 + obs_bytes * num_agents
+        is_rondo = self.scenario == "academy_rondo_4v1"
+        header_size = 22 if is_rondo else 18
+        expected_len = header_size + obs_bytes * num_agents
         episode_stats: Optional[Dict[str, Any]] = None
+        defender_reward = 0.0
         for _ in range(60):
             data = self._recv_frame("step")
             if isinstance(data, (bytes, bytearray)) and len(data) == expected_len:
-                return bytes(data), episode_stats
+                if is_rondo:
+                    # Unpack defender reward from offset 20 of the extended header
+                    defender_reward = struct.unpack_from("<f", data, 20)[0]
+                return bytes(data), episode_stats, defender_reward
             # Collect EPISODE_STATS JSON frames
             if isinstance(data, str):
                 try:
@@ -777,11 +802,11 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         try:
             self.ws_client.send(bytes(action_bytes))
-            data, episode_stats = self._recv_step_response(num_agents)
+            data, episode_stats, defender_reward = self._recv_step_response(num_agents)
         except Exception:
             self._connect_ws()
             self.ws_client.send(bytes(action_bytes))
-            data, episode_stats = self._recv_step_response(num_agents)
+            data, episode_stats, defender_reward = self._recv_step_response(num_agents)
 
         if isinstance(data, str):
             raise RuntimeError(f"[GMN-PettingZoo] Bridge sent text error: {data}")
@@ -789,17 +814,24 @@ class GMNMultiAgentEnv(ParallelEnv):
             raise RuntimeError(f"[GMN-PettingZoo] Expected binary WebSocket frame, got {type(data)}")
 
         obs_bytes = OBSERVATION_DIM * 4
-        expected_len = 18 + obs_bytes * num_agents
+        is_rondo = self.scenario == "academy_rondo_4v1"
+        header_size = 22 if is_rondo else 18
+        expected_len = header_size + obs_bytes * num_agents
         if len(data) != expected_len:
             raise RuntimeError(
                 f"[GMN-PettingZoo Frame Length Error] Expected {expected_len} bytes "
-                f"(18B header + {obs_bytes}B * {num_agents} agents), but received {len(data)} bytes."
+                f"({header_size}B header + {obs_bytes}B * {num_agents} agents), but received {len(data)} bytes."
             )
 
-        # Unpack 18-byte header
+        # Unpack header
         reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, ball_owner_agent_idx = struct.unpack_from(
             "<f??BBffBB", data, 0
         )
+
+        # For rondo scenarios, the bridge sends a split reward: attacker reward in the
+        # standard reward field, and a separate defenderReward at offset 20.
+        if is_rondo:
+            defender_reward = struct.unpack_from("<f", data, 20)[0]
 
         shared_reward = float(reward)
         shared_term = bool(term)
@@ -889,10 +921,14 @@ class GMNMultiAgentEnv(ParallelEnv):
         infos: Dict[str, Any] = {}
 
         for i, agent in enumerate(self.agents):
-            offset = 18 + i * obs_bytes
+            offset = header_size + i * obs_bytes
             obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
             observations[agent] = obs
-            rewards[agent] = shared_reward
+            # Rondo: assign team-specific rewards; non-rondo keeps the shared broadcast.
+            if is_rondo:
+                rewards[agent] = defender_reward if agent.startswith("right_") else shared_reward
+            else:
+                rewards[agent] = shared_reward
             terminations[agent] = shared_term
             truncations[agent] = shared_trunc
             infos[agent] = dict(shared_info)

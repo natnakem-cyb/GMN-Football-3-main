@@ -21,6 +21,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
   private lastPossessionTeam: TeamSide | null = null;
   private ballOutOfAreaTime = 0;
   private prevBallX = 0;
+  private lastDefenderReward = 0;
 
   // --- ScenarioHandler -------------------------------------------------------
   onReset(): void {
@@ -32,6 +33,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
     this.lastPossessionTeam = null;
     this.ballOutOfAreaTime = 0;
     this.prevBallX = 0;
+    this.lastDefenderReward = 0;
   }
 
   onStep(engine: GameEngine, dt: number, prevBallX: number): void {
@@ -110,7 +112,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
       ? engine.players.find((p) => p.id === engine.ball.ownerId)?.team ?? null
       : null;
 
-    return ObservationEncoder.computeRondoReward({
+    const { attackerReward, defenderReward } = ObservationEncoder.computeRondoReward({
       prevBallX: this.prevBallX,
       currBallX: engine.ball.position.x,
       currBallY: engine.ball.position.y,
@@ -122,6 +124,8 @@ export class RondoScenarioHandler implements ScenarioHandler {
       drillRadius: 0.35,
       consecutivePossessionTime: this.consecutivePossessionTime,
     });
+    this.lastDefenderReward = defenderReward;
+    return attackerReward;
   }
 
   checkExtraTermination(_engine: GameEngine): boolean {
@@ -153,5 +157,9 @@ export class RondoScenarioHandler implements ScenarioHandler {
 
   getConsecutivePossessionTime(): number {
     return this.consecutivePossessionTime;
+  }
+
+  getLastDefenderReward(): number {
+    return this.lastDefenderReward;
   }
 }

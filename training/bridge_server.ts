@@ -340,6 +340,8 @@ export class GMNBridgeService {
           },
         },
         controllableIds,
+        defenderReward: engine.getActiveScenarioHandler()?.getLastDefenderReward?.() ?? 0,
+        isRondo: engine.activeScenario?.id === 'academy_rondo_4v1',
       });
     }
     return results;
@@ -817,7 +819,9 @@ const server = http.createServer((req, res) => {
 });
 
 // Binary step-response layout: (18 + OBSERVATION_DIM * 4) bytes total (530B for 127-float obs), all little-endian
-// Offset 0 (4B float32): reward
+// For academy_rondo_4v1, the header is extended to 22 bytes to carry a second float32
+// (defenderReward) at offset 20 so the Python client can assign team-specific rewards.
+// Offset 0 (4B float32): reward (attacker reward for rondo; single shared reward otherwise)
 // Offset 4 (1B uint8): terminated (0/1)
 // Offset 5 (1B uint8): truncated (0/1)
 // Offset 6 (1B uint8): scoreLeft
@@ -826,10 +830,13 @@ const server = http.createServer((req, res) => {
 // Offset 12 (4B float32): ballDistanceToGoal
 // Offset 16 (1B uint8): eventCode
 // Offset 17 (1B uint8): ballOwnerAgentId (0 = controlled player owns ball, 255 = no controllable owner)
+// Offset 18-19 (rondo only): unused padding (0)
+// Offset 20 (4B float32, rondo only): defenderReward
 // Offset 18 ((OBSERVATION_DIM * 4) B): OBSERVATION_DIM * float32 observation
-export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number): Buffer {
+export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isRondo = false, defenderReward = 0): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
-  const buf = Buffer.allocUnsafe(18 + obsBytes);
+  const headerSize = isRondo ? 22 : 18;
+  const buf = Buffer.allocUnsafe(headerSize + obsBytes);
   buf.writeFloatLE(stepResult.reward || 0.0, 0);
   buf.writeUInt8(stepResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(stepResult.truncated ? 1 : 0, 5);
@@ -844,16 +851,20 @@ export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number): Bu
 
   buf.writeUInt8(ballOwnerAgentIdx, 17);
 
+  if (isRondo) {
+    buf.writeFloatLE(defenderReward, 20);
+  }
+
   const obs = stepResult.observation;
   for (let i = 0; i < OBSERVATION_DIM; i++) {
-    buf.writeFloatLE(obs[i] ?? 0.0, 18 + i * 4);
+    buf.writeFloatLE(obs[i] ?? 0.0, headerSize + i * 4);
   }
 
   return buf;
 }
 
 // Multi-Agent Binary step-response layout: 18 + (OBSERVATION_DIM * 4) * N bytes total, all little-endian
-//   Offset 0 (4B float32): reward (shared team reward)
+//   Offset 0 (4B float32): reward (shared team reward; attacker reward for rondo)
 //   Offset 4 (1B uint8): terminated (0/1)
 //   Offset 5 (1B uint8): truncated (0/1)
 //   Offset 6 (1B uint8): scoreLeft
@@ -862,11 +873,14 @@ export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number): Bu
 //   Offset 12 (4B float32): ballDistanceToGoal
 //   Offset 16 (1B uint8): eventCode
 //   Offset 17 (1B uint8): ballOwnerAgentId (0..N-1 index into controllableAgentIds, 255 = no controllable owner)
+//   Offset 18-19 (rondo only): unused padding (0)
+//   Offset 20 (4B float32, rondo only): defenderReward
 //   Offset 18 ((OBSERVATION_DIM * 4) * N B): N observations, OBSERVATION_DIM * float32 each, in controllableAgentIds order
-export function encodeMultiStepBinary(multiResult: any): Buffer {
+export function encodeMultiStepBinary(multiResult: any, isRondo = false, defenderReward = 0): Buffer {
   const N = multiResult.observations.length;
   const obsBytes = OBSERVATION_DIM * 4;
-  const buf = Buffer.allocUnsafe(18 + obsBytes * N);
+  const headerSize = isRondo ? 22 : 18;
+  const buf = Buffer.allocUnsafe(headerSize + obsBytes * N);
   buf.writeFloatLE(multiResult.reward || 0.0, 0);
   buf.writeUInt8(multiResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(multiResult.truncated ? 1 : 0, 5);
@@ -884,9 +898,13 @@ export function encodeMultiStepBinary(multiResult: any): Buffer {
   const ballOwnerAgentIdx = ownerId ? controllableIds.indexOf(ownerId) : 255;
   buf.writeUInt8(ballOwnerAgentIdx >= 0 ? ballOwnerAgentIdx : 255, 17);
 
+  if (isRondo) {
+    buf.writeFloatLE(defenderReward, 20);
+  }
+
   for (let agentIdx = 0; agentIdx < N; agentIdx++) {
     const obs = multiResult.observations[agentIdx];
-    const baseOffset = 18 + agentIdx * obsBytes;
+    const baseOffset = headerSize + agentIdx * obsBytes;
     for (let i = 0; i < OBSERVATION_DIM; i++) {
       buf.writeFloatLE(obs[i] ?? 0.0, baseOffset + i * 4);
     }
@@ -898,15 +916,20 @@ export function encodeMultiStepBinary(multiResult: any): Buffer {
 /**
  * Batched Binary step-response layout:
  *   Header: [B (1 byte)] [N (1 byte)] where B = env count, N = agents per env
- *   Body:   B concatenated frames, each 18 + N*OBSERVATION_DIM*4 bytes
- *           Frame i starts at offset header_size + i * frame_size
+ *   Body:   B concatenated frames. For non-rondo each frame is 18 + N*OBSERVATION_DIM*4 bytes.
+ *           For academy_rondo_4v1 each frame is 22 + N*OBSERVATION_DIM*4 bytes
+ *           (extra 4B float32 at offset 20 carries the defender-specific reward).
+ *           Frame i starts at offset header_size + i * frame_size.
  *           Each frame matches encodeMultiStepBinary layout.
  */
 export function encodeBatchedStepBinary(results: any[]): Buffer {
   const B = results.length;
   if (B === 0) return Buffer.allocUnsafe(0);
   const N = results[0].observations.length;
-  const frameSize = 18 + OBSERVATION_DIM * 4 * N;
+  const obsBytes = OBSERVATION_DIM * 4;
+  const anyRondo = results.some((r) => r.isRondo);
+  const headerSize = anyRondo ? 22 : 18;
+  const frameSize = headerSize + obsBytes * N;
   const buf = Buffer.allocUnsafe(2 + B * frameSize);
   buf.writeUInt8(B, 0);
   buf.writeUInt8(N, 1);
@@ -914,6 +937,8 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
   for (let envIdx = 0; envIdx < B; envIdx++) {
     const multiResult = results[envIdx];
     const baseOffset = 2 + envIdx * frameSize;
+    const defenderReward = multiResult.defenderReward || 0;
+    const isRondo = multiResult.isRondo || false;
     buf.writeFloatLE(multiResult.reward || 0.0, baseOffset + 0);
     buf.writeUInt8(multiResult.terminated ? 1 : 0, baseOffset + 4);
     buf.writeUInt8(multiResult.truncated ? 1 : 0, baseOffset + 5);
@@ -931,17 +956,22 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
     const ballOwnerAgentIdx = ownerId ? controllableIds.indexOf(ownerId) : 255;
     buf.writeUInt8(ballOwnerAgentIdx >= 0 ? ballOwnerAgentIdx : 255, baseOffset + 17);
 
+    if (isRondo) {
+      buf.writeFloatLE(defenderReward, baseOffset + 20);
+    }
+
     for (let agentIdx = 0; agentIdx < N; agentIdx++) {
       const obs = multiResult.observations[agentIdx];
-      const obsBase = baseOffset + 18 + agentIdx * (OBSERVATION_DIM * 4);
+      const obsOffset = baseOffset + headerSize + agentIdx * obsBytes;
       for (let i = 0; i < OBSERVATION_DIM; i++) {
-        buf.writeFloatLE(obs[i] ?? 0.0, obsBase + i * 4);
+        buf.writeFloatLE(obs[i] ?? 0.0, obsOffset + i * 4);
       }
     }
   }
 
   return buf;
 }
+
 /**
  * Deterministic binary error frame (P0 #5): same layout/length as a normal
  * step frame so Python clients can decode it without hanging. Carries a
@@ -990,6 +1020,7 @@ wss.on('connection', (ws: WebSocket, req) => {
       if (isBinary) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
         if (buf.length === 1) {
+          console.log('[WS DEBUG] Single-agent path');
           // existing single-agent path — unchanged
           const actionIdx = buf.readUInt8(0);
           if (actionIdx >= ACTION_SPACE_SIZE) {
@@ -1012,7 +1043,9 @@ wss.on('connection', (ws: WebSocket, req) => {
           const ownerId = bridge['engine'].ball.ownerId as string | null;
           const controlledPlayerId = bridge['engine'].controlledPlayerId as string;
           const ballOwnerAgentIdx = (ownerId && ownerId === controlledPlayerId) ? 0 : 255;
-          ws.send(encodeStepBinary(stepResult, ballOwnerAgentIdx), { binary: true })
+          const isRondo = bridge['engine'].activeScenario?.id === 'academy_rondo_4v1';
+          const defenderReward = isRondo ? (bridge['engine'].getActiveScenarioHandler() as any)?.getLastDefenderReward?.() ?? 0 : 0;
+          ws.send(encodeStepBinary(stepResult, ballOwnerAgentIdx, isRondo, defenderReward), { binary: true })
         } else if (buf.length >= 2) {
           // batched vectorized path: [B (1B)] [N (1B)] [B*N action bytes]
           const B = buf.readUInt8(0);
@@ -1049,8 +1082,8 @@ wss.on('connection', (ws: WebSocket, req) => {
               ws.send(JSON.stringify(stats));
             }
             ws.send(encodeBatchedStepBinary(batchResults), { binary: true });
-          } else if (buf.length > 1) {
-            // existing multi-agent path — unchanged
+            } else if (buf.length > 1) {
+              // existing multi-agent path — unchanged
             const actionIndices = Array.from(buf); // one uint8 per controlled agent, in controllableAgentIds order
             const invalidIdx = actionIndices.findIndex((a) => a >= ACTION_SPACE_SIZE);
             if (invalidIdx >= 0) {
@@ -1068,10 +1101,12 @@ wss.on('connection', (ws: WebSocket, req) => {
                 type: 'EPISODE_STATS',
                 ...multiResult.info.ground_truth,
               };
-              ws.send(JSON.stringify(episodeStats));
+             ws.send(JSON.stringify(episodeStats));
             }
-
-            ws.send(encodeMultiStepBinary(multiResult), { binary: true });
+ 
+            const defenderReward = (bridge['engine'].getActiveScenarioHandler() as any)?.getLastDefenderReward?.() ?? 0;
+            const isRondo = bridge['engine'].activeScenario?.id === 'academy_rondo_4v1';
+            ws.send(encodeMultiStepBinary(multiResult, isRondo, defenderReward), { binary: true });
           }
         }
       } else {
@@ -1131,9 +1166,6 @@ wss.on('connection', (ws: WebSocket, req) => {
       console.error('[WS Error]', err);
       try {
         if (isBinary) {
-          // Deterministic binary error frame sized to the request's agent count
-          // (single-agent: 1 byte request; multi-agent: N bytes request) so the
-          // client can decode it without hanging. Canonical helper P0 #5.
           const nAgents = Buffer.isBuffer(data) ? Math.max(1, data.length) : 1;
           ws.send(encodeErrorStepBinary(nAgents), { binary: true });
         } else {
