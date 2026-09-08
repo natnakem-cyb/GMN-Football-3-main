@@ -30,11 +30,11 @@ def test_shared_reward_broadcast_unpack():
     env._step_count = 1
 
     # Synthesize binary step frame from bridge:
-    # 17-byte header: <f (reward=0.75), ?? (term=False, trunc=False), BB (score_l=1, score_r=0), ff (cp_rew=0.1, dist=0.2), B (event=0)
-    # followed by 3 agent observations (127 * 4 = 508 bytes each)
+    # 18-byte header: <f (reward=0.75), ?? (term=False, trunc=False), BB (score_l=1, score_r=0), ff (cp_rew=0.1, dist=0.2), BB (event=0, ball_owner=0)
+    # followed by 3 agent observations (OBSERVATION_DIM * 4 bytes each)
     test_reward_val = 0.75
     header = struct.pack(
-        "<f??BBffB",
+        "<f??BBffBB",
         test_reward_val,
         False,
         False,
@@ -42,6 +42,7 @@ def test_shared_reward_broadcast_unpack():
         0,
         0.1,
         0.2,
+        0,
         0,
     )
 
@@ -54,12 +55,13 @@ def test_shared_reward_broadcast_unpack():
 
     frame_data = header + bytes(obs_payload)
 
-    # Mock ws_client.recv to return frame_data and mock ws_client.send
+    # Mock ws_client.recv to return frame_data and mock ws_client.send.
+    # Signature mirrors websockets.sync.client.ClientConnection.recv(timeout, decode).
     class MockWS:
         def send(self, msg):
             pass
 
-        def recv(self):
+        def recv(self, timeout=None, decode=None):
             return frame_data
 
     env.ws_client = MockWS()

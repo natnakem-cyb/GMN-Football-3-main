@@ -264,10 +264,14 @@ class GMNMultiAgentEnv(ParallelEnv):
             self.set_opponent_difficulty(opponent_difficulty)
         # P0 #6: bounded WS receive timeout (never hang on a missing frame).
         self.ws_recv_timeout = float(os.environ.get("GMN_WS_RECV_TIMEOUT", "10.0"))
-        self._connect_ws()
+        if self.auto_start_bridge:
+            self._connect_ws()
 
-        # Perform initial reset to discover controllable agents
-        self.reset()
+        # Perform initial reset to discover controllable agents.
+        # When auto_start_bridge=False (e.g. unit tests injecting a mock WS),
+        # skip reset so ws_client stays None until the caller sets it.
+        if self.auto_start_bridge:
+            self.reset()
 
     def set_opponent_difficulty(self, difficulty: str) -> None:
         """Set the right-team (bot) difficulty via the bridge /opponent endpoint."""
