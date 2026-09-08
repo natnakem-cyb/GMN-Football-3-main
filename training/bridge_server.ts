@@ -976,15 +976,20 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
  * Deterministic binary error frame (P0 #5): same layout/length as a normal
  * step frame so Python clients can decode it without hanging. Carries a
  * sentinel reward of -999.0 and terminated=true.
- *   nAgents = 1 -> single-agent frame length (17 + 127*4)
- *   nAgents = N -> multi-agent frame length (17 + N*127*4)
+ *   nAgents = 1 -> single-agent frame length (18 + 127*4) non-rondo / (22 + 127*4) rondo
+ *   nAgents = N -> multi-agent frame length (18 + N*127*4) non-rondo / (22 + N*127*4) rondo
  */
-export function encodeErrorStepBinary(nAgents = 1): Buffer {
+export function encodeErrorStepBinary(nAgents = 1, isRondo = false): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
-  const buf = Buffer.allocUnsafe(17 + obsBytes * Math.max(1, nAgents));
+  const headerSize = isRondo ? 22 : 18;
+  const buf = Buffer.allocUnsafe(headerSize + obsBytes * Math.max(1, nAgents));
   buf.fill(0);
   buf.writeFloatLE(-999.0, 0); // sentinel reward: error indicator
   buf.writeUInt8(1, 4);        // terminated = true
+  buf.writeUInt8(0, 17);       // ballOwnerAgentId = 0 (no owner on error)
+  if (isRondo) {
+    buf.writeFloatLE(0.0, 20); // defenderReward = 0 on error
+  }
   return buf;
 }
 
@@ -1062,7 +1067,7 @@ wss.on('connection', (ws: WebSocket, req) => {
           if (actionIdx >= ACTION_SPACE_SIZE) {
             // P0 #5: NEVER silently drop — send a deterministic binary error
             // frame so Python clients cannot hang waiting for a response.
-            ws.send(encodeErrorStepBinary(1), { binary: true });
+            ws.send(encodeErrorStepBinary(1, bridge['engine'].activeScenario?.id === 'academy_rondo_4v1'), { binary: true });
             return;
           }
           const stepResult = await bridge.step(actionIdx);
@@ -1096,17 +1101,18 @@ wss.on('connection', (ws: WebSocket, req) => {
           if (B > 0 && N > 0 && buf.length === expectedLen) {
             const actionSets: Array<{ actions: number[]; controllableIds: string[] }> = [];
             for (let envIdx = 0; envIdx < B; envIdx++) {
+              const engine = envIdx === 0 ? bridge['engine'] : bridge['pool'][envIdx - 1];
+              const isRondo = engine.activeScenario?.id === 'academy_rondo_4v1';
               const envActions: number[] = [];
               const baseOffset = 2 + envIdx * N;
               for (let a = 0; a < N; a++) {
                 const act = buf.readUInt8(baseOffset + a);
                 if (act >= ACTION_SPACE_SIZE) {
-                  ws.send(encodeErrorStepBinary(N), { binary: true });
+                  ws.send(encodeErrorStepBinary(N, isRondo), { binary: true });
                   return;
                 }
                 envActions.push(act);
               }
-              const engine = envIdx === 0 ? bridge['engine'] : bridge['pool'][envIdx - 1];
               const isRondoScenario = engine.activeScenario?.id === 'academy_rondo_4v1';
               const controllableIds = isRondoScenario
                 ? engine.players.map((p) => p.id)
@@ -1135,7 +1141,8 @@ wss.on('connection', (ws: WebSocket, req) => {
             if (invalidIdx >= 0) {
               // P0 #5: deterministic multi-agent error frame (same length as a
               // normal multi-agent response for this agent count).
-              ws.send(encodeErrorStepBinary(actionIndices.length), { binary: true });
+              const isRondo = bridge['engine'].activeScenario?.id === 'academy_rondo_4v1';
+              ws.send(encodeErrorStepBinary(actionIndices.length, isRondo), { binary: true });
               return;
             }
             const multiResult = await bridge.stepMulti(actionIndices);
@@ -1218,7 +1225,8 @@ wss.on('connection', (ws: WebSocket, req) => {
       try {
         if (isBinary) {
           const nAgents = Buffer.isBuffer(data) ? Math.max(1, data.length) : 1;
-          ws.send(encodeErrorStepBinary(nAgents), { binary: true });
+          const isRondo = bridge['engine'].activeScenario?.id === 'academy_rondo_4v1';
+          ws.send(encodeErrorStepBinary(nAgents, isRondo), { binary: true });
         } else {
           ws.send(JSON.stringify({ type: 'error', error: err.message || 'Internal bridge error', data: { message: err.message || 'Internal bridge error' } }));
         }
