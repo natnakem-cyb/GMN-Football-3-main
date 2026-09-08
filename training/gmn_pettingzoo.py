@@ -72,8 +72,8 @@ class CooperativeRewardShaper:
         reward_pass_completion: float = 0.25,
         reward_assisted_goal_bonus: float = 0.50,
         penalty_solitary_shot: float = -0.30,
-        penalty_ball_hogging: float = -0.005,
-        max_unassisted_hold_ticks: int = 30,
+        penalty_ball_hogging: float = -0.02,
+        max_unassisted_hold_ticks: int = 15,
     ):
         self.r_pass = reward_pass_completion
         self.r_assisted_goal = reward_assisted_goal_bonus
@@ -226,6 +226,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         opponent_difficulty: str = "medium",
         opponent_pool: Optional[Any] = None,
         batch_size: int = 1,
+        debug_rewards: bool = False,
     ):
         super().__init__()
         self.scenario = scenario
@@ -233,6 +234,8 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.port = port or int(os.environ.get("GMN_BRIDGE_PORT", "5050"))
         self.base_url = f"http://{self.host}:{self.port}"
         self.ws_url = f"ws://{self.host}:{self.port}"
+        if debug_rewards:
+            self.ws_url += "?debug=rewards"
         self.auto_start_bridge = auto_start_bridge
         self.render_mode = render_mode
         self.enable_reward_shaping = enable_reward_shaping
@@ -240,6 +243,8 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.opponent_pool = opponent_pool
         self.current_opponent: Optional[Dict[str, Any]] = None
         self.batch_size = max(1, int(batch_size))
+        self.debug_rewards = debug_rewards
+        self.reward_components: List[Dict[str, Any]] = []
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
         self.reward_shaper = CooperativeRewardShaper() if enable_reward_shaping else None
@@ -594,20 +599,27 @@ class GMNMultiAgentEnv(ParallelEnv):
         expected_len = header_size + obs_bytes * num_agents
         episode_stats: Optional[Dict[str, Any]] = None
         defender_reward = 0.0
+        reward_components: Optional[Dict[str, Any]] = None
         for _ in range(60):
             data = self._recv_frame("step")
             if isinstance(data, (bytes, bytearray)) and len(data) == expected_len:
                 if is_rondo:
                     # Unpack defender reward from offset 20 of the extended header
                     defender_reward = struct.unpack_from("<f", data, 20)[0]
-                return bytes(data), episode_stats, defender_reward
-            # Collect EPISODE_STATS JSON frames
+                if self.debug_rewards and reward_components is None:
+                    reward_components = {}
+                return bytes(data), episode_stats, defender_reward, reward_components
+            # Collect EPISODE_STATS and REWARD_COMPONENTS JSON frames
             if isinstance(data, str):
                 try:
                     parsed = json.loads(data)
-                    if isinstance(parsed, dict) and parsed.get("type") == "EPISODE_STATS":
-                        episode_stats = parsed
-                        continue
+                    if isinstance(parsed, dict):
+                        if parsed.get("type") == "EPISODE_STATS":
+                            episode_stats = parsed
+                            continue
+                        if parsed.get("type") == "REWARD_COMPONENTS":
+                            reward_components = parsed.get("data")
+                            continue
                 except (json.JSONDecodeError, AttributeError):
                     pass
             # unsolicited broadcast (training_status/telemetry) — skip
@@ -629,6 +641,7 @@ class GMNMultiAgentEnv(ParallelEnv):
             self._needs_bridge = False
 
         self._step_count = 0
+        self.reward_components = []
         if self.reward_shaper is not None:
             self.reward_shaper.reset()
         self._pending_pass = None
@@ -802,11 +815,11 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         try:
             self.ws_client.send(bytes(action_bytes))
-            data, episode_stats, defender_reward = self._recv_step_response(num_agents)
+            data, episode_stats, defender_reward, reward_components = self._recv_step_response(num_agents)
         except Exception:
             self._connect_ws()
             self.ws_client.send(bytes(action_bytes))
-            data, episode_stats, defender_reward = self._recv_step_response(num_agents)
+            data, episode_stats, defender_reward, reward_components = self._recv_step_response(num_agents)
 
         if isinstance(data, str):
             raise RuntimeError(f"[GMN-PettingZoo] Bridge sent text error: {data}")
@@ -934,6 +947,15 @@ class GMNMultiAgentEnv(ParallelEnv):
             infos[agent] = dict(shared_info)
             if step_events:
                 infos[agent]["step_events"] = step_events
+
+        # Collect debug reward components if enabled
+        if self.debug_rewards and reward_components is not None:
+            self.reward_components.append({
+                "step": self._step_count,
+                "components": reward_components,
+                "shared_reward": shared_reward,
+                "event_code": int(event_code),
+            })
 
         # Apply cooperative reward shaping if enabled
         if self.enable_reward_shaping and self.reward_shaper is not None and not shared_term and not shared_trunc:

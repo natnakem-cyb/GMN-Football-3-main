@@ -63,7 +63,7 @@ class TestCooperativeRewardShaper:
         assert shaper.pass_chain_length == 0
 
     def test_ball_hogging_penalty_after_max_hold_ticks(self):
-        shaper = CooperativeRewardShaper(max_unassisted_hold_ticks=2)
+        shaper = CooperativeRewardShaper(max_unassisted_hold_ticks=2, penalty_ball_hogging=-0.02)
         shaper.reset()
 
         base_rewards = {"left_0": 0.0}
@@ -83,7 +83,7 @@ class TestCooperativeRewardShaper:
 
         # Tick 3: holder_ticks becomes 3, penalty applies
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
-        assert rewards["left_0"] == pytest.approx(-0.005)
+        assert rewards["left_0"] == pytest.approx(-0.02)
         assert shaper.holder_ticks == 3
 
     def test_turnover_chain_break(self):
