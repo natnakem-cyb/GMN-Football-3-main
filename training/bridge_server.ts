@@ -759,7 +759,7 @@ const server = http.createServer((req, res) => {
           res.end(JSON.stringify({ error: 'actions must be an array of integers' }));
           return;
         }
-        const multiResult = bridge.stepMulti(parsedBody.actions);
+        const multiResult = await bridge.stepMulti(parsedBody.actions);
         res.writeHead(200);
         res.end(JSON.stringify(multiResult));
         return;
