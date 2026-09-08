@@ -1122,6 +1122,7 @@ export class GameEngine {
     }
     this.status = 'playing';
     this.gameMode = GameMode.KickOff;
+    this.lastScenarioResolutionEmitted = false;
     if (resetScore) {
       this.score = { left: 0, right: 0 };
     }
