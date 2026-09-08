@@ -41,7 +41,8 @@ def collect_rollout(
         "actions": [],        # shape (num_steps, num_agents)
         "logprobs": [],       # shape (num_steps, num_agents)
         "values": [],         # shape (num_steps,) — one shared value per step
-        "rewards": [],        # shape (num_steps,) — shared team reward
+        "rewards": [],        # shape (num_steps,) — shared team reward (sum of per-agent rewards)
+        "per_agent_rewards": [],  # shape (num_steps, num_agents) — individual agent rewards
         "dones": [],          # shape (num_steps,) — genuine terminations only (not truncations)
         "terminated": [],     # shape (num_steps,) — genuine terminations only
         "truncated": [],      # shape (num_steps,) — time-limit truncations only
@@ -89,7 +90,9 @@ def collect_rollout(
         terminated = any(terminations.values())
         truncated = any(truncations.values())
         done = terminated or truncated
-        shared_reward = float(rewards[current_agents[0]])  # identical across agents
+        # Collect per-agent rewards for asymmetric scenarios (e.g. rondo)
+        per_agent_rewards = np.array([rewards[a] for a in current_agents], dtype=np.float32)
+        shared_reward = float(per_agent_rewards.mean())
 
         env._mappo_ep_rew += shared_reward
         env._mappo_ep_len += 1
@@ -100,6 +103,7 @@ def collect_rollout(
         buffer["logprobs"].append(logprobs.cpu().numpy())
         buffer["values"].append(float(value.item()))
         buffer["rewards"].append(shared_reward)
+        buffer["per_agent_rewards"].append(per_agent_rewards)
         buffer["dones"].append(bool(terminated))
         buffer["terminated"].append(bool(terminated))
         buffer["truncated"].append(bool(truncated))
@@ -131,6 +135,7 @@ def collect_rollout(
         "logprobs": np.array(buffer["logprobs"], dtype=np.float32),
         "values": np.array(buffer["values"], dtype=np.float32),
         "rewards": np.array(buffer["rewards"], dtype=np.float32),
+        "per_agent_rewards": np.array(buffer["per_agent_rewards"], dtype=np.float32),
         "dones": np.array(buffer["dones"], dtype=np.bool_),
         "terminated": np.array(buffer["terminated"], dtype=np.bool_),
         "truncated": np.array(buffer["truncated"], dtype=np.bool_),
@@ -200,6 +205,7 @@ def collect_rollout_parallel(
         "logprobs": [],
         "values": [],
         "rewards": [],
+        "per_agent_rewards": [],
         "dones": [],
         "terminated": [],
         "truncated": [],
@@ -248,7 +254,8 @@ def collect_rollout_parallel(
                 {a: int(actions[i]) for i, a in enumerate(current_agents)}
             )
 
-            shared_reward = float(rewards[current_agents[0]])
+            per_agent_rewards = np.array([rewards[a] for a in current_agents], dtype=np.float32)
+            shared_reward = float(per_agent_rewards.mean())
             terminated = bool(terminations[current_agents[0]])
             truncated = bool(truncations[current_agents[0]])
 
@@ -258,6 +265,7 @@ def collect_rollout_parallel(
             buffers["logprobs"].append(logprobs)
             buffers["values"].append(value)
             buffers["rewards"].append(shared_reward)
+            buffers["per_agent_rewards"].append(per_agent_rewards)
             buffers["dones"].append(terminated)
             buffers["terminated"].append(terminated)
             buffers["truncated"].append(truncated)
@@ -318,13 +326,14 @@ def compute_gae(
     bootstrap_value: float = 0.0,
     next_local_obs: np.ndarray = None,
     critic = None,
+    per_agent_rewards: np.ndarray = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes Generalized Advantage Estimation (GAE) and Returns backwards over the rollout.
 
     Args:
-        rewards: shape (T,)
-        values: shape (T,)
+        rewards: shape (T,) — shared team reward used for value baseline
+        values: shape (T,) — shared value estimates from centralized critic
         dones: shape (T,) — genuine terminations only (not truncations)
         gamma: discount factor (default 0.99)
         lam: GAE lambda parameter (default 0.95)
@@ -334,10 +343,13 @@ def compute_gae(
         critic: CentralizedCritic instance. If provided and next_local_obs is given and the
             final step was not a termination, bootstrap_value is computed as
             critic(next_local_obs). Otherwise the provided bootstrap_value is used.
+        per_agent_rewards: shape (T, num_agents) or None. If provided, returns per-agent
+            advantages/returns of shape (T, num_agents). Otherwise falls back to shared
+            advantages/returns of shape (T,).
 
     Returns:
-        advantages: shape (T,)
-        returns: shape (T,)
+        advantages: shape (T,) or (T, num_agents)
+        returns: shape (T,) or (T, num_agents)
     """
     # If the rollout was truncated mid-episode and we have a critic + next_local_obs,
     # compute the real bootstrap value instead of defaulting to 0.0.
@@ -356,6 +368,23 @@ def compute_gae(
             obs_tensor = torch.tensor(next_local_obs, dtype=torch.float32).unsqueeze(0)
             effective_bootstrap = float(critic(obs_tensor).item())
 
+    if per_agent_rewards is not None:
+        # Per-agent GAE: each agent has its own reward signal but shares the same
+        # value baseline V(s) from the centralized critic.
+        T, num_agents = per_agent_rewards.shape
+        advantages = np.zeros_like(per_agent_rewards, dtype=np.float32)
+        for a in range(num_agents):
+            last_gae = 0.0
+            for t in reversed(range(T)):
+                next_value = effective_bootstrap if t == T - 1 else values[t + 1]
+                next_nonterminal = 0.0 if dones[t] else 1.0
+                delta = per_agent_rewards[t, a] + gamma * next_value * next_nonterminal - values[t]
+                last_gae = delta + gamma * lam * next_nonterminal * last_gae
+                advantages[t, a] = last_gae
+        returns = advantages + np.repeat(values[:, None], num_agents, axis=1)
+        return advantages, returns
+
+    # Shared GAE (original behavior)
     advantages = np.zeros_like(rewards, dtype=np.float32)
     last_gae = 0.0
     for t in reversed(range(len(rewards))):
@@ -445,19 +474,26 @@ def collect_rollout_batched(
         for env_idx in range(batch_size):
             state = env_states[env_idx]
             observations, reward, terminated, truncated, info = batch_results[env_idx]
-            shared_reward = float(reward)
+            current_agents = state["agents"]
+            if isinstance(reward, dict):
+                # Rondo-style per-agent rewards
+                per_agent_rewards = np.array([reward[a] for a in current_agents], dtype=np.float32)
+                shared_reward = float(per_agent_rewards.mean())
+            else:
+                per_agent_rewards = np.full(len(current_agents), float(reward), dtype=np.float32)
+                shared_reward = float(reward)
             shared_term = bool(terminated)
             shared_trunc = bool(truncated)
-            current_agents = state["agents"]
             local_obs = np.stack([state["obs_dict"][a] for a in current_agents], axis=0).astype(np.float32)
             global_state = local_obs.flatten().astype(np.float32)
 
             buffers["local_obs"].append(local_obs)
             buffers["global_state"].append(global_state)
-            buffers["actions"].append(np.array([action_sets[env_idx][a] for a in current_agents], dtype=np.int64))
+            buffers["actions"].append(state["_last_actions"])
             buffers["logprobs"].append(state["_last_logprobs"])
             buffers["values"].append(state["_last_value"])
             buffers["rewards"].append(shared_reward)
+            buffers["per_agent_rewards"].append(per_agent_rewards)
             buffers["dones"].append(shared_term)
             buffers["terminated"].append(shared_term)
             buffers["truncated"].append(shared_trunc)
@@ -498,6 +534,7 @@ def collect_rollout_batched(
     res_buffer["logprobs"] = np.stack(buffers["logprobs"], axis=0).astype(np.float32)
     res_buffer["values"] = np.array(buffers["values"], dtype=np.float32)
     res_buffer["rewards"] = np.array(buffers["rewards"], dtype=np.float32)
+    res_buffer["per_agent_rewards"] = np.stack(buffers["per_agent_rewards"], axis=0).astype(np.float32)
     res_buffer["dones"] = np.array(buffers["dones"], dtype=bool)
     res_buffer["terminated"] = np.array(buffers["terminated"], dtype=bool)
     res_buffer["truncated"] = np.array(buffers["truncated"], dtype=bool)

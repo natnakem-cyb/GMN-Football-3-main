@@ -7,6 +7,7 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [x] Provide `agent_id` for ball-owner attribution (ball-hogging / per-agent credit)
 - [x] Add a wired-path regression test asserting passing vs direct-shooting produce different shaped rewards
 - [x] Fix rondo `Math.abs(currBallX) && Math.abs(currBallX)` copy-paste bug
+- [x] Split rondo rewards between attacker and defender teams (`computeRondoReward` returns `{attackerReward, defenderReward}`, `RondoScenarioHandler` exposes `getLastDefenderReward()`, bridge sends 22-byte header for rondo with defender reward at offset 20, Python client assigns per-team rewards, `CooperativeRewardShaper` excludes right-team agents) — commit `9bcbbd6`
 - [x] Run the added/adjusted tests (pytest) to confirm
 
 ## Item 1b — Secure verified Item-1 fixes (prevents loss on checkout)
