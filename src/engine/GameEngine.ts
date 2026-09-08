@@ -5,6 +5,8 @@ import { Vec2 } from './Vector';
 import { ObservationEncoder } from './ObservationEncoder';
 import { CONTROLLED_TRAINING_TEAM } from './Contract';
 import { SeededRNG } from './SeededRNG';
+import { ScenarioHandler } from './scenarios/ScenarioHandler';
+import { RondoScenarioHandler } from './scenarios/RondoScenarioHandler';
 
 export class GameEngine {
   public rng: SeededRNG = new SeededRNG(0);
@@ -85,14 +87,11 @@ export class GameEngine {
   // time limit is reached; it must not re-fire on subsequent ticks).
   private lastScenarioResolutionEmitted = false;
 
-  // Rondo (4v1 keep-ball) drill state — isolated from academy goal-scoring logic
-  private rondoDefenderPossessionTime = 0;
-  private rondoLastPassCompleted = false;
-  private rondoLastPassTeam: TeamSide | null = null;
-  private rondoPrevDefenderDistToBall = 0;
-  private rondoConsecutivePossessionTime = 0;
-  private rondoLastPossessionTeam: TeamSide | null = null;
-  private rondoBallOutOfAreaTime = 0;
+  private scenarioHandler: ScenarioHandler | null = null;
+
+  private static readonly SCENARIO_HANDLER_REGISTRY: Record<string, () => ScenarioHandler> = {
+    [RondoScenarioHandler.SCENARIO_ID]: () => new RondoScenarioHandler(),
+  };
 
   constructor() {
     this.ball = this.createDefaultBall();
@@ -254,13 +253,8 @@ export class GameEngine {
     this.stats = this.createDefaultStats();
     this.currentPassTracking = null;
     this.lastScenarioResolutionEmitted = false;
-    this.rondoDefenderPossessionTime = 0;
-    this.rondoLastPassCompleted = false;
-    this.rondoLastPassTeam = null;
-    this.rondoPrevDefenderDistToBall = 0;
-    this.rondoConsecutivePossessionTime = 0;
-    this.rondoLastPossessionTeam = null;
-    this.rondoBallOutOfAreaTime = 0;
+    this.scenarioHandler = GameEngine.SCENARIO_HANDLER_REGISTRY[scenario.id]?.() ?? null;
+    this.scenarioHandler?.onReset();
     this.gameMode = scenario.id.startsWith('academy') ? GameMode.Normal : GameMode.KickOff;
 
     const jitter = scenario.setup.positionJitter ?? 0;
@@ -456,7 +450,6 @@ export class GameEngine {
     const prevBallX = this.ball.position.x;
     let goalScoredThisTick: TeamSide | null = null;
     let eventDescription: string | undefined;
-    const isRondoScenario = this.activeScenario?.id === 'academy_rondo_4v1';
 
     if (this.status !== 'paused') {
       this.tickCount++;
@@ -496,74 +489,11 @@ export class GameEngine {
         // 4. Ball pickup / interception checks
         this.checkBallPossession();
 
-        // Rondo state tracking (isolated from academy goal-scoring logic)
-        if (isRondoScenario) {
-          const prevCompletedPasses = this.stats.completedPasses.left;
-          this.rondoLastPassCompleted = false;
-          this.rondoLastPassTeam = null;
+        // Scenario-specific per-tick state tracking
+        this.scenarioHandler?.onStep(this, dt, prevBallX);
 
-          // Detect pass completion by left team this tick
-          if (this.stats.completedPasses.left > prevCompletedPasses) {
-            this.rondoLastPassCompleted = true;
-            this.rondoLastPassTeam = 'left';
-          }
-
-          // Defender distance to ball
-          const defender = this.players.find((p) => p.team === 'right');
-          if (defender) {
-            const defenderPos = defender.position;
-            const ballPos = this.ball.position;
-            this.rondoPrevDefenderDistToBall = Math.hypot(
-              defenderPos.x - ballPos.x,
-              defenderPos.y - ballPos.y
-            );
-          }
-
-          // Defender possession timer
-          if (this.ball.ownerId) {
-            const owner = this.players.find((p) => p.id === this.ball.ownerId);
-            if (owner?.team === 'right') {
-              this.rondoDefenderPossessionTime += dt;
-            } else {
-              this.rondoDefenderPossessionTime = 0;
-            }
-          } else {
-            this.rondoDefenderPossessionTime = 0;
-          }
-
-          // Consecutive possession timer for retention bonus
-          const currentPossessionTeam = this.ball.ownerId
-            ? this.players.find((p) => p.id === this.ball.ownerId)?.team ?? null
-            : null;
-          if (currentPossessionTeam === 'left') {
-            if (this.rondoLastPossessionTeam === 'left') {
-              this.rondoConsecutivePossessionTime += dt;
-            } else {
-              this.rondoConsecutivePossessionTime = 0;
-            }
-            this.rondoLastPossessionTeam = 'left';
-            this.rondoBallOutOfAreaTime = 0;
-          } else {
-            this.rondoConsecutivePossessionTime = 0;
-            this.rondoLastPossessionTeam = currentPossessionTeam;
-            if (currentPossessionTeam === 'right') {
-              this.rondoBallOutOfAreaTime = 0;
-            }
-          }
-
-          // Ball-out-of-drill-area timer for early termination
-          const ballX = this.ball.position.x;
-          const ballY = this.ball.position.y;
-          const inDrillArea = Math.abs(ballX) <= 0.35 && Math.abs(ballY) <= 0.35;
-          if (!inDrillArea) {
-            this.rondoBallOutOfAreaTime += dt;
-          } else {
-            this.rondoBallOutOfAreaTime = 0;
-          }
-        }
-
-        // 5. Goal & boundary checks (skipped for rondo — no goal objective)
-        if (!isRondoScenario) {
+        // 5. Goal & boundary checks (skipped by scenario handler if applicable)
+        if (!this.scenarioHandler?.skipStandardGoalCheck()) {
           goalScoredThisTick = this.checkGoalAndBoundaries();
         }
 
@@ -612,43 +542,21 @@ export class GameEngine {
     );
     this.maxBallProgressX = newMaxBallProgressX;
 
-    // Rondo: use isolated dense reward, suppress base academy goal-scoring shaping
-    if (isRondoScenario) {
-      reward = 0;
-      const rondoReward = ObservationEncoder.computeRondoReward({
-        prevBallX,
-        currBallX: this.ball.position.x,
-        currBallY: this.ball.position.y,
-        ballOwnerTeam: this.ball.ownerId
-          ? this.players.find((p) => p.id === this.ball.ownerId)?.team ?? null
-          : null,
-        lastPassTeam: this.rondoLastPassTeam,
-        lastPassCompleted: this.rondoLastPassCompleted,
-        defenderDistToBall: this.rondoPrevDefenderDistToBall,
-        prevDefenderDistToBall: this.rondoPrevDefenderDistToBall,
-        drillRadius: 0.35,
-        consecutivePossessionTime: this.rondoConsecutivePossessionTime,
-      });
-      reward += rondoReward;
-    }
+    // Scenario-specific reward override
+    reward = this.scenarioHandler?.computeReward(reward, this) ?? reward;
 
     const isAcademyGoal = Boolean(
       this.activeScenario?.id.startsWith('academy') &&
       goalScoredThisTick !== null &&
-      this.activeScenario?.id !== 'academy_rondo_4v1'
+      !this.scenarioHandler?.skipStandardGoalCheck()
     );
     const isOpponentPossession = Boolean(
       this.activeScenario?.terminateOnOpponentPossession &&
       this.ball.ownerId &&
       this.players.find((p) => p.id === this.ball.ownerId)?.team === 'right'
     );
-    const isRondoDefenderPossession = Boolean(
-      isRondoScenario && this.rondoDefenderPossessionTime >= 2.0
-    );
-    const isRondoBallOutOfArea = Boolean(
-      isRondoScenario && this.rondoBallOutOfAreaTime >= 1.5
-    );
-    const isTerminated = this.status === 'fulltime' || isAcademyGoal || isOpponentPossession || isRondoDefenderPossession || isRondoBallOutOfArea;
+    const extraTermination = this.scenarioHandler?.checkExtraTermination(this) ?? false;
+    const isTerminated = this.status === 'fulltime' || isAcademyGoal || isOpponentPossession || extraTermination;
     const isTruncated = this.activeScenario ? this.matchTimeSeconds >= this.activeScenario.timeLimitSeconds : false;
 
     return {
