@@ -93,6 +93,15 @@ items (A) first, then Medium (B).
 - [x] Reuses existing `11_vs_11` scenario from `src/scenarios/ScenarioRegistry.ts`
 - [x] Full law set (kick-off, throw-ins, goal kicks) handled by authoritative `GameEngine`
 
+## Follow-up — Fix pre-existing `test_ippo_shared_reward.py` failure (surfaced by A.4 constructor guard)
+**Problem:** `test_ippo_shared_reward.py` crashed at the constructor (`ConnectionRefusedError`) because `GMNMultiAgentEnv.__init__` unconditionally called `_connect_ws()` + `reset()` even with `auto_start_bridge=False`. Once the constructor was guarded (Option A), two further pre-existing test bugs were exposed: (1) `MockWS.recv` didn't accept the `timeout` kwarg that `_recv_frame` passes, and (2) the test packed a stale 17-byte header (`<f??BBffB`) while the current contract expects 18 bytes (`<f??BBffBB`, incl. `ball_owner_agent_idx`). The test had never actually passed — the crash masked the other bugs.
+**Fix:** Guard constructor WS connection + eager reset with `auto_start_bridge`; fix mock signature + header format in the test.
+- [x] `training/gmn_pettingzoo.py`: `if self.auto_start_bridge:` guards both `_connect_ws()` and `self.reset()` in `__init__`
+- [x] `training/test_ippo_shared_reward.py`: `MockWS.recv(self, timeout=None, decode=None)` now matches websockets API
+- [x] `training/test_ippo_shared_reward.py`: header packed as `<f??BBffBB` (18 bytes, adds `ball_owner_agent_idx=0`)
+- [x] `reset()`/`step()` still connect on-demand when `ws_client is None` — preserves externally-booted-bridge pattern (`test_reward_shape_e2e.py`)
+- [x] Verified: `test_ippo_shared_reward.py` → rewards 0.75 ✓ | `test_reward_shape_e2e.py` → PASS ✓ | `npm test` determinism suites ✓ | `tsc --noEmit` clean ✓ | `check:contracts` ✓
+
 ## B.7 — Rewrite CONTRIBUTING.md
 **Problem:** Generic boilerplate referencing unrelated project (Google/Tensor2Tensor).
 **Fix:** Project-specific contribution guidelines.
