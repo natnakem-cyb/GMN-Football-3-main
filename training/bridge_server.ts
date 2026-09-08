@@ -31,6 +31,8 @@ let hardwareStop: (() => void) | null = null;
 export class GMNBridgeService {
   private engine: GameEngine;
   private botAgents: Map<string, RuleBasedAgent>;
+  /** Per-pool-engine bot agent maps, so each sub-env has independent RNG streams. */
+  private poolBotAgents: Map<GameEngine, Map<string, RuleBasedAgent>>;
   /** Difficulty level used when creating right-team / non-controlled bot agents. */
   public botDifficulty: 'easy' | 'medium' | 'hard' | 'master' = 'medium';
   private scenarioMap: Map<string, ScenarioConfig>;
@@ -53,6 +55,7 @@ export class GMNBridgeService {
   constructor() {
     this.engine = new GameEngine();
     this.botAgents = new Map();
+    this.poolBotAgents = new Map();
     this.scenarioMap = new Map();
 
     ACADEMY_SCENARIOS.forEach((sc) => {
@@ -78,6 +81,7 @@ export class GMNBridgeService {
         newEngine.resetToKickoff(false);
       }
       this.pool.push(newEngine);
+      this.poolBotAgents.set(newEngine, new Map());
     }
     this.poolSize = size;
   }
@@ -137,12 +141,13 @@ export class GMNBridgeService {
         actionMap.set(id, mapDiscreteAction(actions[idx]));
       });
       if (!isRondoScenario) {
+        const engineBotAgents = this.poolBotAgents.get(engine) || this.botAgents;
         engine.players.forEach((player) => {
           if (controllableIds.includes(player.id)) return;
-          if (!this.botAgents.has(player.id)) {
-            this.botAgents.set(player.id, new RuleBasedAgent(`bot_${player.id}`, player.name, this.botDifficulty));
+          if (!engineBotAgents.has(player.id)) {
+            engineBotAgents.set(player.id, new RuleBasedAgent(`bot_${player.id}`, player.name, this.botDifficulty));
           }
-          const bot = this.botAgents.get(player.id)!;
+          const bot = engineBotAgents.get(player.id)!;
           actionMap.set(player.id, bot.decide({
             player,
             teammates: engine.players.filter((p) => p.team === player.team),

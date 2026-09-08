@@ -318,35 +318,34 @@ class GMNMultiAgentEnv(ParallelEnv):
 
     def reset_batch(self, seeds: Optional[List[int]] = None) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
         """Reset all sub-environments in the batch and return per-env (obs, info) tuples."""
-        if not self._batch_envs:
-            seeds = seeds or [42] * self.batch_size
-            requests = []
-            for idx, s in enumerate(seeds[: self.batch_size]):
-                req: Dict[str, Any] = {"scenario": self.scenario}
-                if s is not None:
-                    req["seed"] = int(s)
-                else:
-                    req["seed"] = 42 + idx
-                requests.append(req)
-            while len(requests) < self.batch_size:
-                requests.append({"scenario": self.scenario, "seed": 42 + len(requests)})
-            payload = json.dumps({"type": "reset_batch", "environments": requests})
-            if self.ws_client is None:
-                self._connect_ws()
-            try:
-                self.ws_client.send(payload)
-                data = self._recv_reset_batch_response()
-            except Exception:
-                self._connect_ws()
-                self.ws_client.send(payload)
-                data = self._recv_reset_batch_response()
-            parsed = json.loads(data) if isinstance(data, str) else {}
-            if not isinstance(parsed, dict):
-                raise RuntimeError(f"[GMN-Batch] Expected dict reset response, got {type(parsed)}")
-            results = parsed.get("results", [])
-            if len(results) != self.batch_size:
-                raise RuntimeError(f"[GMN-Batch] Expected {self.batch_size} reset results, got {len(results)}: {list(parsed.keys())}")
-            self._init_batch_envs(results)
+        seeds = seeds or [42] * self.batch_size
+        requests = []
+        for idx, s in enumerate(seeds[: self.batch_size]):
+            req: Dict[str, Any] = {"scenario": self.scenario}
+            if s is not None:
+                req["seed"] = int(s)
+            else:
+                req["seed"] = 42 + idx
+            requests.append(req)
+        while len(requests) < self.batch_size:
+            requests.append({"scenario": self.scenario, "seed": 42 + len(requests)})
+        payload = json.dumps({"type": "reset_batch", "environments": requests})
+        if self.ws_client is None:
+            self._connect_ws()
+        try:
+            self.ws_client.send(payload)
+            data = self._recv_reset_batch_response()
+        except Exception:
+            self._connect_ws()
+            self.ws_client.send(payload)
+            data = self._recv_reset_batch_response()
+        parsed = json.loads(data) if isinstance(data, str) else {}
+        if not isinstance(parsed, dict):
+            raise RuntimeError(f"[GMN-Batch] Expected dict reset response, got {type(parsed)}")
+        results = parsed.get("results", [])
+        if len(results) != self.batch_size:
+            raise RuntimeError(f"[GMN-Batch] Expected {self.batch_size} reset results, got {len(results)}: {list(parsed.keys())}")
+        self._init_batch_envs(results)
         # Return per-env tuples for the caller (trainer can index by env_idx)
         return [
             (env_state["obs_dict"], {a: env_state["info"] for a in env_state["agents"]})
