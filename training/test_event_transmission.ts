@@ -81,7 +81,6 @@ function main(): void {
   console.log(`  currentStepEvents length = ${(engine as any).currentStepEvents.length}`);
 
   // The event should be captured because currentStepEvents tracks per-step events
-  const expectedEvent = 'Dummy event 49'; // The last event before the step
   // Actually, since SHOT without possession does nothing, no new event is recorded.
   // The last event in currentStepEvents should still be from the dummy events.
   // But wait, currentStepEvents is cleared at the start of step(), so it should be empty.
@@ -135,13 +134,6 @@ function main(): void {
   console.log(`  Events array length: ${engine.events.length}`);
 
   // Create a custom action that records an event
-  const eventRecordingAction = {
-    type: ActionType.SHOT,
-    recordEvent: () => {
-      engine.recordEvent('goal', 'GOAL! Forced goal during step!', { x: 1.0, y: 0 }, 'left');
-    }
-  };
-
   // Actually, we can't easily inject an event during applyPlayerAction.
   // Let me instead verify the fix by checking that currentStepEvents works correctly.
   
