@@ -22,7 +22,9 @@ the wire matches the engine's ground-truth counters:
   - Consistency   : EVENT_CODE_MAP[event_code] == info.event.type on every step
                     where event_code > 0.
 
-Run:  python training/test_event_code_wire.py
+Run:  python -X utf8 training/test_event_code_wire.py
+      (or set PYTHONIOENCODING=utf-8; the script also reconfigures its own
+       stdout to UTF-8 so section headers render correctly on any terminal)
 """
 
 import os
@@ -30,6 +32,17 @@ import sys
 import time
 import subprocess
 import urllib.request
+
+# Force UTF-8 console output so non-ASCII punctuation (e.g. the em dash in the
+# section headers below) is not mis-decoded by legacy code pages (CP437/1252),
+# which would display '—' as mojibake like 'ΓÇö' or 'â€”'. The FILE is always
+# UTF-8; this only fixes the terminal rendering.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except (ValueError, OSError):
+        pass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
