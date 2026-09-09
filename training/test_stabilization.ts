@@ -99,23 +99,15 @@ function testShotOnTargetConsistency(): void {
     'shot projected wide of the goal mouth is NOT on-target'
   );
 
-  // Reward consistency: an on-target shot earns the ON_TARGET bonus.
-  const r = ObservationEncoder.computeReward(
-    0.75, 0.8, null, 'left', true, 0.75,
-    { x: 0.8, y: 0.02, z: 0.0 },
-    { x: 0.8, y: -0.01, z: 0.0 }
-  );
-  check(approx(r.reward, 0.055), 'shot-quality reward: on-target trajectory earns +0.03 bonus');
+  // Reward consistency: Phase 11 removes shot-attempt bonuses; only
+  // checkpoint progress remains for non-terminal, non-completion steps.
+  const r = ObservationEncoder.computeReward(0.75, 0.8, null, 'left', 0.75, false);
+  check(approx(r.reward, 0.01), 'checkpoint-only reward on ball progress (shot bonuses removed)');
 
-  // A trajectory that would cross ABOVE the crossbar must NOT earn the bonus.
-  // (Ball starts high at z=0.2 moving flat and fast (vx=2.0); it reaches the
-  // goal line in ~6 ticks while still at z≈0.14, far above the 0.05 crossbar.)
-  const high = ObservationEncoder.computeReward(
-    0.75, 0.8, null, 'left', true, 0.75,
-    { x: 0.8, y: 0.0, z: 0.2 },
-    { x: 2.0, y: 0.0, z: 0.0 }
-  );
-  check(approx(high.reward, 0.025 + 0.001), 'shot-quality reward: trajectory above crossbar earns only off-target bonus');
+  // A trajectory that would cross ABOVE the crossbar must NOT earn any
+  // shot bonus in Phase 11 — only checkpoint applies.
+  const high = ObservationEncoder.computeReward(0.75, 0.8, null, 'left', 0.75, false);
+  check(approx(high.reward, 0.01), 'no shot bonus above crossbar in Phase 11');
 }
 
 // ---------------------------------------------------------------- P0 #4

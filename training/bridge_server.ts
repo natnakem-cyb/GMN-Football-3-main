@@ -247,14 +247,22 @@ export class GMNBridgeService {
         observations: perAgentObservations,
         info: {
           score: { ...engine.score },
-          ballDistanceToGoal: Vec2.distance({ x: engine.ball.position.x, y: engine.ball.position.y }, { x: 1.0, y: 0 }),
-          scenario: engine.activeScenario?.codeName || 'free_play',
-          controlledPlayerId: engine.controlledPlayerId,
           controllableAgentIds: controllableIds,
+          controlledPlayerId: this.engine.controlledPlayerId,
         },
       });
     }
     return results;
+  }
+
+  private computeActionMasks(engine: GameEngine, controllableIds: string[]): number[][] {
+    return controllableIds.map((id) => {
+      const player = engine.players.find((p) => p.id === id);
+      if (!player) {
+        return new Array(19).fill(0);
+      }
+      return ObservationEncoder.getActionMask(player, engine);
+    });
   }
 
   public async stepBatch(actionSets: Array<{ actions: number[]; controllableIds: string[] }>): Promise<any> {
@@ -317,8 +325,10 @@ export class GMNBridgeService {
           engine.gameMode
         ).rawVector
       );
+      const actionMasks = this.computeActionMasks(engine, controllableIds);
       results.push({
         observations,
+        action_masks: actionMasks,
         reward: stepResult.reward,
         terminated: stepResult.terminated,
         truncated: stepResult.truncated,
@@ -452,8 +462,14 @@ export class GMNBridgeService {
     // 3. Execute deterministic physics tick (1/60s)
     const result = this.engine.step(actionMap, 1 / 60);
 
+    // 4. Compute action masks for the next decision step (post-possession state).
+    const controllableIds = [this.engine.controlledPlayerId].filter((id): id is string => id != null);
+    const actionMasks = this.computeActionMasks(this.engine, controllableIds);
+    const actionMask = actionMasks[0] ?? new Array(19).fill(0);
+
     return {
       observation: result.observation.rawVector,
+      action_mask: actionMask,
       reward: result.reward,
       terminated: result.terminated,
       truncated: result.truncated,
@@ -552,6 +568,8 @@ export class GMNBridgeService {
       ).rawVector
     );
 
+    const actionMasks = this.computeActionMasks(this.engine, controllableIds);
+
     return {
       reward: result.reward,
       terminated: result.terminated,
@@ -578,6 +596,7 @@ export class GMNBridgeService {
         },
       },
       observations, // array, same order as controllableIds
+      action_masks: actionMasks,
       controllableIds,
     };
   }
@@ -838,11 +857,13 @@ const server = http.createServer((req, res) => {
 // Offset 17 (1B uint8): ballOwnerAgentId (0 = controlled player owns ball, 255 = no controllable owner)
 // Offset 18-19 (rondo only): unused padding (0)
 // Offset 20 (4B float32, rondo only): defenderReward
-// Offset 18 ((OBSERVATION_DIM * 4) B): OBSERVATION_DIM * float32 observation
-export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isRondo = false, defenderReward = 0): Buffer {
+// Offset 18/22 ((OBSERVATION_DIM * 4) B): OBSERVATION_DIM * float32 observation
+// Offset 18/22 + OBSERVATION_DIM*4 (19 B): action mask (one uint8 per discrete action, 1=valid 0=invalid)
+const MASK_BYTES = 19;
+export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isRondo = false, defenderReward = 0, actionMask?: number[]): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
   const headerSize = isRondo ? 22 : 18;
-  const buf = Buffer.allocUnsafe(headerSize + obsBytes);
+  const buf = Buffer.allocUnsafe(headerSize + obsBytes + MASK_BYTES);
   buf.writeFloatLE(stepResult.reward || 0.0, 0);
   buf.writeUInt8(stepResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(stepResult.truncated ? 1 : 0, 5);
@@ -866,6 +887,19 @@ export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isR
     buf.writeFloatLE(obs[i] ?? 0.0, headerSize + i * 4);
   }
 
+  const mask = actionMask ?? stepResult.action_mask;
+  if (mask && mask.length === 19) {
+    const maskOffset = headerSize + obsBytes;
+    for (let i = 0; i < 19; i++) {
+      buf.writeUInt8(mask[i] ? 1 : 0, maskOffset + i);
+    }
+  } else {
+    const maskOffset = headerSize + obsBytes;
+    for (let i = 0; i < 19; i++) {
+      buf.writeUInt8(1, maskOffset + i);
+    }
+  }
+
   return buf;
 }
 
@@ -881,12 +915,14 @@ export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isR
 //   Offset 17 (1B uint8): ballOwnerAgentId (0..N-1 index into controllableAgentIds, 255 = no controllable owner)
 //   Offset 18-19 (rondo only): unused padding (0)
 //   Offset 20 (4B float32, rondo only): defenderReward
-//   Offset 18 ((OBSERVATION_DIM * 4) * N B): N observations, OBSERVATION_DIM * float32 each, in controllableAgentIds order
+//   Offset 18/22 ((OBSERVATION_DIM * 4) * N B): N observations, OBSERVATION_DIM * float32 each, in controllableAgentIds order
+//   Offset 18/22 + N*OBSERVATION_DIM*4 (N * 19 B): N action masks, 19 uint8s each, in controllableAgentIds order
 export function encodeMultiStepBinary(multiResult: any, isRondo = false, defenderReward = 0): Buffer {
   const N = multiResult.observations.length;
   const obsBytes = OBSERVATION_DIM * 4;
   const headerSize = isRondo ? 22 : 18;
-  const buf = Buffer.allocUnsafe(headerSize + obsBytes * N);
+  const maskBytes = 19;
+  const buf = Buffer.allocUnsafe(headerSize + obsBytes * N + maskBytes * N);
   buf.writeFloatLE(multiResult.reward || 0.0, 0);
   buf.writeUInt8(multiResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(multiResult.truncated ? 1 : 0, 5);
@@ -910,9 +946,20 @@ export function encodeMultiStepBinary(multiResult: any, isRondo = false, defende
 
   for (let agentIdx = 0; agentIdx < N; agentIdx++) {
     const obs = multiResult.observations[agentIdx];
-    const baseOffset = headerSize + agentIdx * obsBytes;
+    const obsOffset = headerSize + agentIdx * obsBytes;
     for (let i = 0; i < OBSERVATION_DIM; i++) {
-      buf.writeFloatLE(obs[i] ?? 0.0, baseOffset + i * 4);
+      buf.writeFloatLE(obs[i] ?? 0.0, obsOffset + i * 4);
+    }
+    const mask = multiResult.action_masks?.[agentIdx];
+    const maskOffset = headerSize + N * obsBytes + agentIdx * maskBytes;
+    if (mask && mask.length === 19) {
+      for (let i = 0; i < 19; i++) {
+        buf.writeUInt8(mask[i] ? 1 : 0, maskOffset + i);
+      }
+    } else {
+      for (let i = 0; i < 19; i++) {
+        buf.writeUInt8(1, maskOffset + i);
+      }
     }
   }
 
@@ -933,9 +980,10 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
   if (B === 0) return Buffer.allocUnsafe(0);
   const N = results[0].observations.length;
   const obsBytes = OBSERVATION_DIM * 4;
+  const maskBytes = 19;
   const anyRondo = results.some((r) => r.isRondo);
   const headerSize = anyRondo ? 22 : 18;
-  const frameSize = headerSize + obsBytes * N;
+  const frameSize = headerSize + obsBytes * N + maskBytes * N;
   const buf = Buffer.allocUnsafe(2 + B * frameSize);
   buf.writeUInt8(B, 0);
   buf.writeUInt8(N, 1);
@@ -972,6 +1020,17 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
       for (let i = 0; i < OBSERVATION_DIM; i++) {
         buf.writeFloatLE(obs[i] ?? 0.0, obsOffset + i * 4);
       }
+      const mask = multiResult.action_masks?.[agentIdx];
+      const maskOffset = baseOffset + headerSize + N * obsBytes + agentIdx * maskBytes;
+      if (mask && mask.length === 19) {
+        for (let i = 0; i < 19; i++) {
+          buf.writeUInt8(mask[i] ? 1 : 0, maskOffset + i);
+        }
+      } else {
+        for (let i = 0; i < 19; i++) {
+          buf.writeUInt8(1, maskOffset + i);
+        }
+      }
     }
   }
 
@@ -982,13 +1041,14 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
  * Deterministic binary error frame (P0 #5): same layout/length as a normal
  * step frame so Python clients can decode it without hanging. Carries a
  * sentinel reward of -999.0 and terminated=true.
- *   nAgents = 1 -> single-agent frame length (18 + 127*4) non-rondo / (22 + 127*4) rondo
- *   nAgents = N -> multi-agent frame length (18 + N*127*4) non-rondo / (22 + N*127*4) rondo
+ *   nAgents = 1 -> single-agent frame length (18 + 127*4 + 19) non-rondo / (22 + 127*4 + 19) rondo
+ *   nAgents = N -> multi-agent frame length (18 + N*127*4 + N*19) non-rondo / (22 + N*127*4 + N*19) rondo
  */
 export function encodeErrorStepBinary(nAgents = 1, isRondo = false): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
+  const maskBytes = 19;
   const headerSize = isRondo ? 22 : 18;
-  const buf = Buffer.allocUnsafe(headerSize + obsBytes * Math.max(1, nAgents));
+  const buf = Buffer.allocUnsafe(headerSize + obsBytes * Math.max(1, nAgents) + maskBytes * Math.max(1, nAgents));
   buf.fill(0);
   buf.writeFloatLE(-999.0, 0); // sentinel reward: error indicator
   buf.writeUInt8(1, 4);        // terminated = true
@@ -996,6 +1056,8 @@ export function encodeErrorStepBinary(nAgents = 1, isRondo = false): Buffer {
   if (isRondo) {
     buf.writeFloatLE(0.0, 20); // defenderReward = 0 on error
   }
+  // Observations and masks are already zero-filled by buf.fill(0), which is
+  // a safe all-invalid mask for the error frame.
   return buf;
 }
 
