@@ -143,3 +143,46 @@ items (A) first, then Medium (B).
 - [x] Integration tests (`training/tests/test_curriculum_integration.py`): mocked `train_mappo.py` training loop verifies mid-run scenario promotion and transition checkpoint path. 2 tests passed.
 - [x] Verified: `python -m pytest training/tests/ -x -q` → 53 passed. Commit `2a84dcb` pushed.
 - [x] Bug fix: `min_episodes_before_promotion` was incorrectly gated on `total_episodes` (lifetime counter), allowing later stages to promote after only 1 episode. Fixed by adding `episodes_in_stage` counter, reset on promotion/demotion, and gating on per-stage counter. Persisted in `to_dict()`/`load()`. Added regression test for back-to-back promotion gating and persistence test for `episodes_in_stage` round-trip. Commit `81c3673`.
+
+## Follow-up — Phase 10 Multi-Seed Retrain & Evaluation (academy_3_vs_1_with_keeper)
+**Problem:** Verify whether the post-reward-redesign code (commit `81c3673`) actually fixed the 0%-pass/direct-shoot exploit found in earlier investigation.
+- [x] Trained 3 seeds × 200k steps on `academy_3_vs_1_with_keeper` using `train_mappo.py` with PHASE10_RETRAIN.md hyperparameters (n_steps=256, batch=256, 4 PPO epochs, lr 3e-4→3e-5 cosine, gamma 0.99, GAE lambda 0.95, clip 0.15, entropy 0.01→0.005)
+- [x] Checkpoints preserved: `mappo_academy_3_vs_1_with_keeper_seed{42,123,999}_retrain.pt`, `_best.pt`, `_rolling_best.pt`
+- [x] Evaluated each checkpoint with `eval_mappo.py` for 100 deterministic episodes
+- [x] Computed Phase 12 metrics via `training/phase12_metrics.py` (debug_rewards=True, action entropy, progress-reward share, reward variance)
+- [x] Saved episode replay for best seed (123): `training/replays/academy_3_vs_1_with_keeper_500001_20260909T013530Z.jsonl`
+
+### Results — All 7 Phase 12 criteria FAIL for all 3 seeds
+
+| Metric | Threshold | Seed 42 | Seed 123 | Seed 999 |
+|--------|-----------|---------|----------|----------|
+| pass_accuracy (ground truth) | > 5.0% | 0.0% FAIL | 0.0% FAIL | 0.0% FAIL |
+| pass attempts/episode | > 2.0 | 47.29 PASS | 0.11 FAIL | 45.03 PASS |
+| shots/episode | > 0.5 | 0.00 FAIL | 0.70 PASS | 0.00 FAIL |
+| goal_rate | > 20.0% | 1.0% FAIL | 11.0% FAIL | 0.0% FAIL |
+| goal_rate stable | std < 10% | 5.77% PASS | | |
+| reward variance (std/mean) | < 0.5 | 3.4833 FAIL | 2.0266 FAIL | 2.1013 FAIL |
+| action entropy | > 1.5 | 1.4171 FAIL | 1.1646 FAIL | 1.0767 FAIL |
+| progress-reward share | < 70% | 32.2% PASS | 11.6% PASS | 30.8% PASS |
+
+### Exploit Patterns (plainly stated)
+- **Seed 42**: Pass-spam exploit — 71.1% LONG_PASS, 47.29 pass attempts/episode, 0% completion. NOT genuine passing.
+- **Seed 123**: Dribble-to-shoot exploit — 50.2% UP_LEFT + 47.4% SHOT, 34.43 shots/episode, 749.7 steps/episode. Classic direct-shoot exploit.
+- **Seed 999**: Pass-spam exploit — 80.5% SHORT_PASS, 45.03 pass attempts/episode, 0% completion. NOT genuine passing.
+
+### Verdict
+**The reward redesign did NOT fix the exploit.** 0 of 3 seeds pass the primary success criteria. All seeds show 0% ground-truth pass accuracy, 0 genuine pass completions in 300 evaluated episodes, extreme behavioral collapse (entropy 1.08–1.42), extreme reward variance (2.0–3.5), and distinct exploit patterns per seed. This is materially different from "all three converged."
+
+### Episode Trace (best seed 123)
+```
+tick 0: left_1=5(UP_LEFT), left_2=5(UP_LEFT), left_3=5(UP_LEFT)
+tick 1: left_1=12(SHOT), left_2=12(SHOT), left_3=12(SHOT)
+tick 2: left_1=12(SHOT), left_2=12(SHOT), left_3=12(SHOT)
+tick 3: left_1=12(SHOT), left_2=12(SHOT), left_3=12(SHOT)
+tick 4: left_1=12(SHOT), left_2=12(SHOT), left_3=12(SHOT)
+tick 5: left_1=12(SHOT), left_2=12(SHOT), left_3=12(SHOT)
+```
+Unambiguous direct-shoot exploit: 1 diagonal movement tick, then 5 consecutive SHOT actions. No passing, no build-up play.
+
+### Artifacts retained
+All 9 checkpoints + eval JSONs + replay preserved in `training/models/` and `training/replays/` for independent re-evaluation. NOT committed to git (large binary artifacts).
