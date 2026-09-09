@@ -21,7 +21,10 @@ const ROOT = path.resolve(__dirname, '..');
 const PORT = 5099;
 const BASE = `http://127.0.0.1:${PORT}`;
 const OBS_DIM = 127;
-const FRAME = 17 + OBS_DIM * 4;
+const MASK_BYTES = 19;
+// Single-agent binary frame: 18B base header + OBS_DIM float32 + 19B mask.
+// (Was 17 — off by one; the bridge has always sent an 18-byte header.)
+const FRAME = 18 + OBS_DIM * 4 + MASK_BYTES;
 
 let failures = 0;
 function check(cond: boolean, label: string) {
@@ -140,18 +143,19 @@ async function main() {
     );
 
     // --- Contract: valid multi-agent step frame (N left agents) ---
+    // Frame = 18B header + N*OBS_DIM float32 + N*19B masks.
     dash.send(Buffer.alloc(leftAgents, 0), { binary: true });
     const multiOk = await recvUntil(dash, (_m, b) => !!b);
     check(
-      multiOk.buf!.length === 17 + OBS_DIM * 4 * leftAgents,
-      `multi-agent step returns exactly one frame for ${leftAgents} agents (${17 + OBS_DIM * 4 * leftAgents} bytes)`
+      multiOk.buf!.length === 18 + OBS_DIM * 4 * leftAgents + MASK_BYTES * leftAgents,
+      `multi-agent step returns exactly one frame for ${leftAgents} agents (${18 + OBS_DIM * 4 * leftAgents + MASK_BYTES * leftAgents} bytes)`
     );
 
     // --- P0 #5: invalid multi-agent action -> error frame sized to N ---
     dash.send(Buffer.alloc(leftAgents, 250), { binary: true });
     const errN = await recvUntil(dash, (_m, b) => !!b);
     check(
-      errN.buf!.length === 17 + OBS_DIM * 4 * leftAgents && errN.buf!.readFloatLE(0) === -999.0,
+      errN.buf!.length === 18 + OBS_DIM * 4 * leftAgents + MASK_BYTES * leftAgents && errN.buf!.readFloatLE(0) === -999.0,
       'invalid multi-agent action returns N-sized error frame (no silence, no hang)'
     );
 

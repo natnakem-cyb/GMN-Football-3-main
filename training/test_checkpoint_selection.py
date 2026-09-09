@@ -15,9 +15,9 @@ import shutil
 import numpy as np
 import torch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from mappo_networks import SharedActor, CentralizedCritic
+from training.mappo_networks import SharedActor, CentralizedCritic
 
 
 def test_checkpoint_selection():
