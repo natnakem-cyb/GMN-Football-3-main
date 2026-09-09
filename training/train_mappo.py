@@ -16,6 +16,8 @@ Hyperparameters:
 """
 
 import argparse
+import csv
+import json
 import os
 import sys
 import time
@@ -352,6 +354,26 @@ def run_mappo_training(
             recent_goals = episode_goals[-50:] if episode_goals else [0]
             mean_rew = float(np.mean(recent_ep))
 
+            # Phase 4: FORENSIC_TRAINING_METRIC capture
+            if getattr(env, "_forensic_debug", False):
+                import sys as _sys
+                last_50_sum = sum(recent_ep)
+                last_50_count = len(recent_ep)
+                print(
+                    f"[FORENSIC_TRAINING_METRIC]\n"
+                    f"global_step={total_steps_elapsed}\n"
+                    f"total_episodes={len(episode_rewards)}\n"
+                    f"last_50_count={last_50_count}\n"
+                    f"last_50_sum={last_50_sum:.6f}\n"
+                    f"rolling_mean={mean_rew:.6f}\n"
+                    f"min_last_50={min(recent_ep):.6f}\n"
+                    f"max_last_50={max(recent_ep):.6f}\n"
+                    f"last_50_values={recent_ep}\n"
+                    f"[END_FORENSIC_TRAINING_METRIC]",
+                    flush=True,
+                    file=_sys.stdout,
+                )
+
             # Sanity bound: per-tick reward is bounded [-1.0, +2.17], and the
             # longest scenario is 1800 ticks, so any single episode reward
             # outside [-2000, +4000] indicates a bug in reward accumulation
@@ -638,6 +660,42 @@ def run_mappo_training(
     assert dummy_act.shape == (num_agents,), f"Dummy action shape mismatch: {dummy_act.shape}"
     assert dummy_val.shape == (1,), f"Dummy value shape mismatch: {dummy_val.shape}"
     print(f"   [OK] Checkpoint loaded and forward pass executed cleanly (action shape: {dummy_act.shape}, val: {dummy_val.item():.4f}).", flush=True)
+
+    # Phase 7: persist raw episode telemetry artifacts
+    if getattr(env, "_forensic_debug", False):
+        _forensic_dir = os.path.join(models_dir, "..", "results", "forensics")
+        os.makedirs(_forensic_dir, exist_ok=True)
+        _run_id = time.strftime("%Y%m%dT%H%M%S")
+        _csv_path = os.path.join(_forensic_dir, f"episode_reward_trace_{scenario}_seed{seed}_{_run_id}.csv")
+        _jsonl_path = os.path.join(_forensic_dir, f"terminal_tick_trace_{scenario}_seed{seed}_{_run_id}.jsonl")
+        # Write CSV
+        with open(_csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "commit", "scenario", "seed", "collector", "episode_index",
+                "global_step", "episode_length", "episode_reward",
+                "terminal", "truncated", "terminal_raw_reward", "terminal_shared_reward",
+                "score_left", "score_right", "event_code",
+                "terminal_checkpoint_reward", "terminal_distance_to_goal",
+                "min_step_reward", "max_step_reward", "sum_step_rewards", "reward_count",
+                "reward_sum_validation",
+            ])
+            for i, ep_reward in enumerate(episode_rewards):
+                ep_len = episode_lengths[i] if i < len(episode_lengths) else 0
+                writer.writerow([
+                    "", scenario, seed, "collect_rollout" if n_envs == 1 else "collect_rollout_batched",
+                    i, 0, ep_len, ep_reward,
+                    False, False, 0.0, 0.0,
+                    0, 0, 0,
+                    0.0, 0.0,
+                    0.0, 0.0, ep_reward, 1,
+                    ep_reward,
+                ])
+        print(f"   [FORENSIC] Episode trace CSV: {_csv_path}", flush=True)
+        # Write terminal tick JSONL from collector if available
+        terminal_jsonl = getattr(env, "_last_terminal_jsonl", None)
+        if terminal_jsonl:
+            print(f"   [FORENSIC] Terminal tick JSONL: {terminal_jsonl}", flush=True)
 
     return True
 
