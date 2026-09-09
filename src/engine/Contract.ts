@@ -50,9 +50,9 @@ export const EVENT_CODE_MAP = [
   'out_of_bounds',
   'scenario_complete',
   'scenario_failed',
-  // ADDITIVE (stabilization release): appended so existing event codes are
-  // unchanged. Code 13 = offside. Synchronized into Python via scripts/sync_contracts.ts.
   'offside',
+  'pass_completed',
+  'pass_intercepted',
 ] as const;
 
 export function getEventCode(eventType?: string): number {

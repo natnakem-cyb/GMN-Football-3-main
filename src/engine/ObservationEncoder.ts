@@ -1,6 +1,5 @@
 import { Ball, GameMode, MatchScore, Player, RLObservation, TeamSide } from '../types/football';
-import { PITCH, isGoalMouthPoint } from './Rules';
-import { PhysicsEngine } from './Physics';
+import type { GameEngine } from './GameEngine';
 import {
   OBSERVATION_DIM,
   OBSERVATION_SCHEMA_VERSION,
@@ -195,13 +194,8 @@ export class ObservationEncoder {
     currBallX: number,
     goalScoredTeam: TeamSide | null,
     targetTeam: TeamSide = CONTROLLED_TRAINING_TEAM,
-    shotTakenByTargetTeam = false,
     maxBallProgressX?: number,
-    ballPosition?: { x: number; y: number; z: number },
-    ballVelocity?: { x: number; y: number; z: number },
-    ballAngularVelocity?: { x: number; y: number; z: number },
     passCompletedByTargetTeam = false,
-    shotEventByTargetTeam = false,
   ): { reward: number; checkpoint: number; newMaxBallProgressX: number } {
     if (targetTeam !== CONTROLLED_TRAINING_TEAM) {
       throw new Error(
@@ -248,33 +242,6 @@ export class ObservationEncoder {
     // Explicit pass-completion reward: encourages meaningful passing.
     if (passCompletedByTargetTeam) {
       reward += 0.15;
-    }
-
-    // Explicit shot-attempt reward: encourages taking shots.
-    if (shotEventByTargetTeam) {
-      reward += 0.1;
-    }
-
-    // Shot-quality conditioned bonus — encourages aiming at the goal mouth.
-    if (shotTakenByTargetTeam) {
-      const ON_TARGET_BONUS = 0.1;
-      const OFF_TARGET_BONUS = 0.01;
-
-      let shotQualityBonus = OFF_TARGET_BONUS;
-      if (ballPosition && ballVelocity && Math.abs(ballVelocity.x) > 0.05) {
-        const opponentGoalX = PITCH.maxX;
-        const crossing = PhysicsEngine.projectShotAtGoalLine(
-          ballPosition,
-          ballVelocity,
-          opponentGoalX,
-          600,
-          ballAngularVelocity
-        );
-        if (crossing && isGoalMouthPoint(crossing.y, crossing.z)) {
-          shotQualityBonus = ON_TARGET_BONUS;
-        }
-      }
-      reward += shotQualityBonus;
     }
 
     return { reward, checkpoint, newMaxBallProgressX };
@@ -367,5 +334,46 @@ export class ObservationEncoder {
     }
 
     return { attackerReward, defenderReward };
+  }
+
+  /**
+   * Build a 19-element action mask for the given player/engine state.
+   * 1 = valid, 0 = invalid.
+   *
+   * Movement actions (indices 0-7) and IDLE (index 8) are always valid.
+   * Ball-handling actions (LONG_PASS=9, HIGH_PASS=10, SHORT_PASS=11,
+   * SHOT=12, DRIBBLE=17) are only valid when the player has possession.
+   * TACKLE (16) is only valid when the player does NOT have possession
+   * (the engine already enforces this, but the mask makes it explicit to
+   * the agent so it does not waste an action slot).
+   */
+  static getActionMask(player: Player, engine: GameEngine): number[] {
+    const hasPossession = player.hasBall || engine.ball.ownerId === player.id;
+    const mask: number[] = new Array(19).fill(1);
+
+    // Ball-handling actions require possession.
+    const BALL_ACTIONS = new Set<number>([9, 10, 11, 12, 17]);
+    // TACKLE requires NO possession.
+    const TACKLE_INDEX = 16;
+
+    for (let i = 0; i < mask.length; i++) {
+      if (i >= 0 && i <= 8) {
+        // Movement + IDLE always valid.
+        continue;
+      }
+      if (i === TACKLE_INDEX) {
+        mask[i] = hasPossession ? 0 : 1;
+        continue;
+      }
+      if (BALL_ACTIONS.has(i)) {
+        mask[i] = hasPossession ? 1 : 0;
+        continue;
+      }
+      // Remaining actions (SPRINT=13, RELEASE_DIRECTION=14,
+      // RELEASE_SPRINT=15, RELEASE_DRIBBLE=18) are always valid.
+      mask[i] = 1;
+    }
+
+    return mask;
   }
 }

@@ -81,6 +81,9 @@ export class GameEngine {
     targetId?: string;
     offsideReceiverIds: Set<string>;
   } | null = null;
+  // Track which player IDs executed a ball-handling action this tick so the
+  // bridge can emit explicit action-cost / conflict events.
+  public executedBallActionPlayerIds: Set<string> = new Set();
 
   // Prevents emitting scenario_complete / scenario_failed more than once per
   // scenario episode (the end-of-match resolution fires on the first tick the
@@ -114,6 +117,8 @@ export class GameEngine {
       isInAir: false,
       isShotInFlight: false,
       trail: [],
+      lastKickedBy: null,
+      lastKickedTeam: null,
     };
   }
 
@@ -455,6 +460,9 @@ export class GameEngine {
     let goalScoredThisTick: TeamSide | null = null;
     let eventDescription: string | undefined;
 
+    // Reset per-tick ball-action tracking for conflict detection.
+    this.executedBallActionPlayerIds = new Set();
+
     if (this.status !== 'paused') {
       this.tickCount++;
       this.matchTimeSeconds += dt;
@@ -531,22 +539,15 @@ export class GameEngine {
       eventDescription = lastEvent.description || lastEvent.type;
     }
 
-    const shotTakenByLeft = newEventsThisTick.some((e) => e.type === 'shot' && e.team === 'left');
-    const passCompletedByLeft = newEventsThisTick.some((e) => e.type === 'pass' && e.team === 'left');
-    const shotEventByLeft = shotTakenByLeft;
+    const passCompletedByLeft = newEventsThisTick.some((e) => e.type === 'pass_completed' && e.team === 'left');
 
     let { reward, checkpoint, newMaxBallProgressX } = ObservationEncoder.computeReward(
       prevBallX,
       this.ball.position.x,
       goalScoredThisTick,
       CONTROLLED_TRAINING_TEAM,
-      shotTakenByLeft,
       this.maxBallProgressX,
-      this.ball.position,
-      this.ball.velocity,
-      this.ball.angularVelocity,
       passCompletedByLeft,
-      shotEventByLeft,
     );
     this.maxBallProgressX = newMaxBallProgressX;
 
@@ -577,6 +578,7 @@ export class GameEngine {
         event: eventDescription,
         checkpointReward: checkpoint,
         ballDistanceToGoal: Vec2.distance({ x: this.ball.position.x, y: this.ball.position.y }, { x: 1.0, y: 0 }),
+        executedBallActionPlayerIds: Array.from(this.executedBallActionPlayerIds),
       },
     };
   }
@@ -650,14 +652,18 @@ export class GameEngine {
           player.heading = Vec2.angle(dribbleDir);
         }
         break;
-
       case ActionType.SHORT_PASS:
         if (player.hasBall || this.ball.ownerId === player.id) {
           const dir = action.direction || (player.stickyDirection ? player.stickyDirection : Vec2.fromAngle(player.heading));
           const power = action.power || 0.75;
           PhysicsEngine.kickBall(this.ball, player, dir, power, 0);
 
+          this.ball.lastKickedBy = player.id;
+          this.ball.lastKickedTeam = player.team;
+          this.executedBallActionPlayerIds.add(player.id);
+
           this.stats.passes[player.team]++;
+
           this.currentPassTracking = {
             passerId: player.id,
             team: player.team,
@@ -668,7 +674,6 @@ export class GameEngine {
           this.recordEvent('pass', `${player.name} played short pass`, player.position, player.team);
         }
         break;
-
       case ActionType.LONG_PASS:
       case ActionType.HIGH_PASS:
         if (player.hasBall || this.ball.ownerId === player.id) {
@@ -677,7 +682,12 @@ export class GameEngine {
           const loft = action.type === ActionType.LONG_PASS ? 0.35 : 0.45;
           PhysicsEngine.kickBall(this.ball, player, dir, power, loft);
 
+          this.ball.lastKickedBy = player.id;
+          this.ball.lastKickedTeam = player.team;
+          this.executedBallActionPlayerIds.add(player.id);
+
           this.stats.passes[player.team]++;
+
           this.currentPassTracking = {
             passerId: player.id,
             team: player.team,
@@ -698,6 +708,10 @@ export class GameEngine {
 
           PhysicsEngine.kickBall(this.ball, player, dir, power, 0.15);
           this.ball.isShotInFlight = true;
+
+          this.ball.lastKickedBy = player.id;
+          this.ball.lastKickedTeam = player.team;
+          this.executedBallActionPlayerIds.add(player.id);
 
           this.stats.shots[player.team]++;
 
@@ -969,9 +983,36 @@ export class GameEngine {
               }
             } else {
               this.stats.interceptions[player.team]++;
-              this.recordEvent('interception', `${player.name} intercepted the ball`, player.position, player.team);
+              this.recordEvent('pass_intercepted', `${player.name} intercepted the ball`, player.position, player.team);
             }
             this.currentPassTracking = null;
+          }
+
+          // Emit explicit pass-completion/interception events based on lastKickedBy.
+          const lastKickedTeam = this.ball.lastKickedTeam;
+          const lastKickedById = this.ball.lastKickedBy;
+          if (lastKickedById != null && lastKickedTeam != null) {
+            const isSameTeam = lastKickedTeam === player.team;
+            const isDifferentPlayer = lastKickedById !== player.id;
+            if (isSameTeam && isDifferentPlayer) {
+              this.recordEvent(
+                'pass_completed',
+                `Pass completed: ${player.name} received from ${lastKickedById}`,
+                player.position,
+                player.team
+              );
+              this.ball.lastKickedBy = null;
+              this.ball.lastKickedTeam = null;
+            } else if (!isSameTeam) {
+              this.recordEvent(
+                'pass_intercepted',
+                `Pass intercepted: ${player.name} intercepted from ${lastKickedById}`,
+                player.position,
+                player.team
+              );
+              this.ball.lastKickedBy = null;
+              this.ball.lastKickedTeam = null;
+            }
           }
 
           // Assign possession
