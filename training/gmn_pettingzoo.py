@@ -90,6 +90,9 @@ class CooperativeRewardShaper:
         self.current_holder_id: Optional[str] = None
         self.holder_ticks: int = 0
         self.pass_completed_count: int = 0
+        self.goal_scored_count: int = 0
+        self.turnover_conceded_count: int = 0
+        self.pass_intercepted_count: int = 0
         self.solitary_shot_count: int = 0
         self.assisted_goal_count: int = 0
         self.ball_hogging_count: int = 0
@@ -100,6 +103,9 @@ class CooperativeRewardShaper:
             "pass_chain_length": self.pass_chain_length,
             "holder_ticks": self.holder_ticks,
             "pass_completed_count": self.pass_completed_count,
+            "goal_scored_count": self.goal_scored_count,
+            "turnover_conceded_count": self.turnover_conceded_count,
+            "pass_intercepted_count": self.pass_intercepted_count,
             "solitary_shot_count": self.solitary_shot_count,
             "assisted_goal_count": self.assisted_goal_count,
             "ball_hogging_count": self.ball_hogging_count,
@@ -167,6 +173,7 @@ class CooperativeRewardShaper:
 
             elif event_type == "PASS_INTERCEPTED":
                 self.pass_chain_length = 0
+                self.pass_intercepted_count += 1
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] -= 0.10
 
@@ -176,6 +183,7 @@ class CooperativeRewardShaper:
 
             elif event_type in ("PASS_FAILED", "TURNOVER_CONCEDED"):
                 self.pass_chain_length = 0
+                self.turnover_conceded_count += 1
 
             elif event_type == "SHOT_TAKEN":
                 # No extra penalty beyond the flat action cost; shot attempts
@@ -185,6 +193,7 @@ class CooperativeRewardShaper:
             elif event_type == "GOAL_SCORED":
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] += 2.00
+                self.goal_scored_count += 1
                 self.pass_chain_length = 0
 
         return shaped_rewards
@@ -466,7 +475,7 @@ class GMNMultiAgentEnv(ParallelEnv):
             )
             defender_reward = 0.0
             if is_rondo:
-                defender_reward = struct.unpack_from("<f", data, base_offset + 20)[0]
+                defender_reward = struct.unpack_from("<f", data, base_offset + 18)[0]
             shared_reward = float(reward)
             shared_term = bool(term)
             shared_trunc = bool(trunc)
@@ -558,12 +567,11 @@ class GMNMultiAgentEnv(ParallelEnv):
                 self.bridge_process = subprocess.Popen(
                     _npx_cmd() + ["tsx", bridge_script],
                     env=dict(os.environ, GMN_BRIDGE_PORT=str(self.port)),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
                 )
                 time.sleep(2.0)
             else:
                 time.sleep(1.0)
+
 
     def _connect_ws(self):
         """Establishes or reconnects WebSocket client connection."""
@@ -663,8 +671,10 @@ class GMNMultiAgentEnv(ParallelEnv):
             data = self._recv_frame("step")
             if isinstance(data, (bytes, bytearray)) and len(data) == expected_len:
                 if is_rondo:
-                    # Unpack defender reward from offset 20 of the extended header
-                    defender_reward = struct.unpack_from("<f", data, 20)[0]
+                    # Unpack defender reward from offset 18 of the extended header
+                    # (bridge layout: 18B base header + defenderReward float32 at
+                    # bytes 18-21, observations at 22).
+                    defender_reward = struct.unpack_from("<f", data, 18)[0]
                 if self.debug_rewards and reward_components is None:
                     reward_components = {}
                 return bytes(data), episode_stats, defender_reward, reward_components
@@ -899,9 +909,10 @@ class GMNMultiAgentEnv(ParallelEnv):
         )
 
         # For rondo scenarios, the bridge sends a split reward: attacker reward in the
-        # standard reward field, and a separate defenderReward at offset 20.
+        # standard reward field, and a separate defenderReward at offset 18
+        # (observations start at 22).
         if is_rondo:
-            defender_reward = struct.unpack_from("<f", data, 20)[0]
+            defender_reward = struct.unpack_from("<f", data, 18)[0]
 
         shared_reward = float(reward)
         shared_term = bool(term)

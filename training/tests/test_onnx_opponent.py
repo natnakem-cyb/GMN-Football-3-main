@@ -66,7 +66,7 @@ def _train_and_export_onnx(tmp_dir: str, scenario: str = "academy_3_vs_1_with_ke
 
         while total_steps < max_steps:
             current_agents = list(env.agents if env.agents else env.possible_agents)
-            local_obs = np.stack([obs[a] for a in current_agents], axis=0).astype(np.float32)
+            local_obs = np.stack([obs[a]["observation"] for a in current_agents], axis=0).astype(np.float32)
 
             with torch.no_grad():
                 dist = actor(torch.tensor(local_obs, dtype=torch.float32))
@@ -138,7 +138,7 @@ def _collect_obs_checksums(env, steps=10, seed=42):
         current_agents = list(env.agents if env.agents else env.possible_agents)
         action_dict = {a: 5 for a in current_agents}
         obs_dict, rewards, terms, truncs, infos = env.step(action_dict)
-        obs_stack = np.stack([obs_dict[a] for a in sorted(obs_dict.keys())], axis=0)
+        obs_stack = np.stack([obs_dict[a]["observation"] for a in sorted(obs_dict.keys())], axis=0)
         checksum = hashlib.sha256(obs_stack.tobytes()).hexdigest()[:16]
         checksums.append(checksum)
         if any(terms.values()) or any(truncs.values()) or not env.agents:

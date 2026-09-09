@@ -53,6 +53,9 @@ def collect_rollout(
     # Retrieve or initialize persistent rollout state on env
     if not hasattr(env, "_mappo_obs") or env._mappo_obs is None:
         obs_dict, _ = env.reset()
+        # Handle new dict format with "observation" key
+        if isinstance(list(obs_dict.values())[0], dict) and "observation" in list(obs_dict.values())[0]:
+            obs_dict = {k: v["observation"] for k, v in obs_dict.items()}
         env._mappo_obs = obs_dict
         env._mappo_ep_rew = 0.0
         env._mappo_ep_len = 0
@@ -66,7 +69,15 @@ def collect_rollout(
 
     for _ in range(num_steps):
         current_agents = list(env.agents if env.agents else env.possible_agents)
-        local_obs = np.stack([obs_dict[a] for a in current_agents], axis=0).astype(np.float32)
+        # obs_dict now returns {"observation": ..., "action_mask": ...} dicts
+        local_obs_list = []
+        for a in current_agents:
+            obs_val = obs_dict[a]
+            if isinstance(obs_val, dict) and "observation" in obs_val:
+                local_obs_list.append(obs_val["observation"])
+            else:
+                local_obs_list.append(obs_val)
+        local_obs = np.stack(local_obs_list, axis=0).astype(np.float32)
         global_state = local_obs.flatten().astype(np.float32)  # concat in agent_order
 
         # Verify concatenation integrity

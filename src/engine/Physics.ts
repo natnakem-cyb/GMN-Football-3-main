@@ -41,6 +41,14 @@ export class PhysicsEngine {
 
   // Step ball simulation
   static updateBall(ball: Ball, players: Player[], dt: number): void {
+    // BUG-9 fix: drag/friction/gravity below are per-tick constants tuned for
+    // FIXED_DT (1/60). Accepting any other dt would silently produce
+    // tick-rate-dependent physics, so reject it loudly.
+    if (dt !== PhysicsEngine.FIXED_DT) {
+      throw new Error(
+        `[GMN Physics Error] updateBall dt=${dt} unsupported. Only dt === FIXED_DT (${PhysicsEngine.FIXED_DT}) is supported.`
+      );
+    }
     // Save previous position to trail
     if (ball.trail.length > 20) {
       ball.trail.shift();
@@ -115,6 +123,12 @@ export class PhysicsEngine {
 
   // Update single player state & physics
   static updatePlayer(player: Player, _ball: Ball, dt: number): void {
+    // BUG-9 fix: same fixed-timestep guard as updateBall.
+    if (dt !== PhysicsEngine.FIXED_DT) {
+      throw new Error(
+        `[GMN Physics Error] updatePlayer dt=${dt} unsupported. Only dt === FIXED_DT (${PhysicsEngine.FIXED_DT}) is supported.`
+      );
+    }
     // Tackle state
     if (player.isTackling) {
       player.tackleCooldown -= 1;

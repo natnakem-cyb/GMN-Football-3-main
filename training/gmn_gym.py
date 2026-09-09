@@ -273,6 +273,10 @@ class GMNFootballEnv(gym.Env):
                 # else: unsolicited binary broadcast frame — skip
             if data is None:
                 raise RuntimeError("[GMN-Gym WS Error] No structurally valid reset response received (only broadcast frames)")
+            # BUG-4 follow-up: keep WS single-agent contract in sync — the
+            # binary step path is header-size aware, so a scenario change via
+            # reset() must update self.scenario for subsequent step() calls.
+            self.scenario = target_scenario
         else:
             http_payload = {"scenario": target_scenario}
             if seed is not None:
@@ -305,7 +309,12 @@ class GMNFootballEnv(gym.Env):
                 self._connect_ws()
 
             self.ws_client.send(int(action).to_bytes(1, "little"))
-            expected_frame_len =  18 + OBSERVATION_DIM *  4
+            # BUG-4 fix: rondo frames carry a 22B header (extra defenderReward
+            # float32 at offset 20); non-rondo frames are 18B. Both the frame
+            # length check and the observation slice must use the
+            # scenario-specific header size, not hardcoded 18.
+            header_size = 22 if self.scenario == "academy_rondo_4v1" else 18
+            expected_frame_len = header_size + OBSERVATION_DIM * 4
             data = None
             for _ in range(60):
                 frame = self._recv_frame("step")
@@ -318,7 +327,7 @@ class GMNFootballEnv(gym.Env):
                     f"[GMN-Gym WS Error] Expected {expected_frame_len} binary bytes, got only broadcast frames"
                 )
             reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, _ball_owner_agent_idx = struct.unpack_from("<f??BBffBB", data, 0)
-            raw_obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=18).copy()
+            raw_obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=header_size).copy()
 
             # Bridge error-frame sentinel (P0 #5): an invalid action receives a
             # deterministic error frame instead of silence — surface it loudly.

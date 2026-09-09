@@ -71,8 +71,22 @@ export class ObservationEncoder {
     }
 
     const activeIndex = viewpointPlayerId
-      ? leftPlayers.findIndex((p) => p.id === viewpointPlayerId)
-      : (leftPlayers.length > 0 ? 0 : -1);
+      ? (() => {
+          // BUG-6 fix: the previous code only searched leftPlayers, so any
+          // right-team viewpoint (bots / ONNX snapshot opponents) produced an
+          // all-zero active slice (violating the 11-one-hot invariant) while
+          // the structured field silently reported 0 via Math.max(0, -1).
+          // Search the viewpoint player's own team first, then fall back to
+          // the other side so every valid id yields exactly one hot bit.
+          const li = leftPlayers.findIndex((p) => p.id === viewpointPlayerId);
+          if (li >= 0) return li;
+          const ri = rightPlayers.findIndex((p) => p.id === viewpointPlayerId);
+          if (ri >= 0) return ri;
+          return -1;
+        })()
+      : leftPlayers.length > 0
+        ? 0
+        : -1;
 
     // Construct flat rawVector with exactly OBSERVATION_DIM (127) floats
     const rawVector: number[] = [];

@@ -260,7 +260,10 @@ export class GMNBridgeService {
     return controllableIds.map((id) => {
       const player = engine.players.find((p) => p.id === id);
       if (!player) {
-        return new Array(19).fill(0);
+        // BUG-5 fix: a missing/stale controllable id must not produce an
+        // all-zero (deny-everything, incl. IDLE) mask. Fall back to
+        // all-valid so the agent can still act while ids resync.
+        return new Array(19).fill(1);
       }
       return ObservationEncoder.getActionMask(player, engine);
     });
@@ -466,7 +469,8 @@ export class GMNBridgeService {
     // 4. Compute action masks for the next decision step (post-possession state).
     const controllableIds = [this.engine.controlledPlayerId].filter((id): id is string => id != null);
     const actionMasks = this.computeActionMasks(this.engine, controllableIds);
-    const actionMask = actionMasks[0] ?? new Array(19).fill(0);
+    // BUG-5 fix: same all-valid fallback as computeActionMasks (was all-zero).
+    const actionMask = actionMasks[0] ?? new Array(19).fill(1);
 
     return {
       observation: result.observation.rawVector,
@@ -856,15 +860,18 @@ const server = http.createServer((req, res) => {
 // Offset 12 (4B float32): ballDistanceToGoal
 // Offset 16 (1B uint8): eventCode
 // Offset 17 (1B uint8): ballOwnerAgentId (0 = controlled player owns ball, 255 = no controllable owner)
-// Offset 18-19 (rondo only): unused padding (0)
-// Offset 20 (4B float32, rondo only): defenderReward
-// Offset 18/22 ((OBSERVATION_DIM * 4) B): OBSERVATION_DIM * float32 observation
+// Offset 18 (4B float32, rondo only): defenderReward (bytes 18-21)
+// Offset 18/22 (OBSERVATION_DIM * float32): OBSERVATION_DIM * float32 observation
 // Offset 18/22 + OBSERVATION_DIM*4 (19 B): action mask (one uint8 per discrete action, 1=valid 0=invalid)
 const MASK_BYTES = 19;
 export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isRondo = false, defenderReward = 0, actionMask?: number[]): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
   const headerSize = isRondo ? 22 : 18;
   const buf = Buffer.allocUnsafe(headerSize + obsBytes + MASK_BYTES);
+  // BUG-2 fix: allocUnsafe leaves heap garbage. Zero the whole frame because
+  // mixed code paths may leave header bytes unwritten (e.g. a non-rondo
+  // result encoded with a rondo-sized header in batched mode).
+  buf.fill(0);
   buf.writeFloatLE(stepResult.reward || 0.0, 0);
   buf.writeUInt8(stepResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(stepResult.truncated ? 1 : 0, 5);
@@ -880,7 +887,9 @@ export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isR
   buf.writeUInt8(ballOwnerAgentIdx, 17);
 
   if (isRondo) {
-    buf.writeFloatLE(defenderReward, 20);
+    // Defender reward directly after the 18B base header (bytes 18-21);
+    // observations start at headerSize (22).
+    buf.writeFloatLE(defenderReward, 18);
   }
 
   const obs = stepResult.observation;
@@ -914,8 +923,7 @@ export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isR
 //   Offset 12 (4B float32): ballDistanceToGoal
 //   Offset 16 (1B uint8): eventCode
 //   Offset 17 (1B uint8): ballOwnerAgentId (0..N-1 index into controllableAgentIds, 255 = no controllable owner)
-//   Offset 18-19 (rondo only): unused padding (0)
-//   Offset 20 (4B float32, rondo only): defenderReward
+//   Offset 18 (4B float32, rondo only): defenderReward (bytes 18-21)
 //   Offset 18/22 ((OBSERVATION_DIM * 4) * N B): N observations, OBSERVATION_DIM * float32 each, in controllableAgentIds order
 //   Offset 18/22 + N*OBSERVATION_DIM*4 (N * 19 B): N action masks, 19 uint8s each, in controllableAgentIds order
 export function encodeMultiStepBinary(multiResult: any, isRondo = false, defenderReward = 0): Buffer {
@@ -924,6 +932,8 @@ export function encodeMultiStepBinary(multiResult: any, isRondo = false, defende
   const headerSize = isRondo ? 22 : 18;
   const maskBytes = 19;
   const buf = Buffer.allocUnsafe(headerSize + obsBytes * N + maskBytes * N);
+  // BUG-2 fix: zero the whole frame (see encodeStepBinary).
+  buf.fill(0);
   buf.writeFloatLE(multiResult.reward || 0.0, 0);
   buf.writeUInt8(multiResult.terminated ? 1 : 0, 4);
   buf.writeUInt8(multiResult.truncated ? 1 : 0, 5);
@@ -942,7 +952,8 @@ export function encodeMultiStepBinary(multiResult: any, isRondo = false, defende
   buf.writeUInt8(ballOwnerAgentIdx >= 0 ? ballOwnerAgentIdx : 255, 17);
 
   if (isRondo) {
-    buf.writeFloatLE(defenderReward, 20);
+    // See encodeStepBinary: defenderReward occupies bytes 18-21.
+    buf.writeFloatLE(defenderReward, 18);
   }
 
   for (let agentIdx = 0; agentIdx < N; agentIdx++) {
@@ -972,7 +983,7 @@ export function encodeMultiStepBinary(multiResult: any, isRondo = false, defende
  *   Header: [B (1 byte)] [N (1 byte)] where B = env count, N = agents per env
  *   Body:   B concatenated frames. For non-rondo each frame is 18 + N*OBSERVATION_DIM*4 bytes.
  *           For academy_rondo_4v1 each frame is 22 + N*OBSERVATION_DIM*4 bytes
- *           (extra 4B float32 at offset 20 carries the defender-specific reward).
+ *           (extra 4B float32 at offset 18 carries the defender-specific reward).
  *           Frame i starts at offset header_size + i * frame_size.
  *           Each frame matches encodeMultiStepBinary layout.
  */
@@ -986,6 +997,9 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
   const headerSize = anyRondo ? 22 : 18;
   const frameSize = headerSize + obsBytes * N + maskBytes * N;
   const buf = Buffer.allocUnsafe(2 + B * frameSize);
+  // BUG-2 fix: zero the whole batch (non-rondo frames in an anyRondo batch
+  // leave bytes 18-23 unwritten when headerSize is forced to 22).
+  buf.fill(0);
   buf.writeUInt8(B, 0);
   buf.writeUInt8(N, 1);
 
@@ -1012,7 +1026,8 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
     buf.writeUInt8(ballOwnerAgentIdx >= 0 ? ballOwnerAgentIdx : 255, baseOffset + 17);
 
     if (isRondo) {
-      buf.writeFloatLE(defenderReward, baseOffset + 20);
+      // See encodeStepBinary: defenderReward at +18, padding at +20-21.
+      buf.writeFloatLE(defenderReward, baseOffset + 18);
     }
 
     for (let agentIdx = 0; agentIdx < N; agentIdx++) {
@@ -1055,7 +1070,7 @@ export function encodeErrorStepBinary(nAgents = 1, isRondo = false): Buffer {
   buf.writeUInt8(1, 4);        // terminated = true
   buf.writeUInt8(0, 17);       // ballOwnerAgentId = 0 (no owner on error)
   if (isRondo) {
-    buf.writeFloatLE(0.0, 20); // defenderReward = 0 on error
+    buf.writeFloatLE(0.0, 18); // defenderReward = 0 on error
   }
   // Observations and masks are already zero-filled by buf.fill(0), which is
   // a safe all-invalid mask for the error frame.

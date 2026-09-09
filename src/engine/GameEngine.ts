@@ -71,12 +71,12 @@ export class GameEngine {
   public maxReplayFrames = 3000;
   public events: MatchEvent[] = [];
   private eventIdCounter: number = 0;
-  private currentStepEvents: MatchEvent[] = [];
+  public currentStepEvents: MatchEvent[] = [];
   public maxBallProgressX: number = 0;
 
   private possessionTicks = { left: 0, right: 0 };
   private goalResetTimer = 0;
-  private currentPassTracking: {
+  public currentPassTracking: {
     passerId: string;
     team: TeamSide;
     targetId?: string;
@@ -263,6 +263,9 @@ export class GameEngine {
     this.possessionTicks = { left: 0, right: 0 };
     this.stats = this.createDefaultStats();
     this.currentPassTracking = null;
+    // BUG-8 fix: clear action-cost attribution on scenario load so the first
+    // step of a new episode cannot emit prior-episode player ids.
+    this.executedBallActionPlayerIds = new Set();
     this.lastScenarioResolutionEmitted = false;
     this.scenarioHandler = GameEngine.SCENARIO_HANDLER_REGISTRY[scenario.id]?.() ?? null;
     this.scenarioHandler?.onReset();
@@ -1170,6 +1173,10 @@ export class GameEngine {
     this.status = 'playing';
     this.gameMode = GameMode.KickOff;
     this.lastScenarioResolutionEmitted = false;
+    // BUG-8 fix: pass attribution and action-cost attribution must not leak
+    // across a kickoff reset.
+    this.currentPassTracking = null;
+    this.executedBallActionPlayerIds = new Set();
     if (resetScore) {
       this.score = { left: 0, right: 0 };
     }
