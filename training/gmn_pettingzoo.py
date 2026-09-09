@@ -285,6 +285,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.agents: List[str] = []
         self.possible_agents: List[str] = []
 
+        # Phase 5: forensic debug flag and episode index
+        self._forensic_debug: bool = os.environ.get("GMN_FORENSIC_DEBUG", "0") == "1"
+        self._episode_index: int = 0
+        self._bridge_error_count: int = 0
+
         # Terminal-frame provenance for forensic reward tracing (Step 2/3).
         # These are set on every step() call; on terminal ticks they capture
         # the exact values that flowed through the pipeline at episode end.
@@ -512,7 +517,22 @@ class GMNMultiAgentEnv(ParallelEnv):
         try:
             self.ws_client.send(bytes(frame))
             data = self._recv_batch_response()
-        except Exception:
+        except Exception as e:
+            # Log bridge errors for forensic debugging
+            if getattr(self, "_forensic_debug", False):
+                import sys as _sys
+                print(
+                    f"[FORENSIC_BRIDGE_ERROR]\n"
+                    f"scenario={self.scenario}\n"
+                    f"global_step={self._step_count}\n"
+                    f"error_type={type(e).__name__}\n"
+                    f"error_message={str(e)}\n"
+                    f"bridge_error_count={getattr(self, '_bridge_error_count', 0)}\n"
+                    f"batch_size={self.batch_size}\n"
+                    f"[END_FORENSIC_BRIDGE_ERROR]",
+                    flush=True,
+                    file=_sys.stderr,
+                )
             self._connect_ws()
             self.ws_client.send(bytes(frame))
             data = self._recv_batch_response()
@@ -535,6 +555,15 @@ class GMNMultiAgentEnv(ParallelEnv):
             reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, ball_owner_agent_idx = struct.unpack_from(
                 "<f??BBffBB", data, base_offset
             )
+            # Bridge error-frame sentinel (P0 #5): surface loudly instead of silently
+            # accumulating a -999 penalty into episode reward.
+            if float(reward) <= -998.0 and bool(term):
+                self._bridge_error_count += 1
+                raise RuntimeError(
+                    f"[GMN-PettingZoo Bridge Error] Bridge returned an error frame for "
+                    f"env_idx={env_idx} (reward <= -998.0, terminated=true). This "
+                    f"indicates an internal bridge error. Check the bridge server logs."
+                )
             defender_reward = 0.0
             if is_rondo:
                 defender_reward = struct.unpack_from("<f", data, base_offset + 18)[0]
@@ -732,11 +761,41 @@ class GMNMultiAgentEnv(ParallelEnv):
         for _ in range(60):
             data = self._recv_frame("step")
             if isinstance(data, (bytes, bytearray)) and len(data) == expected_len:
+                # Phase 1: forensic binary terminal-frame capture
+                raw_reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, ball_owner_agent_idx = struct.unpack_from(
+                    "<f??BBffBB", data, 0
+                )
                 if is_rondo:
-                    # Unpack defender reward from offset 18 of the extended header
-                    # (bridge layout: 18B base header + defenderReward float32 at
-                    # bytes 18-21, observations at 22).
                     defender_reward = struct.unpack_from("<f", data, 18)[0]
+                if getattr(self, "_forensic_debug", False) and (term or trunc):
+                    print(
+                        f"[FORENSIC_BINARY_TERMINAL]\n"
+                        f"scenario={self.scenario}\n"
+                        f"episode={getattr(self, '_episode_index', -1)}\n"
+                        f"global_step={self._step_count}\n"
+                        f"frame_length={len(data)}\n"
+                        f"expected_frame_length={expected_len}\n"
+                        f"\n"
+                        f"raw_reward={raw_reward}\n"
+                        f"terminated={bool(term)}\n"
+                        f"truncated={bool(trunc)}\n"
+                        f"\n"
+                        f"score_left={score_l}\n"
+                        f"score_right={score_r}\n"
+                        f"\n"
+                        f"checkpoint_reward={cp_reward}\n"
+                        f"distance_to_goal={dist_goal}\n"
+                        f"event_code={event_code}\n"
+                        f"ball_owner_agent_idx={ball_owner_agent_idx}\n"
+                        f"\n"
+                        f"defender_reward={defender_reward}\n"
+                        f"parsed_observation_offset={header_size}\n"
+                        f"reward_offset=0\n"
+                        f"{'ATTACKER_REWARD_FROM_OFFSET_0' if is_rondo else 'STANDARD_REWARD_FROM_OFFSET_0'}\n"
+                        f"{'DEFENDER_REWARD_FROM_OFFSET_18' if is_rondo else 'NON_RONDO_NO_DEFENDER_FIELD'}\n"
+                        f"[END_FORENSIC_BINARY_TERMINAL]",
+                        flush=True,
+                    )
                 if self.debug_rewards and reward_components is None:
                     reward_components = {}
                 return bytes(data), episode_stats, defender_reward, reward_components
@@ -772,6 +831,7 @@ class GMNMultiAgentEnv(ParallelEnv):
             self._needs_bridge = False
 
         self._step_count = 0
+        self._episode_index += 1
         self.reward_components = []
         if self.reward_shaper is not None:
             self.reward_shaper.reset()
@@ -944,7 +1004,22 @@ class GMNMultiAgentEnv(ParallelEnv):
         try:
             self.ws_client.send(bytes(action_bytes))
             data, episode_stats, defender_reward, reward_components = self._recv_step_response(num_agents)
-        except Exception:
+        except Exception as e:
+            # Log bridge errors for forensic debugging
+            if getattr(self, "_forensic_debug", False):
+                import sys as _sys
+                print(
+                    f"[FORENSIC_BRIDGE_ERROR]\n"
+                    f"scenario={self.scenario}\n"
+                    f"episode={getattr(self, '_episode_index', -1)}\n"
+                    f"global_step={self._step_count}\n"
+                    f"error_type={type(e).__name__}\n"
+                    f"error_message={str(e)}\n"
+                    f"bridge_error_count={getattr(self, '_bridge_error_count', 0)}\n"
+                    f"[END_FORENSIC_BRIDGE_ERROR]",
+                    flush=True,
+                    file=_sys.stderr,
+                )
             self._connect_ws()
             self.ws_client.send(bytes(action_bytes))
             data, episode_stats, defender_reward, reward_components = self._recv_step_response(num_agents)
@@ -969,6 +1044,17 @@ class GMNMultiAgentEnv(ParallelEnv):
         reward, term, trunc, score_l, score_r, cp_reward, dist_goal, event_code, ball_owner_agent_idx = struct.unpack_from(
             "<f??BBffBB", data, 0
         )
+
+        # Bridge error-frame sentinel (P0 #5): surface loudly instead of silently
+        # accumulating a -999 penalty into episode reward.
+        if float(reward) <= -998.0 and bool(term):
+            self._bridge_error_count += 1
+            raise RuntimeError(
+                "[GMN-PettingZoo Bridge Error] Bridge returned an error frame "
+                "(reward <= -998.0, terminated=true). This indicates an internal "
+                "bridge error (e.g., invalid action, engine exception, or WebSocket "
+                "failure). Check the bridge server logs for the root cause."
+            )
 
         # For rondo scenarios, the bridge sends a split reward: attacker reward in the
         # standard reward field, and a separate defenderReward at offset 18
@@ -1147,6 +1233,42 @@ class GMNMultiAgentEnv(ParallelEnv):
                         rewards[agent] = shaped_rewards[agent]
             except Exception as e:
                 logger.debug(f"Reward shaping skipped due to error: {e}")
+
+        # Phase 2: FORENSIC_ENV_TERMINAL capture
+        if getattr(self, "_forensic_debug", False) and (shared_term or shared_trunc):
+            shaping_applied = (
+                self.enable_reward_shaping
+                and self.reward_shaper is not None
+                and not shared_term
+                and not shared_trunc
+            )
+            print(
+                f"[FORENSIC_ENV_TERMINAL]\n"
+                f"scenario={self.scenario}\n"
+                f"episode={self._episode_index}\n"
+                f"global_step={self._step_count}\n"
+                f"\n"
+                f"parser_reward={float(reward)}\n"
+                f"env_reward={shared_reward}\n"
+                f"\n"
+                f"terminated_any={shared_term}\n"
+                f"truncated_any={shared_trunc}\n"
+                f"\n"
+                f"agents={list(self.agents)}\n"
+                f"agent_rewards={rewards}\n"
+                f"\n"
+                f"shared_reward={shared_reward}\n"
+                f"\n"
+                f"reward_shaper_enabled={self.enable_reward_shaping}\n"
+                f"reward_shaper_skipped={not shaping_applied}\n"
+                f"\n"
+                f"score_left={score_l}\n"
+                f"score_right={score_r}\n"
+                f"event_code={event_code}\n"
+                f"ball_owner_agent_idx={ball_owner_agent_idx}\n"
+                f"[END_FORENSIC_ENV_TERMINAL]",
+                flush=True,
+            )
 
         if shared_term or shared_trunc:
             self.agents = []
