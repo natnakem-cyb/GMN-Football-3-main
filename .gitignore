@@ -57,3 +57,15 @@ training/models/smoke_*.zip
 training/models/smoke_*_vecnormalize.pkl
 training/models/*smoke_*.pt
 training/models/*smoke_*.zip
+
+# Phase 10/12 local evaluation artifacts (kept for research, not committed)
+training/models/mappo_academy_3_vs_1_with_keeper_seed*_retrain.pt
+training/models/mappo_academy_3_vs_1_with_keeper_seed*_best.pt
+training/models/mappo_academy_3_vs_1_with_keeper_seed*_rolling_best.pt
+training/models/mappo_academy_3_vs_1_with_keeper_seed*_100352.pt
+training/models/mappo_academy_3_vs_1_with_keeper_seed*_150528.pt
+training/models/mappo_academy_3_vs_1_with_keeper_seed*_50176.pt
+training/models/comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed*_retrain.json
+training/replays/
+training/results/trend_mappo_academy_3_vs_1_with_keeper_seed*.csv
+training/phase12_metrics.py
