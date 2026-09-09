@@ -186,3 +186,25 @@ Unambiguous direct-shoot exploit: 1 diagonal movement tick, then 5 consecutive S
 
 ### Artifacts retained
 All 9 checkpoints + eval JSONs + replay preserved in `training/models/` and `training/replays/` for independent re-evaluation. NOT committed to git (large binary artifacts).
+
+## Follow-up — Event-Code Transmission Bug (root cause of the archived "0% pass accuracy" findings)
+
+**Problem:** `GameEngine.step()` set `info.event` to the human-readable event DESCRIPTION (e.g. "GOAL! Team Left scored! (1 - 0)"), and all three bridge binary encoders (`encodeStepBinary` / `encodeMultiStepBinary` / `encodeBatchedStepBinary`) mapped it into the `EVENT_CODE_MAP` byte with an exact `indexOf` lookup. Descriptions never equal the canonical type token, so `event_code` was ALWAYS 0 on every tick where a goal / shot / pass / pass_completed legitimately occurred. The PettingZoo/Gym wrappers rebuild `info["event"]` from `event_code`, so RL shaping and per-tick evaluation never saw any events.
+
+**Scope:** goal + pass + shot + ALL event types (not goal-only). Engine-stat ground truth via `EPISODE_STATS` was transmitted correctly and is unaffected; per-tick event-derived metrics in the Phase 10-era evals were dead.
+
+**Fix:**
+- [x] `src/engine/GameEngine.ts`: `stepRL()` exposes canonical `lastEvent.type` as `info.event` (description preserved as new `info.eventDescription`); per-step events tracked in `currentStepEvents` so replay frames and the RL step see identical events — commit `2df7b9d`
+- [x] `src/types/football.ts`: added `info.eventDescription?: string` to `RLStepResult`
+- [x] `training/bridge_server.ts`: `getEventCode(info.event.type)` in all 3 encoders; `server.listen` guarded behind `isMainModule` so test imports do not bind a port
+- [x] Regression test (engine level): `training/test_event_code_transmission.ts` — 64 checks, every event type × all 3 encoders + engine-driven goal/shot/pass/pass_completed ticks asserting `stats` and `event_code` agree
+- [x] Regression test (wire level): `training/test_event_code_wire.py` boots the REAL bridge and drives scripted policies (chase → pass / chase → shoot / carry-to-goal), asserting the transmitted `event_code` stream exactly equals engine ground truth: `pass` codes == `attempted_passes_left`, `pass_completed` codes == `completed_passes_left`, `shot` codes == `total_shots_left`, `goal` codes == final `score.left` — commit `0c17fe8`
+- [x] Re-sync stale Python contract constants (`EVENT_CODE_MAP` gained `pass_completed` (14) / `pass_intercepted` (15)) in `gmn_gym.py` / `checkpoint_contract.py` (`gmn_pettingzoo.py` already current)
+- [x] Test console output hardened to UTF-8 (`sys.stdout.reconfigure`) — the `PASS episode ΓÇö` seen in captures was CP437 mis-decoding of valid UTF-8 bytes at display time, not file corruption — commit `30f5b81`
+
+**Non-obvious findings (documented in the wire test):**
+- The PettingZoo wrapper synthesizes all-ones action masks at reset (masks unknown before the first physics step); policies must not trust them at step 0.
+- Possession pickup is proximity-based (`BALL_CONTROL_DIST = 0.038`) while players cover ~0.12/tick, so chasers must re-aim EVERY tick to land inside the pickup radius; naive "run right" policies register zero passes/shots against a static ball.
+
+**Pending:**
+- [ ] Decide whether the Phase 10 comprehensive eval JSONs need a genuine re-run with corrected event instrumentation (engine-stat ground truth was already correct; per-tick event-derived metrics undercounted).
