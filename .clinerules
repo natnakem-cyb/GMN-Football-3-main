@@ -1,2 +1,7 @@
 - All file modifications must preserve UTF-8 encoding.
 - Never replace non-ASCII characters with garbled text or placeholder symbols.
+
+# Strict Encoding Rules
+NEVER write, edit, or modify any file using system default encodings like CP437 or Windows-1252.
+ALWAYS explicitly read and save files using strictly UTF-8 encoding.
+If modifying text containing corrupt characters like 'ΓÇö', you MUST immediately clean them up and replace them with a proper em dash '—'.
