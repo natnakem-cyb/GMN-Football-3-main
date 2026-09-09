@@ -27,6 +27,8 @@
     "test:e2e": "python3 training/test_e2e_determinism.py",
     "test:env": "python3 training/test_env.py",
     "test:ppo": "python3 training/train_ppo.py 1000",
+    "test:binary-frame-parser": "python3 training/tests/test_binary_frame_parser.py",
+    "test:pytest": "python3 -m pytest training/tests/ -x -q",
     "test:audit": "tsx training/audit_observations_and_actions.ts",
     "test:scripted": "tsx training/scripted_eval.ts",
     "test:playability": "tsx training/verify_scenario_playability.ts",

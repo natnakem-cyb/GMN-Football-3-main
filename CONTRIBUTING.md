@@ -63,6 +63,8 @@ Before opening a PR, run:
 
 - ``npm test`` - scenario validation + determinism suites (must be 100% deterministic).
 - ``npm run lint`` - strict TypeScript + contract sync check.
+- ``npm run test:pytest`` - full Python pytest suite (must pass).
+- ``python3 training/tests/test_binary_frame_parser.py`` - targeted binary frame parser regression tests.
 - Python tests relevant to your change, e.g. ``pytest training/tests`` or targeted scripts such as ``npm run test:gym-safety``, ``npm run test:pettingzoo``, ``npm run test:parity``.
 
 Changes to the bridge protocol, reward computation, or environment wrappers must keep the existing transport-parity, reward-equivalence, and determinism tests passing.
