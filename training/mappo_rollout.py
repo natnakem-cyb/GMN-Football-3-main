@@ -152,9 +152,20 @@ def collect_rollout(
                 getattr(env, "scenario", "academy_empty_goal"),
                 terminal_info,
             )
+            # Sanity-bound check: flag implausible episode rewards immediately.
+            # For academy_3_vs_1_with_keeper (1800 ticks), per-tick reward is bounded
+            # roughly [-1.0, +2.17], so cumulative episode reward should fall in
+            # [-1800, +3600]. Values outside this range indicate a reward-accumulation
+            # bug (e.g., double-counting, missing reset).
+            _episode_reward = float(env._mappo_ep_rew)
+            if not (-1800.0 <= _episode_reward <= 3600.0):
+                print(
+                    f"[WARN] Episode reward {_episode_reward:.2f} outside expected range "
+                    f"[-1800, 3600] — possible reward-accumulation bug"
+                )
 
             completed_episodes.append({
-                "reward": float(env._mappo_ep_rew),
+                "reward": _episode_reward,
                 "length": int(env._mappo_ep_len),
                 "goal": goal_scored,
                 "success": success,

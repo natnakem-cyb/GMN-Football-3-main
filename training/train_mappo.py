@@ -351,6 +351,24 @@ def run_mappo_training(
             recent_ep = episode_rewards[-50:] if episode_rewards else [0.0]
             recent_goals = episode_goals[-50:] if episode_goals else [0]
             mean_rew = float(np.mean(recent_ep))
+
+            # Sanity bound: per-tick reward is bounded [-1.0, +2.17], and the
+            # longest scenario is 1800 ticks, so any single episode reward
+            # outside [-2000, +4000] indicates a bug in reward accumulation
+            # (e.g., ep_rew not resetting, or logging math corruption). Flag
+            # it loudly and dump the offending values for post-mortem.
+            _EP_REWARD_LO, _EP_REWARD_HI = -2000.0, 4000.0
+            for _i, _r in enumerate(recent_ep):
+                if not (_EP_REWARD_LO <= _r <= _EP_REWARD_HI):
+                    import sys as _sys
+                    print(
+                        f"   [WARN] episode reward #{_i} = {_r:.2f} outside plausible "
+                        f"range [{_EP_REWARD_LO}, {_EP_REWARD_HI}] — reward accumulation "
+                        f"bug suspected. recent_ep={recent_ep}",
+                        flush=True,
+                        file=_sys.stderr,
+                    )
+                    break
             goal_pct = float(np.mean(recent_goals)) * 100.0
 
             # For rondo, report possession retention rate instead of goal rate.
