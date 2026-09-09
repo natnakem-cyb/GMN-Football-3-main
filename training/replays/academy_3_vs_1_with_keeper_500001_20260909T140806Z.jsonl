@@ -1,0 +1,1 @@
+{"type": "metadata", "scenario": "academy_3_vs_1_with_keeper", "seed": 500001, "agent_ids": ["left_1", "left_2", "left_3"], "checkpoint": "mappo_academy_3_vs_1_with_keeper_seed42_best.pt", "recorded_at": "20260909T140806Z"}

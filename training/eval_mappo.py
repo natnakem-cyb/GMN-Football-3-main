@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.mappo_networks import SharedActor
+from training.mappo_rollout import unwrap_obs
 from training.episode_recorder import EpisodeRecorder
 
 
@@ -92,6 +93,7 @@ def evaluate_mappo(
     for ep in range(1, num_episodes + 1):
         ep_seed = base_seed + ep
         obs_dict, _ = env.reset(seed=ep_seed)
+        obs_dict = unwrap_obs(obs_dict)
         ep_reward = 0.0
         ep_length = 0
         goal_scored = 0
@@ -120,6 +122,7 @@ def evaluate_mappo(
 
             action_dict = {a: int(actions[i].item()) for i, a in enumerate(current_agents)}
             obs_dict, rewards, terminations, truncations, infos = env.step(action_dict)
+            obs_dict = unwrap_obs(obs_dict)
 
             shared_rew = float(rewards[current_agents[0]]) if current_agents and current_agents[0] in rewards else 0.0
             ep_reward += shared_rew
