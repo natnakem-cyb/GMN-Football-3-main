@@ -911,6 +911,7 @@ class GMNMultiAgentEnv(ParallelEnv):
             "checkpointReward": float(cp_reward),
             "ballDistanceToGoal": float(dist_goal),
             "eventCode": int(event_code),
+            "frame_length": len(data),
             "step": self._step_count,
         }
         if 0 < event_code < len(EVENT_CODE_MAP):

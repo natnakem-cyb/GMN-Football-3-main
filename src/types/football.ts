@@ -246,6 +246,7 @@ export interface RLStepResult {
   info: {
     score: MatchScore;
     event?: string;
+    eventDescription?: string;
     checkpointReward: number;
     ballDistanceToGoal: number;
     executedBallActionPlayerIds?: string[];
