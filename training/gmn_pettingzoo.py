@@ -345,41 +345,43 @@ class GMNMultiAgentEnv(ParallelEnv):
         if hasattr(self, "_batch_envs"):
             self._batch_envs = []
 
+    def _decode_reset_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Decode one reset response payload into a per-env rollout state dict."""
+        info_data = result.get("info", {})
+        controllable_ids = info_data.get("controllableAgentIds", [])
+        if not controllable_ids:
+            controlled_id = info_data.get("controlledPlayerId", "left_1")
+            controllable_ids = [controlled_id]
+        raw_obs_list = result.get("observations", [])
+        if not raw_obs_list and "observation" in result:
+            raw_obs_list = [result["observation"]]
+        observations: Dict[str, np.ndarray] = {}
+        for idx, agent in enumerate(controllable_ids):
+            if idx < len(raw_obs_list):
+                obs = np.array(raw_obs_list[idx], dtype=np.float32)
+            else:
+                obs = np.zeros(OBSERVATION_DIM, dtype=np.float32)
+            observations[agent] = obs
+        action_masks = {agent: np.ones(19, dtype=np.int8) for agent in controllable_ids}
+        batched_obs = {
+            agent: {"observation": observations[agent], "action_mask": action_masks[agent]}
+            for agent in controllable_ids
+        }
+        return {
+            "obs_dict": batched_obs,
+            "action_masks": action_masks,
+            "possible_agents": list(controllable_ids),
+            "agents": list(controllable_ids),
+            "agent_order": list(controllable_ids),
+            "obs_dim": OBSERVATION_DIM,
+            "ep_rew": 0.0,
+            "ep_len": 0,
+            "info": dict(info_data),
+        }
+
     def _init_batch_envs(self, batch_results: List[Dict[str, Any]]) -> None:
         """Initialize per-env rollout state from a batch reset response."""
-        self._batch_envs = []
-        for result in batch_results:
-            info_data = result.get("info", {})
-            controllable_ids = info_data.get("controllableAgentIds", [])
-            if not controllable_ids:
-                controlled_id = info_data.get("controlledPlayerId", "left_1")
-                controllable_ids = [controlled_id]
-            raw_obs_list = result.get("observations", [])
-            if not raw_obs_list and "observation" in result:
-                raw_obs_list = [result["observation"]]
-            observations: Dict[str, np.ndarray] = {}
-            for idx, agent in enumerate(controllable_ids):
-                if idx < len(raw_obs_list):
-                    obs = np.array(raw_obs_list[idx], dtype=np.float32)
-                else:
-                    obs = np.zeros(OBSERVATION_DIM, dtype=np.float32)
-                observations[agent] = obs
-            action_masks = {agent: np.ones(19, dtype=np.int8) for agent in controllable_ids}
-            batched_obs = {
-                agent: {"observation": observations[agent], "action_mask": action_masks[agent]}
-                for agent in controllable_ids
-            }
-            self._batch_envs.append({
-                "obs_dict": batched_obs,
-                "action_masks": action_masks,
-                "possible_agents": list(controllable_ids),
-                "agents": list(controllable_ids),
-                "agent_order": list(controllable_ids),
-                "obs_dim": OBSERVATION_DIM,
-                "ep_rew": 0.0,
-                "ep_len": 0,
-                "info": dict(info_data),
-            })
+        self._batch_envs = [self._decode_reset_result(result) for result in batch_results]
 
     def reset_batch(self, seeds: Optional[List[int]] = None) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
         """Reset all sub-environments in the batch and return per-env (obs, info) tuples."""
@@ -416,6 +418,58 @@ class GMNMultiAgentEnv(ParallelEnv):
             (env_state["obs_dict"], {a: env_state["info"] for a in env_state["agents"]})
             for env_state in self._batch_envs
         ]
+
+    def reset_one(
+        self, env_idx: int, seed: Optional[int] = None
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+        """Reset a single sub-environment in the batch (G6 fix).
+
+        Mirrors collect_rollout_parallel's reset-on-terminal: a terminated
+        sub-env is revived immediately instead of idling until the whole batch
+        is dead. Returns (obs_dict, info) in the same envelope format as
+        reset_batch; self._batch_envs[env_idx] is replaced with fresh state.
+        """
+        if not (0 <= env_idx < self.batch_size):
+            raise IndexError(
+                f"[GMN-Batch] reset_one index {env_idx} out of range (batch_size={self.batch_size})"
+            )
+        payload = json.dumps({
+            "type": "reset_one",
+            "index": int(env_idx),
+            "scenario": self.scenario,
+            "seed": int(seed) if seed is not None else 42 + env_idx,
+        })
+        if self.ws_client is None:
+            self._connect_ws()
+        try:
+            self.ws_client.send(payload)
+            data = self._recv_reset_one_response()
+        except Exception:
+            self._connect_ws()
+            self.ws_client.send(payload)
+            data = self._recv_reset_one_response()
+        parsed = json.loads(data) if isinstance(data, str) else {}
+        if not isinstance(parsed, dict) or parsed.get("type") != "reset_one_result":
+            raise RuntimeError(f"[GMN-Batch] Expected reset_one_result, got: {list(parsed.keys()) if isinstance(parsed, dict) else type(parsed)}")
+        result = parsed.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError(f"[GMN-Batch] reset_one({env_idx}) missing result payload")
+        state = self._decode_reset_result(result)
+        self._batch_envs[env_idx] = state
+        return (state["obs_dict"], {a: state["info"] for a in state["agents"]})
+
+    def _recv_reset_one_response(self) -> str:
+        """Receive a reset_one JSON response, skipping unsolicited broadcast frames."""
+        for _ in range(60):
+            data = self._recv_frame("reset_one")
+            if isinstance(data, str):
+                try:
+                    parsed = json.loads(data)
+                    if isinstance(parsed, dict) and parsed.get("type") == "reset_one_result":
+                        return data
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+        raise RuntimeError("[GMN-Batch] No reset_one_result received (only broadcast frames)")
 
     def step_batch(
         self, action_sets: List[Dict[str, int]]

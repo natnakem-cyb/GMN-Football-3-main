@@ -11,11 +11,11 @@ import os
 import numpy as np
 import torch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from gmn_pettingzoo import OBSERVATION_DIM
-from mappo_rollout import compute_gae
-from mappo_networks import CentralizedCritic
+from training.gmn_pettingzoo import OBSERVATION_DIM
+from training.mappo_rollout import compute_gae
+from training.mappo_networks import CentralizedCritic
 
 
 def compute_expected_gae(rewards, values, dones, gamma, lam, bootstrap_value):

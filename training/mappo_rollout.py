@@ -10,8 +10,31 @@ from typing import Dict, List, Tuple, Any
 import numpy as np
 import torch
 
-from mappo_networks import SharedActor, CentralizedCritic
+from training.mappo_networks import SharedActor, CentralizedCritic
 from training.curriculum_scheduler import is_scenario_success
+
+
+def unwrap_obs(obs_dict: Dict[str, Any]) -> Dict[str, np.ndarray]:
+    """Extract raw observation arrays from the PettingZoo envelope format.
+
+    The wrapper returns ``{agent_id: {"observation": np.ndarray,
+    "action_mask": np.ndarray}}`` per agent. Rollout collectors need the bare
+    arrays for ``np.stack`` / ``torch.tensor``. This helper accepts both the
+    envelope format and already-unwrapped raw arrays (idempotent), so
+    collectors stay robust across wrapper versions.
+
+    G2 fix: previously each collector unwrapped inline at *some* sites but not
+    at reset/bootstrap sites, so an episode ending mid-rollout stored envelope
+    dicts into ``_mappo_obs`` and the next iteration crashed on
+    ``dict.shape`` / ``np.stack(dicts)``.
+    """
+    unwrapped: Dict[str, Any] = {}
+    for agent_id, obs_val in obs_dict.items():
+        if isinstance(obs_val, dict) and "observation" in obs_val:
+            unwrapped[agent_id] = obs_val["observation"]
+        else:
+            unwrapped[agent_id] = obs_val
+    return unwrapped
 
 
 def collect_rollout(
@@ -53,14 +76,12 @@ def collect_rollout(
     # Retrieve or initialize persistent rollout state on env
     if not hasattr(env, "_mappo_obs") or env._mappo_obs is None:
         obs_dict, _ = env.reset()
-        # Handle new dict format with "observation" key
-        if isinstance(list(obs_dict.values())[0], dict) and "observation" in list(obs_dict.values())[0]:
-            obs_dict = {k: v["observation"] for k, v in obs_dict.items()}
+        obs_dict = unwrap_obs(obs_dict)
         env._mappo_obs = obs_dict
         env._mappo_ep_rew = 0.0
         env._mappo_ep_len = 0
     else:
-        obs_dict = env._mappo_obs
+        obs_dict = unwrap_obs(env._mappo_obs)
 
     agent_order = list(env.agents if env.agents else env.possible_agents)
     num_agents = len(agent_order)
@@ -69,14 +90,7 @@ def collect_rollout(
 
     for _ in range(num_steps):
         current_agents = list(env.agents if env.agents else env.possible_agents)
-        # obs_dict now returns {"observation": ..., "action_mask": ...} dicts
-        local_obs_list = []
-        for a in current_agents:
-            obs_val = obs_dict[a]
-            if isinstance(obs_val, dict) and "observation" in obs_val:
-                local_obs_list.append(obs_val["observation"])
-            else:
-                local_obs_list.append(obs_val)
+        local_obs_list = [obs_dict[a] for a in current_agents]
         local_obs = np.stack(local_obs_list, axis=0).astype(np.float32)
         global_state = local_obs.flatten().astype(np.float32)  # concat in agent_order
 
@@ -98,6 +112,10 @@ def collect_rollout(
 
         action_dict = {a: int(actions[i].item()) for i, a in enumerate(current_agents)}
         obs_dict, rewards, terminations, truncations, infos = env.step(action_dict)
+        # G2 fix: step returns the envelope format ({agent: {"observation": ...,
+        # "action_mask": ...}}); unwrap immediately so the next loop iteration's
+        # np.stack sees raw arrays instead of dicts.
+        obs_dict = unwrap_obs(obs_dict)
 
         terminated = any(terminations.values())
         truncated = any(truncations.values())
@@ -144,6 +162,7 @@ def collect_rollout(
             env._mappo_ep_rew = 0.0
             env._mappo_ep_len = 0
             obs_dict, _ = env.reset()
+            obs_dict = unwrap_obs(obs_dict)
 
     env._mappo_obs = obs_dict
 
@@ -159,7 +178,7 @@ def collect_rollout(
         "dones": np.array(buffer["dones"], dtype=np.bool_),
         "terminated": np.array(buffer["terminated"], dtype=np.bool_),
         "truncated": np.array(buffer["truncated"], dtype=np.bool_),
-        "next_local_obs": np.stack([obs_dict[a] for a in agent_order], axis=0).astype(np.float32),
+        "next_local_obs": np.stack([unwrap_obs(obs_dict)[a] for a in agent_order], axis=0).astype(np.float32),
         "agent_order": agent_order,
         "completed_episodes": completed_episodes,
     }
@@ -236,13 +255,13 @@ def collect_rollout_parallel(
     for env in envs:
         if getattr(env, "_mappo_obs", None) is None:
             obs_dict, _ = env.reset()
-            env._mappo_obs = obs_dict
+            env._mappo_obs = unwrap_obs(obs_dict)
             env._mappo_ep_rew = 0.0
             env._mappo_ep_len = 0
 
     # Warm-up on env 0 only to derive shapes consistently
     ref_env = envs[0]
-    obs_dict = ref_env._mappo_obs
+    obs_dict = unwrap_obs(ref_env._mappo_obs)
     agent_order = list(ref_env.agents if ref_env.agents else ref_env.possible_agents)
     num_agents = len(agent_order)
     first_obs = obs_dict[agent_order[0]]
@@ -250,7 +269,7 @@ def collect_rollout_parallel(
 
     for _ in range(num_steps):
         for env in envs:
-            o_dict = env._mappo_obs
+            o_dict = unwrap_obs(env._mappo_obs)
             current_agents = list(env.agents if env.agents else env.possible_agents)
             if len(current_agents) != num_agents:
                 # Defensive: scenario agent count is fixed per env.
@@ -306,11 +325,11 @@ def collect_rollout_parallel(
                 )
                 env._mappo_obs = None
                 obs_reset, _ = env.reset()
-                env._mappo_obs = obs_reset
+                env._mappo_obs = unwrap_obs(obs_reset)
                 env._mappo_ep_rew = 0.0
                 env._mappo_ep_len = 0
             else:
-                env._mappo_obs = obs_next
+                env._mappo_obs = unwrap_obs(obs_next)
 
     # Concatenate into the same layout produced by collect_rollout:
     # local_obs (T, num_agents, obs_dim), global_state (T, num_agents*obs_dim),
@@ -327,7 +346,7 @@ def collect_rollout_parallel(
     res_buffer["truncated"] = np.array(buffers["truncated"], dtype=bool)
 
     # next_local_obs: latest post-step observation (bootstrap), shape (num_agents, obs_dim)
-    last_o = envs[-1]._mappo_obs
+    last_o = unwrap_obs(envs[-1]._mappo_obs)
     last_agents = list(envs[-1].agents if envs[-1].agents else envs[-1].possible_agents)
     res_buffer["next_local_obs"] = np.stack(
         [last_o[a] for a in last_agents], axis=0
@@ -438,6 +457,7 @@ def collect_rollout_batched(
         "logprobs": [],
         "values": [],
         "rewards": [],
+        "per_agent_rewards": [],
         "dones": [],
         "terminated": [],
         "truncated": [],
@@ -453,12 +473,14 @@ def collect_rollout_batched(
     # Per-env rollout state, indexed by env_idx.
     env_states: List[Dict[str, Any]] = []
     ref_obs_dict, _ = batch_init[0]
+    ref_obs_dict = unwrap_obs(ref_obs_dict)
     agent_order = list(ref_obs_dict.keys())
     num_agents = len(agent_order)
     obs_dim = ref_obs_dict[agent_order[0]].shape[0]
 
     for env_idx in range(batch_size):
         obs_dict, info = batch_init[env_idx]
+        obs_dict = unwrap_obs(obs_dict)
         env_states.append({
             "obs_dict": obs_dict,
             "agents": list(obs_dict.keys()),
@@ -471,11 +493,21 @@ def collect_rollout_batched(
 
     for _ in range(num_steps):
         # Build per-env action dicts from a single shared policy forward.
+        # Every sub-env acts every tick: with the immediate per-env reset in
+        # the terminal branch below, no env should ever be dead. If one
+        # somehow is, revive it now rather than idling it through the step.
         action_sets: List[Dict[str, int]] = []
         local_obs_stack = []
         for env_idx in range(batch_size):
             state = env_states[env_idx]
             current_agents = state["agents"]
+            if not current_agents:
+                # Defensive: should be unreachable with reset-on-terminal.
+                fresh_obs, fresh_info = env.reset_one(env_idx, seed=1000 + env_idx)
+                state["obs_dict"] = unwrap_obs(fresh_obs)
+                state["agents"] = list(state["obs_dict"].keys())
+                state["info"] = fresh_info
+                current_agents = state["agents"]
             local_obs = np.stack([state["obs_dict"][a] for a in current_agents], axis=0).astype(np.float32)
             local_obs_stack.append(local_obs)
             with torch.no_grad():
@@ -485,6 +517,7 @@ def collect_rollout_batched(
                 value_t = critic(torch.tensor(local_obs.flatten(), dtype=torch.float32).unsqueeze(0))
             action_dict = {a: int(actions_t[i].item()) for i, a in enumerate(current_agents)}
             action_sets.append(action_dict)
+            state["_last_actions"] = actions_t.cpu().numpy().astype(np.int64)
             state["_last_logprobs"] = logprobs_t.cpu().numpy()
             state["_last_value"] = float(value_t.item())
 
@@ -493,6 +526,8 @@ def collect_rollout_batched(
 
         for env_idx in range(batch_size):
             state = env_states[env_idx]
+            # Every sub-env is live (reset-on-terminal below), so every env
+            # contributes exactly one transition per tick.
             observations, reward, terminated, truncated, info = batch_results[env_idx]
             current_agents = state["agents"]
             if isinstance(reward, dict):
@@ -502,8 +537,16 @@ def collect_rollout_batched(
             else:
                 per_agent_rewards = np.full(len(current_agents), float(reward), dtype=np.float32)
                 shared_reward = float(reward)
-            shared_term = bool(terminated)
-            shared_trunc = bool(truncated)
+            shared_term = (
+                any(bool(v) for v in terminated.values())
+                if isinstance(terminated, dict)
+                else bool(terminated)
+            )
+            shared_trunc = (
+                any(bool(v) for v in truncated.values())
+                if isinstance(truncated, dict)
+                else bool(truncated)
+            )
             local_obs = np.stack([state["obs_dict"][a] for a in current_agents], axis=0).astype(np.float32)
             global_state = local_obs.flatten().astype(np.float32)
 
@@ -518,7 +561,7 @@ def collect_rollout_batched(
             buffers["terminated"].append(shared_term)
             buffers["truncated"].append(shared_trunc)
 
-            state["obs_dict"] = observations
+            state["obs_dict"] = unwrap_obs(observations)
             state["ep_rew"] += shared_reward
             state["ep_len"] += 1
             total_steps += 1
@@ -537,15 +580,17 @@ def collect_rollout_batched(
                 })
                 state["ep_rew"] = 0.0
                 state["ep_len"] = 0
-                state["agents"] = []
+                # G6 fix: immediate per-env reset via the reset_one wire
+                # message, mirroring collect_rollout_parallel's reset-on-
+                # terminal. The sub-env re-enters the rollout on the next tick
+                # instead of idling on dead state until the whole batch dies.
+                fresh_obs, fresh_info = env.reset_one(env_idx, seed=1000 + env_idx)
+                state["obs_dict"] = unwrap_obs(fresh_obs)
+                state["agents"] = list(state["obs_dict"].keys())
+                state["info"] = fresh_info
 
-    # Reconcile agent order from the last known-good state.
-    ref_env_state = env_states[0]
-    if not ref_env_state["agents"] and batch_init:
-        ref_obs_dict, _ = batch_init[0]
-        agent_order = list(ref_obs_dict.keys())
-    else:
-        agent_order = ref_env_state["agent_order"]
+    # Agent order from the (always-live) reference env state.
+    agent_order = env_states[0]["agent_order"]
 
     res_buffer: Dict[str, Any] = {}
     res_buffer["local_obs"] = np.stack(buffers["local_obs"], axis=0).astype(np.float32)
@@ -562,26 +607,29 @@ def collect_rollout_batched(
     res_buffer["completed_episodes"] = completed_episodes
     res_buffer["total_steps"] = total_steps
 
-    # Shape assertions mirroring collect_rollout_parallel.
-    assert res_buffer["local_obs"].shape == (num_steps, batch_size * num_agents, obs_dim), (
+    # Shape assertions: flat layout identical to collect_rollout_parallel —
+    # every sub-env contributes exactly one transition per tick, so
+    # T = num_steps * batch_size rows of (num_agents, ...).
+    T = num_steps * batch_size
+    assert res_buffer["local_obs"].shape == (T, num_agents, obs_dim), (
         f"local_obs shape mismatch: got {res_buffer['local_obs'].shape}"
     )
-    assert res_buffer["global_state"].shape == (num_steps, obs_dim * num_agents), (
+    assert res_buffer["global_state"].shape == (T, obs_dim * num_agents), (
         f"global_state shape mismatch: got {res_buffer['global_state'].shape}"
     )
-    assert res_buffer["actions"].shape == (num_steps, num_agents), (
+    assert res_buffer["actions"].shape == (T, num_agents), (
         f"actions shape mismatch: got {res_buffer['actions'].shape}"
     )
-    assert res_buffer["logprobs"].shape == (num_steps, num_agents), (
+    assert res_buffer["logprobs"].shape == (T, num_agents), (
         f"logprobs shape mismatch: got {res_buffer['logprobs'].shape}"
     )
-    assert res_buffer["values"].shape == (num_steps,), (
+    assert res_buffer["values"].shape == (T,), (
         f"values shape mismatch: got {res_buffer['values'].shape}"
     )
-    assert res_buffer["rewards"].shape == (num_steps,), (
+    assert res_buffer["rewards"].shape == (T,), (
         f"rewards shape mismatch: got {res_buffer['rewards'].shape}"
     )
-    assert res_buffer["dones"].shape == (num_steps,), (
+    assert res_buffer["dones"].shape == (T,), (
         f"dones shape mismatch: got {res_buffer['dones'].shape}"
     )
     assert res_buffer["next_local_obs"].shape == (num_agents, obs_dim), (

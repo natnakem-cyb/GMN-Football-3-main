@@ -221,39 +221,60 @@ export class GMNBridgeService {
     );
   }
 
+  private buildEnvResetResult(scenarioName: string, seed: number | undefined, engine: GameEngine) {
+    const sc = this.scenarioMap.get(scenarioName) || this.scenarioMap.get('academy_empty_goal')!;
+    engine.loadScenario(sc, seed);
+    const isRondo = engine.activeScenario?.id === 'academy_rondo_4v1';
+    const controllableIds = isRondo
+      ? engine.players.map((p) => p.id)
+      : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
+    const perAgentObservations = controllableIds.map((id) =>
+      ObservationEncoder.encode(
+        engine.players,
+        engine.ball,
+        id,
+        engine.score,
+        engine.tickCount,
+        engine.activeScenario ? engine.activeScenario.timeLimitSeconds * 60 : 3600,
+        engine.gameMode
+      ).rawVector
+    );
+    return {
+      observation: engine.getObservation().rawVector,
+      observations: perAgentObservations,
+      info: {
+        score: { ...engine.score },
+        controllableAgentIds: controllableIds,
+        // Per-env id (was this.engine.controlledPlayerId, which reported
+        // env-0's id for every pool engine).
+        controlledPlayerId: engine.controlledPlayerId,
+      },
+    };
+  }
+
   public resetBatch(requests: Array<{ scenario: string; seed?: number }>) {
     this.ensurePool(requests.length);
     const results: any[] = [];
     for (let i = 0; i < requests.length; i++) {
       const req = requests[i];
       const engine = i === 0 ? this.engine : this.pool[i - 1];
-      engine.loadScenario(this.scenarioMap.get(req.scenario) || this.scenarioMap.get('academy_empty_goal')!, req.seed);
-      const isRondo = engine.activeScenario?.id === 'academy_rondo_4v1';
-      const controllableIds = isRondo
-        ? engine.players.map((p) => p.id)
-        : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
-      const perAgentObservations = controllableIds.map((id) =>
-        ObservationEncoder.encode(
-          engine.players,
-          engine.ball,
-          id,
-          engine.score,
-          engine.tickCount,
-          engine.activeScenario ? engine.activeScenario.timeLimitSeconds * 60 : 3600,
-          engine.gameMode
-        ).rawVector
-      );
-      results.push({
-        observation: engine.getObservation().rawVector,
-        observations: perAgentObservations,
-        info: {
-          score: { ...engine.score },
-          controllableAgentIds: controllableIds,
-          controlledPlayerId: this.engine.controlledPlayerId,
-        },
-      });
+      results.push(this.buildEnvResetResult(req.scenario, req.seed, engine));
     }
     return results;
+  }
+
+  // G6 fix: per-env reset for the batched vectorized path. Lets the rollout
+  // collector revive a single terminated sub-env immediately (mirroring
+  // collect_rollout_parallel's reset-on-terminal) instead of idling it until
+  // every env in the batch has terminated.
+  public resetOne(envIdx: number, scenarioName?: string, seed?: number) {
+    const idx = Math.floor(Number(envIdx));
+    if (!Number.isInteger(idx) || idx < 0) {
+      throw new Error(`[GMN Batch] resetOne: invalid env index ${envIdx}`);
+    }
+    this.ensurePool(idx + 1);
+    const engine = idx === 0 ? this.engine : this.pool[idx - 1];
+    return this.buildEnvResetResult(scenarioName || this.currentScenarioName, seed, engine);
   }
 
   private computeActionMasks(engine: GameEngine, controllableIds: string[]): number[][] {
@@ -1260,6 +1281,10 @@ wss.on('connection', (ws: WebSocket, req) => {
         } else if (parsed.type === 'reset_batch') {
           const batchResult = bridge.resetBatch(parsed.environments);
           ws.send(JSON.stringify({ type: 'reset_batch_result', results: batchResult }));
+        } else if (parsed.type === 'reset_one') {
+          // G6 fix: per-env reset for the batched rollout collector.
+          const resetOneResult = bridge.resetOne(parsed.index, parsed.scenario, parsed.seed);
+          ws.send(JSON.stringify({ type: 'reset_one_result', index: parsed.index, result: resetOneResult }));
         } else if (parsed.type === 'close') {
           ws.close();
         } else if (parsed.type === 'info') {

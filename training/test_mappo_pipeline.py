@@ -5,12 +5,16 @@ and observation concatenation invariants against live multi-agent simulation.
 """
 
 import sys
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import numpy as np
 import torch
 
-from gmn_pettingzoo import GMNMultiAgentEnv, OBSERVATION_DIM
-from mappo_networks import SharedActor, CentralizedCritic
-from mappo_rollout import collect_rollout, compute_gae
+from training.gmn_pettingzoo import GMNMultiAgentEnv, OBSERVATION_DIM
+from training.mappo_networks import SharedActor, CentralizedCritic
+from training.mappo_rollout import collect_rollout, compute_gae
 
 
 def run_mappo_pipeline_test():

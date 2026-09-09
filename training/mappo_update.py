@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from mappo_networks import SharedActor, CentralizedCritic
+from training.mappo_networks import SharedActor, CentralizedCritic
 
 
 def ppo_update(
