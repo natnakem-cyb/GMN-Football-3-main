@@ -16,6 +16,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
   private defenderPossessionTime = 0;
   private lastPassCompleted = false;
   private lastPassTeam: TeamSide | null = null;
+  private prevCompletedPassesLeft = 0;
   private prevDefenderDistToBall = 0;
   private currentDefenderDistToBall = 0;
   private consecutivePossessionTime = 0;
@@ -29,6 +30,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
     this.defenderPossessionTime = 0;
     this.lastPassCompleted = false;
     this.lastPassTeam = null;
+    this.prevCompletedPassesLeft = 0;
     this.prevDefenderDistToBall = 0;
     this.consecutivePossessionTime = 0;
     this.lastPossessionTeam = null;
@@ -39,15 +41,14 @@ export class RondoScenarioHandler implements ScenarioHandler {
 
   onStep(engine: GameEngine, dt: number, prevBallX: number): void {
     this.prevBallX = prevBallX;
-    const prevCompletedPasses = engine.stats.completedPasses.left;
-    this.lastPassCompleted = false;
-    this.lastPassTeam = null;
-
-    // Detect pass completion by left team this tick
-    if (engine.stats.completedPasses.left > prevCompletedPasses) {
-      this.lastPassCompleted = true;
-      this.lastPassTeam = 'left';
-    }
+    // Detect pass completion by left team this tick: compare against the
+    // snapshot persisted from the PREVIOUS tick. A function-local snapshot of
+    // the current counter can never be greater than itself, so it must live
+    // as member state (BUG-1 fix: pass bonus was dead code).
+    const completedPassesLeft = engine.stats.completedPasses.left;
+    this.lastPassCompleted = completedPassesLeft > this.prevCompletedPassesLeft;
+    this.lastPassTeam = this.lastPassCompleted ? 'left' : null;
+    this.prevCompletedPassesLeft = completedPassesLeft;
 
     // Defender distance to ball
     const defender = engine.players.find((p) => p.team === 'right');

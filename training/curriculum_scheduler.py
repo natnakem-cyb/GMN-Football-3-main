@@ -39,10 +39,21 @@ def is_scenario_success(scenario_id: str, info: Dict[str, Any]) -> bool:
       academy_3_vs_1_defender_3): success = left team scored (score.left > 0).
     - Stages with a 'win_match' objective (5_vs_5, 11_vs_11):
       success = left team won (score.left > score.right).
+    - Rondo drill (academy_rondo_4v1, scoring:0, no goals possible):
+      success = attackers retained possession (no right-team score) AND the
+      drill ran to its pass objective. Since this wrapper only sees score +
+      event, approximate via: left conceded nothing (score.right == 0) and a
+      scenario_complete event fired. BUG-7 fix: previously fell through to
+      `left > 0`, which is unreachable for rondo and stalled the ladder.
     """
     score = info.get("score", {}) if isinstance(info, dict) else {}
     left = int(score.get("left", 0)) if isinstance(score, dict) else 0
     right = int(score.get("right", 0)) if isinstance(score, dict) else 0
+
+    if scenario_id == "academy_rondo_4v1":
+        event = info.get("event", {}) if isinstance(info, dict) else {}
+        event_type = event.get("type") if isinstance(event, dict) else event
+        return right == 0 and event_type == "scenario_complete"
 
     if scenario_id in ("5_vs_5", "11_vs_11"):
         return left > right
