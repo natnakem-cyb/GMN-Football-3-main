@@ -183,6 +183,7 @@ See the [root README](../README.md) for the architecture overview and the
 | `test_browser_inference_parity.py` | Browser ONNX inference parity. |
 | `test_gym_safety.py` | Gym API safety invariants. |
 | `test_reward_shape_e2e.py` | End-to-end shaped-vs-unshaped reward wire test. |
+| `test_binary_frame_parser.py` | Byte-level regression tests for standard and rondo binary frame parsing. |
 | `smoke_test_1ep.py` | Single-episode smoke test. |
 ## Network & rollout modules
 

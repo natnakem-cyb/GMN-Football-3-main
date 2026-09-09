@@ -6,7 +6,9 @@ Collects trajectory buffers with local observations for shared actors and
 joint observations for the centralized critic.
 """
 
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
+import json
+import os
 import numpy as np
 import torch
 
@@ -42,6 +44,7 @@ def collect_rollout(
     actor: SharedActor,
     critic: CentralizedCritic,
     num_steps: int = 256,
+    terminal_jsonl_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Collects a multi-agent rollout from the PettingZoo environment.
@@ -111,6 +114,10 @@ def collect_rollout(
             value = critic(local_obs_t.unsqueeze(0))
 
         action_dict = {a: int(actions[i].item()) for i, a in enumerate(current_agents)}
+
+        # Step 2/3: capture reward-before-terminal strictly before the final tick
+        reward_before_terminal = float(env._mappo_ep_rew)
+
         obs_dict, rewards, terminations, truncations, infos = env.step(action_dict)
         # G2 fix: step returns the envelope format ({agent: {"observation": ...,
         # "action_mask": ...}}); unwrap immediately so the next loop iteration's
@@ -123,6 +130,21 @@ def collect_rollout(
         # Collect per-agent rewards for asymmetric scenarios (e.g. rondo)
         per_agent_rewards = np.array([rewards[a] for a in current_agents], dtype=np.float32)
         shared_reward = float(per_agent_rewards.mean())
+
+        # Step 3: reward-chain trace on terminal tick
+        terminal_frame_reward = getattr(env, "_last_frame_reward", float("nan"))
+        terminal_shared_reward = getattr(env, "_last_shared_reward", float("nan"))
+        terminal_event_code = getattr(env, "_last_frame_event_code", -1)
+        terminal_score = getattr(env, "_last_frame_score", {"left": -1, "right": -1})
+        if done:
+            print(
+                f"[REWARD-CHAIN] terminal_tick | "
+                f"binary_frame={terminal_frame_reward:.6f} | "
+                f"env_step_shared={terminal_shared_reward:.6f} | "
+                f"collector_shared={shared_reward:.6f} | "
+                f"reward_before_terminal={reward_before_terminal:.6f} | "
+                f"event_code={terminal_event_code} | score={terminal_score}"
+            )
 
         env._mappo_ep_rew += shared_reward
         env._mappo_ep_len += 1
@@ -139,6 +161,24 @@ def collect_rollout(
         buffer["truncated"].append(bool(truncated))
 
         if done:
+            # Step 2: capture comprehensive terminal transition record
+            episode_reward = float(env._mappo_ep_rew)
+            terminal_record = {
+                "terminal_frame_reward": terminal_frame_reward,
+                "terminal_shared_reward": terminal_shared_reward,
+                "reward_before_terminal": reward_before_terminal,
+                "episode_reward": episode_reward,
+                "terminal_event_code": terminal_event_code,
+                "terminal_score": terminal_score,
+                "episode_length": int(env._mappo_ep_len),
+                "scenario": getattr(env, "scenario", "unknown"),
+                "env_idx": 0,
+            }
+            if terminal_jsonl_path:
+                os.makedirs(os.path.dirname(terminal_jsonl_path) or ".", exist_ok=True)
+                with open(terminal_jsonl_path, "a") as f:
+                    f.write(json.dumps(terminal_record) + "\n")
+
             # Check if left team scored a goal in the terminal step
             goal_scored = 0
             terminal_info = {}
@@ -234,6 +274,7 @@ def collect_rollout_parallel(
     actor: SharedActor,
     critic: CentralizedCritic,
     num_steps: int = 256,
+    terminal_jsonl_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Parallel rollout collection across N independent environments.
@@ -320,16 +361,50 @@ def collect_rollout_parallel(
             buffers["terminated"].append(terminated)
             buffers["truncated"].append(truncated)
 
+            # Step 2/3: capture reward-before-terminal before incrementing
+            reward_before_terminal = float(env._mappo_ep_rew)
+            terminal_frame_reward = getattr(env, "_last_frame_reward", float("nan"))
+            terminal_shared_reward = getattr(env, "_last_shared_reward", float("nan"))
+            terminal_event_code = getattr(env, "_last_frame_event_code", -1)
+            terminal_score = getattr(env, "_last_frame_score", {"left": -1, "right": -1})
+
             env._mappo_ep_rew += shared_reward
             env._mappo_ep_len += 1
             total_steps += 1
 
             if terminated or truncated:
+                # Step 3: reward-chain trace on terminal tick
+                print(
+                    f"[REWARD-CHAIN] terminal_tick env={envs.index(env)} | "
+                    f"binary_frame={terminal_frame_reward:.6f} | "
+                    f"env_step_shared={terminal_shared_reward:.6f} | "
+                    f"collector_shared={shared_reward:.6f} | "
+                    f"reward_before_terminal={reward_before_terminal:.6f} | "
+                    f"event_code={terminal_event_code} | score={terminal_score}"
+                )
+
                 info0 = infos[current_agents[0]]
+                episode_reward = float(env._mappo_ep_rew)
+                terminal_record = {
+                    "terminal_frame_reward": terminal_frame_reward,
+                    "terminal_shared_reward": terminal_shared_reward,
+                    "reward_before_terminal": reward_before_terminal,
+                    "episode_reward": episode_reward,
+                    "terminal_event_code": terminal_event_code,
+                    "terminal_score": terminal_score,
+                    "episode_length": int(env._mappo_ep_len),
+                    "scenario": getattr(env, "scenario", "unknown"),
+                    "env_idx": envs.index(env),
+                }
+                if terminal_jsonl_path:
+                    os.makedirs(os.path.dirname(terminal_jsonl_path) or ".", exist_ok=True)
+                    with open(terminal_jsonl_path, "a") as f:
+                        f.write(json.dumps(terminal_record) + "\n")
+
                 completed_episodes.append(
                     {
-                        "reward": env._mappo_ep_rew,
-                        "length": env._mappo_ep_len,
+                        "reward": episode_reward,
+                        "length": int(env._mappo_ep_len),
                         "goal": int(bool(info0.get("event", {}).get("type") == "goal")),
                         "env": envs.index(env),
                     }
@@ -453,6 +528,7 @@ def collect_rollout_batched(
     critic: CentralizedCritic,
     num_steps: int = 256,
     batch_size: int = 2,
+    terminal_jsonl_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Vectorized rollout collection using the bridge's batched step protocol.
@@ -577,15 +653,50 @@ def collect_rollout_batched(
             state["ep_len"] += 1
             total_steps += 1
 
+            # Step 2/3: capture reward-before-terminal before incrementing
+            reward_before_terminal = float(state["ep_rew"] - shared_reward)
+            terminal_frame_reward = float(reward) if not isinstance(reward, dict) else float(list(reward.values())[0])
+            terminal_shared_reward = shared_reward
+
             if shared_term or shared_trunc:
                 goal_scored = 0
                 for agent_info in (info or {}).values():
                     if isinstance(agent_info, dict) and agent_info.get("score", {}).get("left", 0) > 0:
                         goal_scored = 1
                         break
+
+                # Step 3: reward-chain trace on terminal tick
+                event_code = info.get("eventCode", -1) if isinstance(info, dict) else -1
+                score = info.get("score", {"left": -1, "right": -1}) if isinstance(info, dict) else {"left": -1, "right": -1}
+                print(
+                    f"[REWARD-CHAIN] terminal_tick env={env_idx} | "
+                    f"binary_frame={terminal_frame_reward:.6f} | "
+                    f"env_step_shared={terminal_shared_reward:.6f} | "
+                    f"collector_shared={shared_reward:.6f} | "
+                    f"reward_before_terminal={reward_before_terminal:.6f} | "
+                    f"event_code={event_code} | score={score}"
+                )
+
+                episode_reward = float(state["ep_rew"])
+                terminal_record = {
+                    "terminal_frame_reward": terminal_frame_reward,
+                    "terminal_shared_reward": terminal_shared_reward,
+                    "reward_before_terminal": reward_before_terminal,
+                    "episode_reward": episode_reward,
+                    "terminal_event_code": event_code,
+                    "terminal_score": score,
+                    "episode_length": int(state["ep_len"]),
+                    "scenario": getattr(env, "scenario", "unknown"),
+                    "env_idx": env_idx,
+                }
+                if terminal_jsonl_path:
+                    os.makedirs(os.path.dirname(terminal_jsonl_path) or ".", exist_ok=True)
+                    with open(terminal_jsonl_path, "a") as f:
+                        f.write(json.dumps(terminal_record) + "\n")
+
                 completed_episodes.append({
-                    "reward": state["ep_rew"],
-                    "length": state["ep_len"],
+                    "reward": episode_reward,
+                    "length": int(state["ep_len"]),
                     "goal": goal_scored,
                     "env": env_idx,
                 })

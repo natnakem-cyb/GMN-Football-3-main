@@ -285,6 +285,14 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.agents: List[str] = []
         self.possible_agents: List[str] = []
 
+        # Terminal-frame provenance for forensic reward tracing (Step 2/3).
+        # These are set on every step() call; on terminal ticks they capture
+        # the exact values that flowed through the pipeline at episode end.
+        self._last_frame_reward: float = 0.0
+        self._last_frame_event_code: int = 0
+        self._last_frame_score: Dict[str, int] = {"left": 0, "right": 0}
+        self._last_shared_reward: float = 0.0
+
         # Observation and action spaces (identical across all agents)
         self._obs_space = spaces.Dict({
             "observation": spaces.Box(
@@ -971,6 +979,14 @@ class GMNMultiAgentEnv(ParallelEnv):
         shared_reward = float(reward)
         shared_term = bool(term)
         shared_trunc = bool(trunc)
+
+        # Step 2/3 provenance: capture raw binary-frame values on every tick.
+        # On terminal ticks these are the exact values that entered the pipeline.
+        self._last_frame_reward = float(reward)
+        self._last_frame_event_code = int(event_code)
+        self._last_frame_score = {"left": int(score_l), "right": int(score_r)}
+        self._last_shared_reward = shared_reward
+
         shared_info: Dict[str, Any] = {
             "score": {"left": int(score_l), "right": int(score_r)},
             "checkpointReward": float(cp_reward),
