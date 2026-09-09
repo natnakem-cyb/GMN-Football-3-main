@@ -178,16 +178,18 @@ export class ObservationEncoder {
   }
 
   /**
-   * Reward shaping computation (revised to reduce progress dominance and
-   * add explicit per-event incentives for passing and shooting):
+   * Reward shaping computation (Phase 11 — exploit-resistant contract):
    *
    * Goal scored: +2.0 (terminal)
    * Goal conceded: -1.0 (terminal)
    * Ball progress checkpoint: max(+0.02, deltaX * 0.2) per step, only on new high-water mark
-   * Pass completion: +0.15 per successful pass
-   * Shot taken: +0.1 per shot
-   * Shot-quality bonus (on-target): +0.1
-   * Shot-quality bonus (off-target/weak): +0.01
+   * Verified pass completion: +0.15 per successful pass
+   *
+   * NOTE: Shot-attempt bonuses were deliberately removed in Phase 11 to prevent
+   * reward exploitation via action spam. The checkpoint reward is intentionally
+   * unconditional on shot quality; if possession-gated checkpointing is required,
+   * the caller must supply ball-owner context and the function signature must be
+   * extended accordingly.
    */
   static computeReward(
     prevBallX: number,

@@ -71,6 +71,7 @@ export class GameEngine {
   public maxReplayFrames = 3000;
   public events: MatchEvent[] = [];
   private eventIdCounter: number = 0;
+  private currentStepEvents: MatchEvent[] = [];
   public maxBallProgressX: number = 0;
 
   private possessionTicks = { left: 0, right: 0 };
@@ -255,6 +256,7 @@ export class GameEngine {
     this.matchTimeSeconds = 0;
     this.tickCount = 0;
     this.status = 'playing';
+    this.goalResetTimer = 0;
     this.events = [];
     this.eventIdCounter = 0;
     this.replayBuffer = [];
@@ -455,6 +457,7 @@ export class GameEngine {
     actionMap: Map<string, AgentAction>,
     dt = 1 / 60
   ): RLStepResult {
+    this.currentStepEvents = [];
     const eventsBefore = this.events.length;
     const prevBallX = this.ball.position.x;
     let goalScoredThisTick: TeamSide | null = null;
@@ -533,9 +536,11 @@ export class GameEngine {
       this.gameMode
     );
 
-    const newEventsThisTick = this.events.slice(eventsBefore);
+    const newEventsThisTick = this.currentStepEvents;
+    let eventType: string | undefined;
     if (newEventsThisTick.length > 0) {
       const lastEvent = newEventsThisTick[newEventsThisTick.length - 1];
+      eventType = lastEvent.type;
       eventDescription = lastEvent.description || lastEvent.type;
     }
 
@@ -575,7 +580,8 @@ export class GameEngine {
       truncated: isTruncated,
       info: {
         score: { ...this.score },
-        event: eventDescription,
+        event: eventType,
+        eventDescription,
         checkpointReward: checkpoint,
         ballDistanceToGoal: Vec2.distance({ x: this.ball.position.x, y: this.ball.position.y }, { x: 1.0, y: 0 }),
         executedBallActionPlayerIds: Array.from(this.executedBallActionPlayerIds),
@@ -1306,13 +1312,12 @@ export class GameEngine {
     }
   }
 
-  private recordReplayFrame(eventsBefore?: number): void {
+  private recordReplayFrame(_eventsBefore?: number): void {
     if (this.replayBuffer.length >= this.maxReplayFrames) {
       this.replayBuffer.shift();
     }
 
-    const newEventsThisTick = eventsBefore !== undefined ? this.events.slice(eventsBefore) : [];
-    const event = newEventsThisTick.length > 0 ? newEventsThisTick[newEventsThisTick.length - 1] : undefined;
+    const event = this.currentStepEvents.length > 0 ? this.currentStepEvents[this.currentStepEvents.length - 1] : undefined;
 
     const frame: ReplayFrame = {
       tick: this.tickCount,
@@ -1361,5 +1366,6 @@ export class GameEngine {
     if (this.events.length > 50) {
       this.events.shift();
     }
+    this.currentStepEvents.push(event);
   }
 }

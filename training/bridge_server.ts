@@ -1,5 +1,6 @@
 import http from 'http';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as ort from 'onnxruntime-node';
 import fs from 'fs';
@@ -1311,14 +1312,23 @@ server.on('error', (err) => {
   console.error('[GMN Bridge Server] Socket error:', err);
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`[GMN Headless Bridge] Server listening on http://${HOST}:${PORT} (HTTP + Binary WebSocket)`);
-});
+// Only start listening when this file is executed directly (npm run bridge /
+// spawned by the Python harnesses). When the module is imported by a test or by
+// TrainingJobService for `metricsBroadcaster`, we must NOT bind a port.
+const isMainModule =
+  typeof process.argv[1] === 'string' &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 
-process.on('SIGINT', () => {
-  server.close(() => process.exit(0));
-});
+if (isMainModule) {
+  server.listen(PORT, HOST, () => {
+    console.log(`[GMN Headless Bridge] Server listening on http://${HOST}:${PORT} (HTTP + Binary WebSocket)`);
+  });
 
-process.on('SIGTERM', () => {
-  server.close(() => process.exit(0));
-});
+  process.on('SIGINT', () => {
+    server.close(() => process.exit(0));
+  });
+
+  process.on('SIGTERM', () => {
+    server.close(() => process.exit(0));
+  });
+}
