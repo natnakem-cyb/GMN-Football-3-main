@@ -401,6 +401,15 @@ def evaluate_single_agent_ppo(
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
         "possession_retention_time": possession_retention_time,
         "completed_pass_chains": completed_pass_chains,
+        "ground_truth_possession_left_pct": gt_possession,
+        "ground_truth_pass_accuracy": gt_pass_accuracy,
+        "ground_truth_shot_accuracy": gt_shot_accuracy,
+        "pass_accuracy_goal_episodes": gt_pass_accuracy_goal_mean,
+        "shot_accuracy_goal_episodes": gt_shot_accuracy_goal_mean,
+        "pass_accuracy_no_goal_episodes": gt_pass_accuracy_no_goal_mean,
+        "shot_accuracy_no_goal_episodes": gt_shot_accuracy_no_goal_mean,
+        "goal_episodes_count": len(gt_pass_accuracy_goal),
+        "no_goal_episodes_count": len(gt_pass_accuracy_no_goal),
     }
 
 
@@ -425,6 +434,14 @@ def evaluate_multi_agent_ippo(
     ground_truth_possession = []
     ground_truth_pass_accuracy = []
     ground_truth_shot_accuracy = []
+    # Split by outcome so pass/shot accuracy is not conflated across
+    # scoring vs non-scoring episodes.
+    gt_possession_goal = []
+    gt_pass_accuracy_goal = []
+    gt_shot_accuracy_goal = []
+    gt_possession_no_goal = []
+    gt_pass_accuracy_no_goal = []
+    gt_shot_accuracy_no_goal = []
 
     try:
         for ep in range(num_episodes):
@@ -438,6 +455,7 @@ def evaluate_multi_agent_ippo(
             done = False
             last_info = {}
             episode_ground_truth = {}
+            goal_scored = 0
 
             while not done and steps < 600:
                 actions = {}
@@ -490,7 +508,7 @@ def evaluate_multi_agent_ippo(
                 score_left = last_info.get("score", {}).get("left", 0)
                 event = last_info.get("event", {})
                 is_goal = score_left > 0 or (isinstance(event, dict) and event.get("type") == "goal")
-
+                goal_scored = 1 if is_goal else 0
                 if is_goal:
                     goals += 1
 
@@ -502,6 +520,21 @@ def evaluate_multi_agent_ippo(
                     ground_truth_pass_accuracy.append(episode_ground_truth["pass_accuracy"])
                 if episode_ground_truth.get("shot_accuracy") is not None:
                     ground_truth_shot_accuracy.append(episode_ground_truth["shot_accuracy"])
+                # Split by outcome
+                if goal_scored:
+                    if episode_ground_truth.get("possession_left_pct") is not None:
+                        gt_possession_goal.append(episode_ground_truth["possession_left_pct"])
+                    if episode_ground_truth.get("pass_accuracy") is not None:
+                        gt_pass_accuracy_goal.append(episode_ground_truth["pass_accuracy"])
+                    if episode_ground_truth.get("shot_accuracy") is not None:
+                        gt_shot_accuracy_goal.append(episode_ground_truth["shot_accuracy"])
+                else:
+                    if episode_ground_truth.get("possession_left_pct") is not None:
+                        gt_possession_no_goal.append(episode_ground_truth["possession_left_pct"])
+                    if episode_ground_truth.get("pass_accuracy") is not None:
+                        gt_pass_accuracy_no_goal.append(episode_ground_truth["pass_accuracy"])
+                    if episode_ground_truth.get("shot_accuracy") is not None:
+                        gt_shot_accuracy_no_goal.append(episode_ground_truth["shot_accuracy"])
     finally:
         env.close()
 
@@ -515,6 +548,11 @@ def evaluate_multi_agent_ippo(
     gt_possession = float(np.mean(ground_truth_possession)) if ground_truth_possession else None
     gt_pass_accuracy = float(np.mean(ground_truth_pass_accuracy)) if ground_truth_pass_accuracy else None
     gt_shot_accuracy = float(np.mean(ground_truth_shot_accuracy)) if ground_truth_shot_accuracy else None
+    # Split by outcome
+    gt_pass_accuracy_goal_mean = float(np.mean(gt_pass_accuracy_goal)) if gt_pass_accuracy_goal else None
+    gt_shot_accuracy_goal_mean = float(np.mean(gt_shot_accuracy_goal)) if gt_shot_accuracy_goal else None
+    gt_pass_accuracy_no_goal_mean = float(np.mean(gt_pass_accuracy_no_goal)) if gt_pass_accuracy_no_goal else None
+    gt_shot_accuracy_no_goal_mean = float(np.mean(gt_shot_accuracy_no_goal)) if gt_shot_accuracy_no_goal else None
 
     if is_rondo:
         possession_retention_time = float("nan")
@@ -568,6 +606,14 @@ def evaluate_multi_agent_mappo(
     ground_truth_possession = []
     ground_truth_pass_accuracy = []
     ground_truth_shot_accuracy = []
+    # Split by outcome so pass/shot accuracy is not conflated across
+    # scoring vs non-scoring episodes.
+    gt_possession_goal = []
+    gt_pass_accuracy_goal = []
+    gt_shot_accuracy_goal = []
+    gt_possession_no_goal = []
+    gt_pass_accuracy_no_goal = []
+    gt_shot_accuracy_no_goal = []
 
     try:
         for ep in range(num_episodes):
@@ -581,6 +627,7 @@ def evaluate_multi_agent_mappo(
             done = False
             last_info = {}
             episode_ground_truth = {}
+            goal_scored = 0
 
             while not done and steps < 600:
                 current_agents = list(env.agents if env.agents else controllable_agents)
@@ -641,7 +688,7 @@ def evaluate_multi_agent_mappo(
                 score_left = last_info.get("score", {}).get("left", 0)
                 event = last_info.get("event", {})
                 is_goal = score_left > 0 or (isinstance(event, dict) and event.get("type") == "goal")
-
+                goal_scored = 1 if is_goal else 0
                 if is_goal:
                     goals += 1
 
@@ -653,6 +700,21 @@ def evaluate_multi_agent_mappo(
                     ground_truth_pass_accuracy.append(episode_ground_truth["pass_accuracy"])
                 if episode_ground_truth.get("shot_accuracy") is not None:
                     ground_truth_shot_accuracy.append(episode_ground_truth["shot_accuracy"])
+                # Split by outcome
+                if goal_scored:
+                    if episode_ground_truth.get("possession_left_pct") is not None:
+                        gt_possession_goal.append(episode_ground_truth["possession_left_pct"])
+                    if episode_ground_truth.get("pass_accuracy") is not None:
+                        gt_pass_accuracy_goal.append(episode_ground_truth["pass_accuracy"])
+                    if episode_ground_truth.get("shot_accuracy") is not None:
+                        gt_shot_accuracy_goal.append(episode_ground_truth["shot_accuracy"])
+                else:
+                    if episode_ground_truth.get("possession_left_pct") is not None:
+                        gt_possession_no_goal.append(episode_ground_truth["possession_left_pct"])
+                    if episode_ground_truth.get("pass_accuracy") is not None:
+                        gt_pass_accuracy_no_goal.append(episode_ground_truth["pass_accuracy"])
+                    if episode_ground_truth.get("shot_accuracy") is not None:
+                        gt_shot_accuracy_no_goal.append(episode_ground_truth["shot_accuracy"])
     finally:
         env.close()
 
@@ -666,6 +728,11 @@ def evaluate_multi_agent_mappo(
     gt_possession = float(np.mean(ground_truth_possession)) if ground_truth_possession else None
     gt_pass_accuracy = float(np.mean(ground_truth_pass_accuracy)) if ground_truth_pass_accuracy else None
     gt_shot_accuracy = float(np.mean(ground_truth_shot_accuracy)) if ground_truth_shot_accuracy else None
+    # Split by outcome
+    gt_pass_accuracy_goal_mean = float(np.mean(gt_pass_accuracy_goal)) if gt_pass_accuracy_goal else None
+    gt_shot_accuracy_goal_mean = float(np.mean(gt_shot_accuracy_goal)) if gt_shot_accuracy_goal else None
+    gt_pass_accuracy_no_goal_mean = float(np.mean(gt_pass_accuracy_no_goal)) if gt_pass_accuracy_no_goal else None
+    gt_shot_accuracy_no_goal_mean = float(np.mean(gt_shot_accuracy_no_goal)) if gt_shot_accuracy_no_goal else None
 
     if is_rondo:
         possession_retention_time = float("nan")
