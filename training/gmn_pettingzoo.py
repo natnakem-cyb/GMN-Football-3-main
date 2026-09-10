@@ -82,6 +82,9 @@ class CooperativeRewardShaper:
         self.p_solitary_shot = penalty_solitary_shot
         self.p_ball_hogging = penalty_ball_hogging
         self.max_hold_ticks = max_unassisted_hold_ticks
+        self.total_pass_completed_count: int = 0
+        self.total_goal_scored_count: int = 0
+        self.total_turnover_conceded_count: int = 0
         self.reset()
 
     def reset(self) -> None:
@@ -109,6 +112,14 @@ class CooperativeRewardShaper:
             "solitary_shot_count": self.solitary_shot_count,
             "assisted_goal_count": self.assisted_goal_count,
             "ball_hogging_count": self.ball_hogging_count,
+        }
+
+    def get_cumulative_diagnostics(self) -> Dict[str, Any]:
+        """Return cumulative (cross-episode) event counters for live training logging."""
+        return {
+            "total_pass_completed_count": self.total_pass_completed_count,
+            "total_goal_scored_count": self.total_goal_scored_count,
+            "total_turnover_conceded_count": self.total_turnover_conceded_count,
         }
 
     def compute_shaped_rewards(
@@ -168,6 +179,7 @@ class CooperativeRewardShaper:
             if event_type == "PASS_COMPLETED":
                 self.pass_chain_length += 1
                 self.pass_completed_count += 1
+                self.total_pass_completed_count += 1
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] += 0.30
 
@@ -184,6 +196,7 @@ class CooperativeRewardShaper:
             elif event_type in ("PASS_FAILED", "TURNOVER_CONCEDED"):
                 self.pass_chain_length = 0
                 self.turnover_conceded_count += 1
+                self.total_turnover_conceded_count += 1
 
             elif event_type == "SHOT_TAKEN":
                 # No extra penalty beyond the flat action cost; shot attempts
@@ -194,6 +207,7 @@ class CooperativeRewardShaper:
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] += 2.00
                 self.goal_scored_count += 1
+                self.total_goal_scored_count += 1
                 self.pass_chain_length = 0
 
         return shaped_rewards
@@ -504,13 +518,14 @@ class GMNMultiAgentEnv(ParallelEnv):
                 action_bytes[i] = act
             action_bytes_per_env.append(bytes(action_bytes))
             controllable_ids_per_env.append(current_agents)
-        # Build batched binary frame: [B (1B)] [N (1B)] [B * N action bytes]
+        # Build batched binary frame: [0xFF (1B)] [B (1B)] [N (1B)] [B * N action bytes]
         N = len(controllable_ids_per_env[0]) if controllable_ids_per_env else 0
-        frame = bytearray(2 + self.batch_size * N)
-        frame[0] = self.batch_size
-        frame[1] = N
+        frame = bytearray(3 + self.batch_size * N)
+        frame[0] = 0xFF
+        frame[1] = self.batch_size
+        frame[2] = N
         for env_idx, action_bytes in enumerate(action_bytes_per_env):
-            offset = 2 + env_idx * N
+            offset = 3 + env_idx * N
             frame[offset : offset + N] = action_bytes
         if self.ws_client is None:
             self._connect_ws()

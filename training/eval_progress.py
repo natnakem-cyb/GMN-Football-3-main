@@ -817,6 +817,7 @@ def persist_trend_snapshots(
     scenario: str,
     output_dir: str = os.path.join(os.path.dirname(__file__), "results"),
     seed: int = None,
+    event_counters: Dict[str, Any] = None,
 ) -> str:
     """
     Persists in-training trend snapshots to training/results/trend_<algorithm>_<scenario>.csv.
@@ -829,12 +830,30 @@ def persist_trend_snapshots(
     filename = f"trend_{algo_lower}_{scenario}{seed_suffix}.csv"
     csv_path = os.path.join(output_dir, filename)
 
+    _has_events = event_counters is not None and any(
+        v > 0 for v in event_counters.values() if isinstance(v, int)
+    )
+
     with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["step", "episodes", "mean_reward", "goal_rate_pct"])
+        if _has_events:
+            writer.writerow([
+                "step", "episodes", "mean_reward", "goal_rate_pct",
+                "total_pass_completed", "total_goals", "total_turnovers",
+            ])
+        else:
+            writer.writerow(["step", "episodes", "mean_reward", "goal_rate_pct"])
         for item in snapshots:
             step, num_eps, mean_rew, goal_pct = item
-            writer.writerow([step, num_eps, f"{mean_rew:.4f}", f"{goal_pct:.2f}"])
+            if _has_events:
+                writer.writerow([
+                    step, num_eps, f"{mean_rew:.4f}", f"{goal_pct:.2f}",
+                    event_counters.get("total_pass_completed_count", 0),
+                    event_counters.get("total_goal_scored_count", 0),
+                    event_counters.get("total_turnover_conceded_count", 0),
+                ])
+            else:
+                writer.writerow([step, num_eps, f"{mean_rew:.4f}", f"{goal_pct:.2f}"])
 
     print(f"   [OK] Trend snapshots persisted to: {csv_path}")
     return csv_path
