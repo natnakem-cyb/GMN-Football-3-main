@@ -17,6 +17,7 @@ import time
 import json
 import struct
 import subprocess
+import logging
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
@@ -24,6 +25,14 @@ import requests
 import websockets.sync.client
 from gymnasium import spaces
 from pettingzoo.utils.env import ParallelEnv
+
+logger = logging.getLogger(__name__)
+
+# Discrete action index for a shot attempt (ACTION_SPACE_SIZE == 19).
+# Used by CooperativeRewardShaper to attribute the engine's SHOT_TAKEN event to
+# the controlling agent(s) that actually commanded a shot when the binary frame
+# reports the ball already in flight (no ball owner => event has no agent_id).
+SHOT_ACTION_ID = 12
 
 
 def _npx_cmd():
@@ -71,7 +80,7 @@ class CooperativeRewardShaper:
 
     def __init__(
         self,
-        reward_pass_completion: float = 0.25,
+        reward_pass_completion: float = 0.30,
         reward_assisted_goal_bonus: float = 0.50,
         penalty_solitary_shot: float = -0.30,
         penalty_ball_hogging: float = -0.02,
@@ -181,7 +190,7 @@ class CooperativeRewardShaper:
                 self.pass_completed_count += 1
                 self.total_pass_completed_count += 1
                 if agent_id in shaped_rewards:
-                    shaped_rewards[agent_id] += 0.30
+                    shaped_rewards[agent_id] += self.r_pass
 
             elif event_type == "PASS_INTERCEPTED":
                 self.pass_chain_length = 0
@@ -199,9 +208,29 @@ class CooperativeRewardShaper:
                 self.total_turnover_conceded_count += 1
 
             elif event_type == "SHOT_TAKEN":
-                # No extra penalty beyond the flat action cost; shot attempts
-                # are only discouraged by the -0.01 per-ball-action cost.
-                pass
+                # Penalize shots taken without a preceding completed pass in the
+                # same possession chain (pass_chain_length == 0 => by definition
+                # an unassisted shot; see test_solitary_shot_penalty_when_no_pass_chain).
+                if self.pass_chain_length == 0:
+                    # Attribution on the wire: the engine broadcasts the shot
+                    # event on the frame the shot is released, when the ball is
+                    # already in flight -- the bridge header then reports no ball
+                    # owner (agent_id absent from the event). Fall back to charging
+                    # every left-team agent that commanded a SHOT action this frame,
+                    # so an unassisted-shot penalty cannot be dodged by spamming SHOT.
+                    shot_agents: List[str] = []
+                    if agent_id is not None and agent_id in shaped_rewards:
+                        shot_agents = [agent_id]
+                    elif actions:
+                        shot_agents = [
+                            act_agent
+                            for act_agent, act_idx in actions.items()
+                            if act_agent in shaped_rewards
+                            and act_idx == SHOT_ACTION_ID
+                        ]
+                    for shot_agent in shot_agents:
+                        shaped_rewards[shot_agent] += self.p_solitary_shot
+                        self.solitary_shot_count += 1
 
             elif event_type == "GOAL_SCORED":
                 if agent_id in shaped_rewards:
@@ -1101,8 +1130,10 @@ class GMNMultiAgentEnv(ParallelEnv):
             if ev_type:
                 shared_info["event"] = {"type": ev_type}
 
-        # Attach ground-truth engine stats if the bridge sent them on episode end
-        if episode_stats and shared_term:
+        # Attach ground-truth engine stats if the bridge sent them on episode end.
+        # Include both termination (goal/scenario_complete) and truncation (clock expiry)
+        # so pass/shot accuracy is computed for all episode endings, not just goals.
+        if episode_stats and (shared_term or shared_trunc):
             shared_info["ground_truth"] = {
                 "possession_left_pct": episode_stats.get("possession_left_pct"),
                 "completed_passes_left": episode_stats.get("completed_passes_left"),
@@ -1224,8 +1255,12 @@ class GMNMultiAgentEnv(ParallelEnv):
                 "event_code": int(event_code),
             })
 
-        # Apply cooperative reward shaping if enabled
-        if self.enable_reward_shaping and self.reward_shaper is not None and not shared_term and not shared_trunc:
+        # Apply cooperative reward shaping if enabled.
+        # NOTE: reward shaper must run on terminal steps too, because its internal
+        # cumulative counters (goals, passes, turnovers) are side effects of
+        # compute_shaped_rewards(). Skipping it on terminal steps makes the
+        # live-training event counters blind to any goal scored on the final tick.
+        if self.enable_reward_shaping and self.reward_shaper is not None:
             try:
                 # Derive current ball owner from binary frame ballOwnerAgentId
                 current_ball_owner = None
@@ -1243,9 +1278,12 @@ class GMNMultiAgentEnv(ParallelEnv):
                     active_agents=list(self.agents),
                     actions=actions,
                 )
-                for agent in self.agents:
-                    if agent in shaped_rewards:
-                        rewards[agent] = shaped_rewards[agent]
+                # Only mutate per-agent rewards on non-terminal steps so terminal
+                # reward values stay exactly as the engine emitted them.
+                if not shared_term and not shared_trunc:
+                    for agent in self.agents:
+                        if agent in shaped_rewards:
+                            rewards[agent] = shaped_rewards[agent]
             except Exception as e:
                 logger.debug(f"Reward shaping skipped due to error: {e}")
 

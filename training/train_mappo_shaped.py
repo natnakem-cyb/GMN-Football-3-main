@@ -24,7 +24,7 @@ Hyperparameters:
 - Entropy coefficient: 0.01 -> 0.005 cosine anneal
 
 Reward Shaping:
-- Pass completion bonus: +0.25
+- Pass completion bonus: +0.30
 - Assisted goal bonus: +0.50 (shared across all active left-team agents)
 - Solitary shot penalty: -0.30 (when pass_chain_length == 0)
 - Ball-hogging penalty: -0.005/tick (after 30 ticks of continuous possession)
@@ -81,7 +81,7 @@ def run_mappo_shaped_training(
     print(f"Reward Shaping: {'ENABLED' if enable_reward_shaping else 'DISABLED'}")
     if enable_reward_shaping:
         shaper_kwargs = shaper_kwargs or {}
-        print(f"  Pass completion bonus: +{shaper_kwargs.get('reward_pass_completion', 0.25)}")
+        print(f"  Pass completion bonus: +{shaper_kwargs.get('reward_pass_completion', 0.30)}")
         print(f"  Assisted goal bonus: +{shaper_kwargs.get('reward_assisted_goal_bonus', 0.50)}")
         print(f"  Solitary shot penalty: {shaper_kwargs.get('penalty_solitary_shot', -0.30)}")
         print(f"  Ball-hogging penalty: {shaper_kwargs.get('penalty_ball_hogging', -0.005)}/tick (after {shaper_kwargs.get('max_unassisted_hold_ticks', 30)} ticks)")

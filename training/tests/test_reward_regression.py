@@ -47,7 +47,7 @@ class TestPassQuality:
         active_agents = ["left_0", "left_1"]
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
-        assert rewards["left_0"] == pytest.approx(0.25)
+        assert rewards["left_0"] == pytest.approx(0.30)
 
     def test_repetitive_pass_loop_does_not_dominate_progress(self):
         """Rapid pass cycling between two agents should not yield more reward
@@ -68,11 +68,11 @@ class TestPassQuality:
             rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
             total_reward += sum(rewards.values())
 
-        # 10 passes yield 10 * 0.25 = 2.5 total reward
+        # 10 passes yield 10 * 0.30 = 3.0 total reward
         # This should not exceed what forward progress would give over 10 steps
         # (which depends on deltaX, but we check the pass reward is bounded)
-        assert total_reward == pytest.approx(2.5), (
-            f"Pass loop reward should be exactly 10 * 0.25 = 2.5, got {total_reward:.4f}"
+        assert total_reward == pytest.approx(3.0), (
+            f"Pass loop reward should be exactly 10 * 0.30 = 3.0, got {total_reward:.4f}"
         )
 
 
@@ -152,7 +152,7 @@ class TestRewardOwnership:
         assert "right_0" not in rewards
         assert "right_1" not in rewards
         assert "left_0" in rewards
-        assert rewards["left_0"] == pytest.approx(0.25)
+        assert rewards["left_0"] == pytest.approx(0.30)
 
 
 class TestRewardAccounting:
@@ -173,8 +173,8 @@ class TestRewardAccounting:
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
 
-        # left_0: base 0.5 + pass 0.25 + shot 0 (chain > 0, no penalty) = 0.75
-        assert rewards["left_0"] == pytest.approx(0.75)
+        # left_0: base 0.5 + pass 0.30 + shot 0 (chain > 0, no penalty) = 0.80
+        assert rewards["left_0"] == pytest.approx(0.80)
         # left_1: base 0.0, no events = 0.0
         assert rewards["left_1"] == pytest.approx(0.0)
 

@@ -27,7 +27,7 @@ class TestCooperativeRewardShaper:
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
 
-        assert rewards["left_0"] == pytest.approx(0.25)
+        assert rewards["left_0"] == pytest.approx(0.30)
         assert rewards["left_1"] == pytest.approx(0.0)
         assert rewards["left_2"] == pytest.approx(0.0)
         assert shaper.pass_chain_length == 1
@@ -45,6 +45,49 @@ class TestCooperativeRewardShaper:
 
         assert rewards["left_0"] == pytest.approx(-0.30)
         assert shaper.pass_chain_length == 0
+
+    def test_solitary_shot_penalty_attributed_via_shot_actions_when_no_agent_id(self):
+        """Wire path: engine broadcasts SHOT_TAKEN while the ball is in flight, so
+        the event arrives WITHOUT an agent_id. Every left-team agent that commanded
+        a SHOT action that frame is the "shooter" and must pay the solitary penalty."""
+        shaper = CooperativeRewardShaper()
+        shaper.reset()
+
+        base_rewards = {"left_0": 0.0, "left_1": 0.0, "left_2": 0.0}
+        step_events = [{"type": "SHOT_TAKEN", "team": "left"}]  # no agent_id (ball loose)
+        ground_truth = {"current_ball_owner": None}
+        active_agents = ["left_0", "left_1", "left_2"]
+        actions = {"left_0": 12, "left_1": 12, "left_2": 5}  # left_0, left_1 SHOT-spam
+
+        rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents, actions)
+
+        # -0.30 solitary-shot penalty ON TOP of the -0.01 per-ball-action cost
+        # for each agent that commanded SHOT (12) this frame.
+        assert rewards["left_0"] == pytest.approx(-0.31)
+        assert rewards["left_1"] == pytest.approx(-0.31)
+        assert rewards["left_2"] == pytest.approx(0.0)
+        assert shaper.solitary_shot_count == 2
+        assert shaper.pass_chain_length == 0
+
+    def test_solitary_shot_penalty_after_pass_chain_not_applied(self):
+        """A shot following a completed pass (pass_chain_length > 0) is assisted
+        and must NOT pay the solitary penalty, even when the event lacks agent_id."""
+        shaper = CooperativeRewardShaper()
+        shaper.reset()
+        shaper.pass_chain_length = 1
+
+        base_rewards = {"left_0": 0.0}
+        step_events = [{"type": "SHOT_TAKEN", "team": "left"}]  # no agent_id
+        ground_truth = {"current_ball_owner": None}
+        active_agents = ["left_0"]
+        actions = {"left_0": 12}
+
+        rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents, actions)
+
+        # Assisted shot: NO solitary penalty; only the -0.01 per-ball-action cost
+        # for commanding SHOT (12).
+        assert rewards["left_0"] == pytest.approx(-0.01)
+        assert shaper.solitary_shot_count == 0
 
     def test_assisted_goal_bonus_distributed_to_all_active_agents(self):
         shaper = CooperativeRewardShaper()
@@ -194,8 +237,8 @@ class TestCooperativeRewardShaper:
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
 
-        assert rewards["left_0"] == pytest.approx(0.25)
-        assert rewards["left_1"] == pytest.approx(0.25)
+        assert rewards["left_0"] == pytest.approx(0.30)
+        assert rewards["left_1"] == pytest.approx(0.30)
         assert rewards["left_2"] == pytest.approx(0.0)
         assert shaper.pass_chain_length == 2
 
