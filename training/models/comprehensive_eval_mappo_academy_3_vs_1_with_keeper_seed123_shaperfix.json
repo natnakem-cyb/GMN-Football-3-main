@@ -1,0 +1,371 @@
+{
+  "evaluation_metadata": {
+    "git_commit": "3566a6a85c91c7e79acd510fbcf0e1848f9a4d1e",
+    "evaluator_version": "v2_ground_truth_bridge",
+    "timestamp_iso": "2026-09-10T15:17:19.173250Z",
+    "model_file": "training/models/mappo_academy_3_vs_1_with_keeper_seed123_shaperfix.pt",
+    "model_sha256": "fbed2afa52077300fa9aebad101b55d17c7b4bb1ad7062e7cbbd1a763678a723",
+    "episodes": 50,
+    "scenario": "academy_3_vs_1_with_keeper"
+  },
+  "total_episodes": 50,
+  "total_steps": 2119,
+  "scenario": "academy_3_vs_1_with_keeper",
+  "policy_name": "mappo_academy_3_vs_1_with_keeper_seed123_shaperfix.pt",
+  "seeds": [
+    500000,
+    501009,
+    502018,
+    503027,
+    504036,
+    505045,
+    506054,
+    507063,
+    508072,
+    509081,
+    510090,
+    511099,
+    512108,
+    513117,
+    514126,
+    515135,
+    516144,
+    517153,
+    518162,
+    519171,
+    520180,
+    521189,
+    522198,
+    523207,
+    524216,
+    525225,
+    526234,
+    527243,
+    528252,
+    529261,
+    530270,
+    531279,
+    532288,
+    533297,
+    534306,
+    535315,
+    536324,
+    537333,
+    538342,
+    539351,
+    540360,
+    541369,
+    542378,
+    543387,
+    544396,
+    545405,
+    546414,
+    547423,
+    548432,
+    549441
+  ],
+  "win_rate_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0,
+    "numerator_total": 0,
+    "denominator_total": 50
+  },
+  "draw_rate_pct": {
+    "mean": 100.0,
+    "std": 0.0,
+    "median": 100.0,
+    "min": 100.0,
+    "max": 100.0,
+    "ci95_low": 100.0,
+    "ci95_high": 100.0,
+    "numerator_total": 50,
+    "denominator_total": 50
+  },
+  "loss_rate_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0,
+    "numerator_total": 0,
+    "denominator_total": 50
+  },
+  "success_rate_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0,
+    "numerator_total": 0,
+    "denominator_total": 50
+  },
+  "goals_scored_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "goals_conceded_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "goal_difference_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "possession_rate_pct": {
+    "mean": 70.26,
+    "std": 29.653202187959398,
+    "median": 50.0,
+    "min": 0.0,
+    "max": 100.0,
+    "ci95_low": 0.0,
+    "ci95_high": 100.0
+  },
+  "time_to_first_possession_sec": {
+    "mean": 0.185,
+    "std": 0.13595425734673755,
+    "median": 0.20833333333333331,
+    "min": 0.016666666666666666,
+    "max": 0.38333333333333336,
+    "ci95_low": 0.14731540249798483,
+    "ci95_high": 0.22268459750201516
+  },
+  "possession_changes_per_episode": {
+    "mean": 1.5,
+    "std": 0.5050762722761054,
+    "median": 1.5,
+    "min": 1.0,
+    "max": 2.0,
+    "ci95_low": 1.36,
+    "ci95_high": 1.64
+  },
+  "passes_attempted_per_episode": {
+    "mean": 0.06,
+    "std": 0.2398979374820952,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 1.0,
+    "ci95_low": -0.006496315687412324,
+    "ci95_high": 0.12649631568741232
+  },
+  "passes_completed_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "pass_completion_rate_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "shots_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "shots_on_target_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "shot_accuracy_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "forward_progress_per_episode": {
+    "mean": 0.14828509103507156,
+    "std": 0.17840615693591694,
+    "median": 0.05562735136948571,
+    "min": 0.0,
+    "max": 0.6619880363672899,
+    "ci95_low": 0.09883342731214281,
+    "ci95_high": 0.19773675475800032
+  },
+  "min_distance_to_goal": {
+    "mean": 0.6009305322004629,
+    "std": 0.17759117531254462,
+    "median": 0.6605344673953497,
+    "min": 0.09260854746944362,
+    "max": 0.798857781084962,
+    "ci95_low": 0.5517047698582462,
+    "ci95_high": 0.6501562945426795
+  },
+  "max_ball_progress_x": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "tackles_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "interceptions_per_episode": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "turnovers_conceded_per_episode": {
+    "mean": 0.5,
+    "std": 0.5050762722761054,
+    "median": 0.5,
+    "min": 0.0,
+    "max": 1.0,
+    "ci95_low": 0.36,
+    "ci95_high": 0.64
+  },
+  "cumulative_reward": {
+    "mean": -0.2033348386510276,
+    "std": 0.24464535240454274,
+    "median": 0.0,
+    "min": -0.641328437100165,
+    "max": 0.10282443829346448,
+    "ci95_low": -0.2711470706180693,
+    "ci95_high": -0.13552260668398589
+  },
+  "action_distribution": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.45335850243825704,
+    0.2826805096743747,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.00047192071731949034,
+    0.0,
+    0.0,
+    0.014472235331131037,
+    0.0,
+    0.24901683183891773,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "idle_action_ratio_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "pass_ratio_pct": {
+    "mean": 0.026354642313546423,
+    "std": 0.10545492881388617,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.45662100456621,
+    "ci95_low": -0.0028759726338002493,
+    "ci95_high": 0.0555852572608931
+  },
+  "shot_ratio_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "dribble_ratio_pct": {
+    "mean": 0.0,
+    "std": 0.0,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "ci95_low": 0.0,
+    "ci95_high": 0.0
+  },
+  "sprint_ratio_pct": {
+    "mean": 0.8390521254794343,
+    "std": 2.6225793353134708,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 13.750000000000002,
+    "ci95_low": 0.11211022165708773,
+    "ci95_high": 1.5659940293017809
+  },
+  "shots_per_episode_mean": 0.0,
+  "passes_per_episode_mean": 0.06,
+  "tackles_per_episode_mean": 31.66,
+  "shot_to_goal_pct": 0.0,
+  "mean_episode_length": 42.38,
+  "std_episode_length": 24.41875508702276,
+  "mean_episode_duration_seconds": 0.7063333333333334,
+  "pass_accuracy_goal_episodes": {
+    "mean": 0.0,
+    "count": 0
+  },
+  "shot_accuracy_goal_episodes": {
+    "mean": 0.0,
+    "count": 0
+  },
+  "pass_accuracy_no_goal_episodes": {
+    "mean": 0.0,
+    "count": 50
+  },
+  "shot_accuracy_no_goal_episodes": {
+    "mean": 0.0,
+    "count": 50
+  }
+}
