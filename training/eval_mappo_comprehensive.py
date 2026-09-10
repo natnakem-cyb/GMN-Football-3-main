@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.mappo_networks import SharedActor
+from training.mappo_rollout import unwrap_obs
 from training.football_metrics import FootballMetricsTracker, EpisodeMetrics, compute_distribution
 
 
@@ -151,10 +152,19 @@ def evaluate_checkpoint_comprehensive(
     gt_shot_accuracy_list = []
     gt_completed_passes_list = []
     gt_total_shots_list = []
+    # Split by outcome so pass/shot accuracy is not conflated across
+    # scoring vs non-scoring episodes.
+    gt_possession_goal = []
+    gt_pass_accuracy_goal = []
+    gt_shot_accuracy_goal = []
+    gt_possession_no_goal = []
+    gt_pass_accuracy_no_goal = []
+    gt_shot_accuracy_no_goal = []
 
     for ep in range(num_episodes):
         ep_seed = base_seed + ep * 1009
         obs_dict, _ = env.reset(seed=ep_seed)
+        obs_dict = unwrap_obs(obs_dict)
 
         # Initialize episode tracking
         initial_obs = obs_dict[controllable_agents[0]]
@@ -200,6 +210,7 @@ def evaluate_checkpoint_comprehensive(
                     tackle_actions += 1
 
             obs_dict, rews, terms, truncs, infos = env.step(action_dict)
+            obs_dict = unwrap_obs(obs_dict)
             ep_length += 1
 
             shared_rew = float(rews[current_agents[0]]) if current_agents and current_agents[0] in rews else 0.0
@@ -283,6 +294,21 @@ def evaluate_checkpoint_comprehensive(
                 gt_completed_passes_list.append(episode_ground_truth["completed_passes_left"])
             if episode_ground_truth.get("total_shots_left") is not None:
                 gt_total_shots_list.append(episode_ground_truth["total_shots_left"])
+            # Split by outcome
+            if goal_scored:
+                if episode_ground_truth.get("possession_left_pct") is not None:
+                    gt_possession_goal.append(episode_ground_truth["possession_left_pct"])
+                if episode_ground_truth.get("pass_accuracy") is not None:
+                    gt_pass_accuracy_goal.append(episode_ground_truth["pass_accuracy"])
+                if episode_ground_truth.get("shot_accuracy") is not None:
+                    gt_shot_accuracy_goal.append(episode_ground_truth["shot_accuracy"])
+            else:
+                if episode_ground_truth.get("possession_left_pct") is not None:
+                    gt_possession_no_goal.append(episode_ground_truth["possession_left_pct"])
+                if episode_ground_truth.get("pass_accuracy") is not None:
+                    gt_pass_accuracy_no_goal.append(episode_ground_truth["pass_accuracy"])
+                if episode_ground_truth.get("shot_accuracy") is not None:
+                    gt_shot_accuracy_no_goal.append(episode_ground_truth["shot_accuracy"])
 
         if (ep + 1) % 10 == 0 or ep == num_episodes - 1:
             print(
@@ -361,6 +387,23 @@ def evaluate_checkpoint_comprehensive(
     agg["mean_episode_length"] = float(np.mean(lengths_list)) if lengths_list else 0.0
     agg["std_episode_length"] = float(np.std(lengths_list)) if lengths_list else 0.0
     agg["mean_episode_duration_seconds"] = float(np.mean(lengths_list)) / 60.0 if lengths_list else 0.0
+    # Outcome-split pass/shot accuracy
+    agg["pass_accuracy_goal_episodes"] = {
+        "mean": float(np.mean(gt_pass_accuracy_goal)) * 100.0 if gt_pass_accuracy_goal else 0.0,
+        "count": len(gt_pass_accuracy_goal),
+    }
+    agg["shot_accuracy_goal_episodes"] = {
+        "mean": float(np.mean(gt_shot_accuracy_goal)) * 100.0 if gt_shot_accuracy_goal else 0.0,
+        "count": len(gt_shot_accuracy_goal),
+    }
+    agg["pass_accuracy_no_goal_episodes"] = {
+        "mean": float(np.mean(gt_pass_accuracy_no_goal)) * 100.0 if gt_pass_accuracy_no_goal else 0.0,
+        "count": len(gt_pass_accuracy_no_goal),
+    }
+    agg["shot_accuracy_no_goal_episodes"] = {
+        "mean": float(np.mean(gt_shot_accuracy_no_goal)) * 100.0 if gt_shot_accuracy_no_goal else 0.0,
+        "count": len(gt_shot_accuracy_no_goal),
+    }
 
     # Print summary
     print("\n" + "=" * 60)
@@ -384,6 +427,10 @@ def evaluate_checkpoint_comprehensive(
     print(f"Possession %         : {agg['possession_rate_pct']['mean']:.1f}%")
     print(f"Episode Length       : {agg['mean_episode_length']:.1f} ± {agg['std_episode_length']:.1f} steps ({agg['mean_episode_duration_seconds']:.2f}s)")
     print(f"Mean Reward          : {agg['cumulative_reward']['mean']:.4f} ± {agg['cumulative_reward']['std']:.4f}")
+    print(f"Pass Acc (goal eps)  : {agg['pass_accuracy_goal_episodes']['mean']:.1f}% ({agg['pass_accuracy_goal_episodes']['count']} eps)")
+    print(f"Shot Acc (goal eps)  : {agg['shot_accuracy_goal_episodes']['mean']:.1f}% ({agg['shot_accuracy_goal_episodes']['count']} eps)")
+    print(f"Pass Acc (no-goal eps): {agg['pass_accuracy_no_goal_episodes']['mean']:.1f}% ({agg['pass_accuracy_no_goal_episodes']['count']} eps)")
+    print(f"Shot Acc (no-goal eps): {agg['shot_accuracy_no_goal_episodes']['mean']:.1f}% ({agg['shot_accuracy_no_goal_episodes']['count']} eps)")
     print("=" * 60)
 
     # Save detailed results

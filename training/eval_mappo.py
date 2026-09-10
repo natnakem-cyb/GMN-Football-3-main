@@ -89,6 +89,14 @@ def evaluate_mappo(
     ground_truth_shot_accuracy = []
     ground_truth_completed_passes = []
     ground_truth_total_shots = []
+    # Split by outcome so pass/shot accuracy is not conflated across
+    # scoring vs non-scoring episodes.
+    gt_possession_goal = []
+    gt_pass_accuracy_goal = []
+    gt_shot_accuracy_goal = []
+    gt_possession_no_goal = []
+    gt_pass_accuracy_no_goal = []
+    gt_shot_accuracy_no_goal = []
 
     for ep in range(1, num_episodes + 1):
         ep_seed = base_seed + ep
@@ -185,6 +193,21 @@ def evaluate_mappo(
                 ground_truth_completed_passes.append(episode_ground_truth["completed_passes_left"])
             if episode_ground_truth.get("total_shots_left") is not None:
                 ground_truth_total_shots.append(episode_ground_truth["total_shots_left"])
+            # Split by outcome
+            if goal_scored:
+                if episode_ground_truth.get("possession_left_pct") is not None:
+                    gt_possession_goal.append(episode_ground_truth["possession_left_pct"])
+                if episode_ground_truth.get("pass_accuracy") is not None:
+                    gt_pass_accuracy_goal.append(episode_ground_truth["pass_accuracy"])
+                if episode_ground_truth.get("shot_accuracy") is not None:
+                    gt_shot_accuracy_goal.append(episode_ground_truth["shot_accuracy"])
+            else:
+                if episode_ground_truth.get("possession_left_pct") is not None:
+                    gt_possession_no_goal.append(episode_ground_truth["possession_left_pct"])
+                if episode_ground_truth.get("pass_accuracy") is not None:
+                    gt_pass_accuracy_no_goal.append(episode_ground_truth["pass_accuracy"])
+                if episode_ground_truth.get("shot_accuracy") is not None:
+                    gt_shot_accuracy_no_goal.append(episode_ground_truth["shot_accuracy"])
 
         if ep % 10 == 0 or ep == num_episodes:
             print(
@@ -204,6 +227,11 @@ def evaluate_mappo(
     gt_shot_accuracy = float(np.mean(ground_truth_shot_accuracy)) if ground_truth_shot_accuracy else None
     gt_completed_passes = float(np.mean(ground_truth_completed_passes)) if ground_truth_completed_passes else None
     gt_total_shots = float(np.mean(ground_truth_total_shots)) if ground_truth_total_shots else None
+    # Split by outcome
+    gt_pass_accuracy_goal_mean = float(np.mean(gt_pass_accuracy_goal)) if gt_pass_accuracy_goal else None
+    gt_shot_accuracy_goal_mean = float(np.mean(gt_shot_accuracy_goal)) if gt_shot_accuracy_goal else None
+    gt_pass_accuracy_no_goal_mean = float(np.mean(gt_pass_accuracy_no_goal)) if gt_pass_accuracy_no_goal else None
+    gt_shot_accuracy_no_goal_mean = float(np.mean(gt_shot_accuracy_no_goal)) if gt_shot_accuracy_no_goal else None
 
     print("\n==================================================")
     print("MAPPO EVALUATION RESULTS SUMMARY")
@@ -215,9 +243,17 @@ def evaluate_mappo(
     if gt_possession is not None:
         print(f"Ground-Truth Possession : {gt_possession:.1f}% (left team)")
     if gt_pass_accuracy is not None:
-        print(f"Ground-Truth Pass Acc   : {gt_pass_accuracy:.1f}%")
+        print(f"Ground-Truth Pass Acc   : {gt_pass_accuracy:.1f}% (all episodes)")
     if gt_shot_accuracy is not None:
-        print(f"Ground-Truth Shot Acc   : {gt_shot_accuracy:.1f}%")
+        print(f"Ground-Truth Shot Acc   : {gt_shot_accuracy:.1f}% (all episodes)")
+    if gt_pass_accuracy_goal_mean is not None:
+        print(f"  Pass Acc (goal eps)   : {gt_pass_accuracy_goal_mean:.1f}% ({len(gt_pass_accuracy_goal)} eps)")
+    if gt_shot_accuracy_goal_mean is not None:
+        print(f"  Shot Acc (goal eps)   : {gt_shot_accuracy_goal_mean:.1f}% ({len(gt_shot_accuracy_goal)} eps)")
+    if gt_pass_accuracy_no_goal_mean is not None:
+        print(f"  Pass Acc (no-goal eps): {gt_pass_accuracy_no_goal_mean:.1f}% ({len(gt_pass_accuracy_no_goal)} eps)")
+    if gt_shot_accuracy_no_goal_mean is not None:
+        print(f"  Shot Acc (no-goal eps): {gt_shot_accuracy_no_goal_mean:.1f}% ({len(gt_shot_accuracy_no_goal)} eps)")
     if gt_completed_passes is not None:
         print(f"Completed Passes/Ep     : {gt_completed_passes:.1f}")
     if gt_total_shots is not None:
@@ -234,6 +270,12 @@ def evaluate_mappo(
         "ground_truth_shot_accuracy": gt_shot_accuracy,
         "ground_truth_completed_passes_ep": gt_completed_passes,
         "ground_truth_total_shots_ep": gt_total_shots,
+        "pass_accuracy_goal_episodes": gt_pass_accuracy_goal_mean,
+        "shot_accuracy_goal_episodes": gt_shot_accuracy_goal_mean,
+        "pass_accuracy_no_goal_episodes": gt_pass_accuracy_no_goal_mean,
+        "shot_accuracy_no_goal_episodes": gt_shot_accuracy_no_goal_mean,
+        "goal_episodes_count": len(gt_pass_accuracy_goal),
+        "no_goal_episodes_count": len(gt_pass_accuracy_no_goal),
     }
 
 
