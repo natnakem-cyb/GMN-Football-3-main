@@ -84,6 +84,10 @@ def run_mappo_training(
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
 
+    # Continuous forensic logging: per-episode JSONL trace for the entire run.
+    _forensic_dir = os.path.join(os.path.dirname(__file__), "results", "forensics")
+    os.makedirs(_forensic_dir, exist_ok=True)
+
     print("\n1. Initializing Multi-Agent Environment & MAPPO Networks...")
     # Self-play / opponent pool (Task: opponent generalization). When enabled,
     # a pool of rule-based difficulties (and periodic policy snapshots) is
@@ -124,6 +128,15 @@ def run_mappo_training(
                 )
             )
         env = envs[0]
+
+    # Continuous forensic logging: per-episode JSONL trace for the entire run.
+    _forensic_run_id = time.strftime("%Y%m%dT%H%M%S")
+    _terminal_jsonl_path = os.path.join(
+        _forensic_dir, f"terminal_tick_trace_{scenario}_seed{seed}_{_forensic_run_id}.jsonl"
+    )
+    # Expose on env so existing end-of-run logging can find it.
+    env._last_terminal_jsonl = _terminal_jsonl_path
+
     num_agents = len(env.possible_agents)
     obs_dim = OBSERVATION_DIM
     global_state_dim = obs_dim * num_agents
@@ -281,10 +294,16 @@ def run_mappo_training(
 
         # 1. Collect Rollout
         if n_envs > 1:
-            buffer = collect_rollout_batched(env, actor, critic, num_steps=n_steps, batch_size=n_envs)
+            buffer = collect_rollout_batched(
+                env, actor, critic, num_steps=n_steps, batch_size=n_envs,
+                terminal_jsonl_path=_terminal_jsonl_path,
+            )
             total_steps_elapsed += n_steps * n_envs
         else:
-            buffer = collect_rollout(env, actor, critic, num_steps=n_steps)
+            buffer = collect_rollout(
+                env, actor, critic, num_steps=n_steps,
+                terminal_jsonl_path=_terminal_jsonl_path,
+            )
             total_steps_elapsed += n_steps
 
         # Record completed episodes
@@ -403,6 +422,24 @@ def run_mappo_training(
                 goal_pct = float(np.mean(recent_retention)) * 100.0
 
             trend_snapshots.append((total_steps_elapsed, len(episode_rewards), mean_rew, goal_pct))
+
+            # Log cumulative reward-shaping event counters alongside trend snapshots
+            # so we can confirm event-code fixes reach live training, not just tests.
+            _shaper_diag = {}
+            _shaper_cum = {}
+            if getattr(env, "reward_shaper", None) is not None:
+                try:
+                    _shaper_diag = env.reward_shaper.get_diagnostics()
+                    _shaper_cum = env.reward_shaper.get_cumulative_diagnostics()
+                except Exception:
+                    pass
+            if _shaper_cum:
+                print(
+                    f"   [EVENT COUNTERS] total_pass_completed={_shaper_cum.get('total_pass_completed_count', 0)} "
+                    f"| total_goals={_shaper_cum.get('total_goal_scored_count', 0)} "
+                    f"| total_turnovers={_shaper_cum.get('total_turnover_conceded_count', 0)}",
+                    flush=True,
+                )
 
             # Update best rolling checkpoint based on stochastic rollout goal rate (same metric as the console log).
             # This is a fast, cheap signal for monitoring/early-stopping, but it does NOT reflect deterministic
@@ -594,7 +631,19 @@ def run_mappo_training(
 
     # Persist trend snapshots
     if trend_snapshots:
-        persist_trend_snapshots(trend_snapshots, algorithm="MAPPO", scenario=scenario, seed=seed)
+        _final_event_counters = {}
+        if getattr(env, "reward_shaper", None) is not None:
+            try:
+                _final_event_counters = env.reward_shaper.get_cumulative_diagnostics()
+            except Exception:
+                pass
+        persist_trend_snapshots(
+            trend_snapshots,
+            algorithm="MAPPO",
+            scenario=scenario,
+            seed=seed,
+            event_counters=_final_event_counters,
+        )
 
     # 5. Print Training Reward & Performance Trend Summary
     print("\n5. Training Reward & Performance Trend Summary:", flush=True)
