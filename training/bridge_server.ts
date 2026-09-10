@@ -1199,48 +1199,50 @@ wss.on('connection', (ws: WebSocket, req) => {
           const defenderReward = isRondo ? (bridge['engine'].getActiveScenarioHandler() as any)?.getLastDefenderReward?.() ?? 0 : 0;
           ws.send(encodeStepBinary(stepResult, ballOwnerAgentIdx, isRondo, defenderReward), { binary: true })
         } else if (buf.length >= 2) {
-          // batched vectorized path: [B (1B)] [N (1B)] [B*N action bytes]
-          const B = buf.readUInt8(0);
-          const N = buf.readUInt8(1);
-          const expectedLen = 2 + B * N;
-          if (B > 0 && N > 0 && buf.length === expectedLen) {
-            const actionSets: Array<{ actions: number[]; controllableIds: string[] }> = [];
-            for (let envIdx = 0; envIdx < B; envIdx++) {
-              const engine = envIdx === 0 ? bridge['engine'] : bridge['pool'][envIdx - 1];
-              const isRondo = engine.activeScenario?.id === 'academy_rondo_4v1';
-              const envActions: number[] = [];
-              const baseOffset = 2 + envIdx * N;
-              for (let a = 0; a < N; a++) {
-                const act = buf.readUInt8(baseOffset + a);
-                if (act >= ACTION_SPACE_SIZE) {
-                  ws.send(encodeErrorStepBinary(N, isRondo), { binary: true });
-                  return;
+          // batched vectorized path: [0xFF (1B)] [B (1B)] [N (1B)] [B*N action bytes]
+          if (buf.length >= 3 && buf.readUInt8(0) === 0xFF) {
+            const B = buf.readUInt8(1);
+            const N = buf.readUInt8(2);
+            const expectedLen = 3 + B * N;
+            if (B > 0 && N > 0 && buf.length === expectedLen) {
+              const actionSets: Array<{ actions: number[]; controllableIds: string[] }> = [];
+              for (let envIdx = 0; envIdx < B; envIdx++) {
+                const engine = envIdx === 0 ? bridge['engine'] : bridge['pool'][envIdx - 1];
+                const isRondo = engine.activeScenario?.id === 'academy_rondo_4v1';
+                const envActions: number[] = [];
+                const baseOffset = 3 + envIdx * N;
+                for (let a = 0; a < N; a++) {
+                  const act = buf.readUInt8(baseOffset + a);
+                  if (act >= ACTION_SPACE_SIZE) {
+                    ws.send(encodeErrorStepBinary(N, isRondo), { binary: true });
+                    return;
+                  }
+                  envActions.push(act);
                 }
-                envActions.push(act);
+                const isRondoScenario = engine.activeScenario?.id === 'academy_rondo_4v1';
+                const controllableIds = isRondoScenario
+                  ? engine.players.map((p) => p.id)
+                  : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
+                actionSets.push({ actions: envActions, controllableIds });
               }
-              const isRondoScenario = engine.activeScenario?.id === 'academy_rondo_4v1';
-              const controllableIds = isRondoScenario
-                ? engine.players.map((p) => p.id)
-                : engine.players.filter((p) => p.team === 'left').map((p) => p.id);
-              actionSets.push({ actions: envActions, controllableIds });
-            }
-            const batchResults = await bridge.stepBatch(actionSets);
-            const episodeStatsList: any[] = [];
-            for (const r of batchResults) {
-              if (r.terminated || r.truncated) {
-                episodeStatsList.push({ type: 'EPISODE_STATS', ...r.info.ground_truth });
+              const batchResults = await bridge.stepBatch(actionSets);
+              const episodeStatsList: any[] = [];
+              for (const r of batchResults) {
+                if (r.terminated || r.truncated) {
+                  episodeStatsList.push({ type: 'EPISODE_STATS', ...r.info.ground_truth });
+                }
               }
+              for (const stats of episodeStatsList) {
+                ws.send(JSON.stringify(stats));
+              }
+              if (debugState) {
+                const components = computeRewardComponents(batchResults[0]);
+                ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
+              }
+              ws.send(encodeBatchedStepBinary(batchResults), { binary: true });
             }
-            for (const stats of episodeStatsList) {
-              ws.send(JSON.stringify(stats));
-            }
-            if (debugState) {
-              const components = computeRewardComponents(batchResults[0]);
-              ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
-            }
-            ws.send(encodeBatchedStepBinary(batchResults), { binary: true });
-            } else if (buf.length > 1) {
-              // existing multi-agent path — unchanged
+          } else if (buf.length > 1) {
+            // existing multi-agent path — unchanged
             const actionIndices = Array.from(buf); // one uint8 per controlled agent, in controllableAgentIds order
             const invalidIdx = actionIndices.findIndex((a) => a >= ACTION_SPACE_SIZE);
             if (invalidIdx >= 0) {
