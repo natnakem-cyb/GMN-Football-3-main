@@ -809,26 +809,31 @@ def run_mappo_training(
         if terminal_jsonl:
             print(f"   [FORENSIC] Terminal tick JSONL: {terminal_jsonl}", flush=True)
 
-        # Write M1b attribution trace: per-victim-event resolution records.
-        _shaper = getattr(env, "reward_shaper", None)
-        if _shaper is not None and hasattr(_shaper, "get_attribution_log"):
-            _attr_path = os.path.join(
-                _forensic_dir, f"attribution_trace_{scenario}_seed{seed}_{_run_id}.jsonl"
-            )
-            _fallback_hits = 0
-            _fallback_with_penalty = 0
-            with open(_attr_path, "w", encoding="utf-8") as _af:
-                for _rec in _shaper.get_attribution_log():
-                    _af.write(json.dumps(_rec) + "\n")
-                    if _rec.get("fallback_used"):
-                        _fallback_hits += 1
-                        if _rec.get("penalty_applied"):
-                            _fallback_with_penalty += 1
-            print(
-                f"   [FORENSIC] Attribution trace JSONL: {_attr_path} "
-                f"(fallback_events={_fallback_hits}, fallback_with_penalty={_fallback_with_penalty})",
-                flush=True,
-            )
+    # M1b attribution trace: per-victim-event resolution records. Always written
+    # (not gated behind forensic_debug) because this is the evidence artifact that
+    # proves the -0.10 penalty reaches a real interception frame in a live run.
+    _shaper = getattr(env, "reward_shaper", None)
+    if _shaper is not None and hasattr(_shaper, "get_attribution_log"):
+        _forensic_dir = os.path.join(models_dir, "..", "results", "forensics")
+        os.makedirs(_forensic_dir, exist_ok=True)
+        _attr_path = os.path.join(
+            _forensic_dir,
+            f"attribution_trace_{scenario}_seed{seed}_{time.strftime('%Y%m%dT%H%M%S')}.jsonl",
+        )
+        _fallback_hits = 0
+        _fallback_with_penalty = 0
+        with open(_attr_path, "w", encoding="utf-8") as _af:
+            for _rec in _shaper.get_attribution_log():
+                _af.write(json.dumps(_rec) + "\n")
+                if _rec.get("fallback_used"):
+                    _fallback_hits += 1
+                    if _rec.get("penalty_applied"):
+                        _fallback_with_penalty += 1
+        print(
+            f"   [FORENSIC] Attribution trace JSONL: {_attr_path} "
+            f"(fallback_events={_fallback_hits}, fallback_with_penalty={_fallback_with_penalty})",
+            flush=True,
+        )
 
     # H4: Update experiment manifest with final results.
     try:
