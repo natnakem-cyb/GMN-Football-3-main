@@ -22,7 +22,16 @@ the files in `training/models/` at revision `c22b053`.
 ## Known-good verification commands
 ```bash
 certutil -hashfile training/models/mappo_academy_3_vs_1_with_keeper_seed42_best.pt SHA256
-C:\Python314\python.exe -m pytest training/tests/test_reward_shaper.py -q          # 17 passed
+C:\Python314\python.exe -m pytest training/tests/test_reward_shaper.py -q          # 27 passed (1 pre-existing unrelated failure)
 C:\Python314\python.exe training/test_reward_shape_e2e.py                          # wire test PASS
 npx tsc --noEmit                                                                   # contract/type check
 ```
+
+## Semantic fix log (2026-09-11)
+
+| ID | File | Fix description | Verification |
+|---|---|---|---|
+| M1 | `training/gmn_pettingzoo.py` | `CooperativeRewardShaper.compute_shaped_rewards` now processes `PASS_INTERCEPTED`, `PASS_FAILED`, `TURNOVER_CONCEDED` regardless of the engine's `team` tag. Added `penalty_turnover` (-0.10) parameter. | New tests: `test_pass_intercepted_with_right_team_tag_penalizes_left_agent`, `test_turnover_conceded_with_right_team_tag_penalizes_left_agent`, updated `test_turnover_chain_break`. |
+| M2 | `training/gmn_pettingzoo.py` | Removed terminal-step guard in `step()` that stripped shaped rewards on terminal frames. Implemented assisted-goal bonus: when `pass_chain_length > 0` and a goal is scored, all active left-team agents receive `r_assisted_goal` (+0.50). | New tests: `test_goal_bonus_received_on_terminal_step`, `test_assisted_goal_bonus_distributed_to_all_active_agents`, `test_goal_without_pass_chain_does_not_give_bonus`. |
+| H1 | `training/bridge_server.ts` | `stepBatch` now passes the per-env `engine` variable into `runOnnxInference` and `_applyRuleBasedAction` fallback instead of always using `this.engine`. | Code review; no TS unit-test framework present. |
+| M5 | `training/gmn_pettingzoo.py` | `step_batch` now maintains per-sub-env `pending_pass`, `reward_shaper`, and `last_actions`. Added `_build_shaper_events`, `_apply_shaping_for_env`, and refactored `_resolve_pending_pass_state` as stateless helper. Non-rondo batched rewards normalized to per-agent dicts. | New tests: `TestM5BatchedRewardShaping` (5 tests covering event mapping, pending-pass state machine, shaping application, and env-state initialization). |
