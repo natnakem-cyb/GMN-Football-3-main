@@ -1034,7 +1034,7 @@ class GMNMultiAgentEnv(ParallelEnv):
                     resolved_type = (
                         "PASS_FAILED" if owner_id.startswith("right_") else "PASS_COMPLETED"
                     )
-            elif current_ev_type in ("interception", "tackle", "foul", "out_of_bounds", "offside"):
+            elif current_ev_type in ("interception", "tackle", "foul", "out_of_bounds", "offside", "pass_intercepted"):
                 resolved_type = "PASS_FAILED"
             if resolved_type is None and pending_pass["age"] > 60:
                 resolved_type = "PASS_FAILED"

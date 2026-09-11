@@ -570,7 +570,8 @@ def run_mappo_training(
                     num_episodes=30,
                     deterministic=True,
                 )
-                milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
+                _raw_milestone_goal_rate = eval_row.get("goal_rate_pct", 0.0)
+                milestone_goal_rate = float(_raw_milestone_goal_rate) if not isinstance(_raw_milestone_goal_rate, dict) else 0.0
                 milestone_eval_id = eval_row.get("evaluation_id", "N/A")
                 milestone_ckpt_sha = eval_row.get("checkpoint_sha256", "N/A")
                 # First milestone is accepted unconditionally; subsequent milestones must beat
@@ -603,7 +604,9 @@ def run_mappo_training(
                         flush=True,
                     )
             except Exception as e:
+                import traceback as _traceback
                 print(f"[Notice] MAPPO milestone eval notice: {e}")
+                print("[DEBUG] Full traceback:\n" + _traceback.format_exc(), flush=True)
 
     duration = time.time() - start_time
     steps_this_run = total_steps_elapsed - total_steps_elapsed_at_start
@@ -643,7 +646,8 @@ def run_mappo_training(
             num_episodes=50,
             deterministic=True,
         )
-        end_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
+        _raw_goal_rate = eval_row.get("goal_rate_pct", 0.0)
+        end_goal_rate = float(_raw_goal_rate) if not isinstance(_raw_goal_rate, dict) else 0.0
         end_eval_id = eval_row.get("evaluation_id", "N/A")
         end_ckpt_sha = eval_row.get("checkpoint_sha256", "N/A")
         if not _has_best_deterministic or end_goal_rate > best_deterministic_goal_rate + 2.0:
@@ -674,7 +678,9 @@ def run_mappo_training(
                 flush=True,
             )
     except Exception as e:
+        import traceback as _traceback
         print(f"[Notice] End-of-run MAPPO eval notice: {e}")
+        print("[DEBUG] Full traceback:\n" + _traceback.format_exc(), flush=True)
 
     # Preserve best deterministic checkpoint as the durable exported artifact.
     # The deployed browser policy (TrainedPolicyAgent) runs deterministically, so the checkpoint

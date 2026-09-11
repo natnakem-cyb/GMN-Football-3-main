@@ -423,6 +423,7 @@ def evaluate_multi_agent_ippo(
     bridge_port: int = 5050,
 ) -> Dict[str, float]:
     from training.gmn_pettingzoo import GMNMultiAgentEnv
+    from training.mappo_rollout import unwrap_obs
     from stable_baselines3 import PPO
 
     model = PPO.load(checkpoint_path)
@@ -461,6 +462,7 @@ def evaluate_multi_agent_ippo(
 
             while not done and steps < 600:
                 actions = {}
+                obs_dict = unwrap_obs(obs_dict)
                 for agent_id in env.agents:
                     obs = obs_dict[agent_id]
                     act, _ = model.predict(obs, deterministic=deterministic)
@@ -470,6 +472,7 @@ def evaluate_multi_agent_ippo(
                         shots += 1
 
                 obs_dict, rews, terms, truncs, infos = env.step(actions)
+                obs_dict = unwrap_obs(obs_dict)
                 steps += 1
 
                 if env.possible_agents and env.possible_agents[0] in rews:
@@ -589,6 +592,7 @@ def evaluate_multi_agent_mappo(
     import torch
     from training.gmn_pettingzoo import GMNMultiAgentEnv
     from training.mappo_networks import SharedActor
+    from training.mappo_rollout import unwrap_obs
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     obs_dim = checkpoint.get("obs_dim", 127 if "actor" in checkpoint and checkpoint["actor"]["net.0.weight"].shape[1] == 127 else (checkpoint["actor"]["net.0.weight"].shape[1] if "actor" in checkpoint else 127))
@@ -634,6 +638,7 @@ def evaluate_multi_agent_mappo(
 
             while not done and steps < 600:
                 current_agents = list(env.agents if env.agents else controllable_agents)
+                obs_dict = unwrap_obs(obs_dict)
                 local_obs = np.stack([obs_dict[a] for a in current_agents], axis=0).astype(np.float32)
 
                 with torch.no_grad():
@@ -872,6 +877,10 @@ def evaluate_checkpoint_progress(
         "provenance": provenance_str,
         "env_hash": env_hash,
     }
+    # DEBUG: inspect eval_metrics and row for unexpected dict values
+    import sys as _sys
+    print(f"[DEBUG eval_progress] eval_metrics={eval_metrics!r}", file=_sys.stderr)
+    print(f"[DEBUG eval_progress] row goal_rate_pct type={type(row.get('goal_rate_pct'))!r} value={row.get('goal_rate_pct')!r}", file=_sys.stderr)
 
     append_progress_row(csv_path, row)
     print(
@@ -926,7 +935,12 @@ def persist_trend_snapshots(
         else:
             writer.writerow(["step", "episodes", "mean_reward", "goal_rate_pct"])
         for idx, item in enumerate(snapshots):
-            step, num_eps, mean_rew, goal_pct = item
+            # Support both legacy 4-tuples (step, num_eps, mean_rew, goal_pct)
+            # and new 5-tuples (step, num_eps, mean_rew, goal_pct, event_counters).
+            if len(item) == 5:
+                step, num_eps, mean_rew, goal_pct, _embedded_counters = item
+            else:
+                step, num_eps, mean_rew, goal_pct = item
             if _has_events:
                 if _per_snapshot:
                     counters = event_counters_per_snapshot[idx]
