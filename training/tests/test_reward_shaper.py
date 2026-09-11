@@ -328,12 +328,13 @@ class TestPendingPassStateMachine:
         events = env._resolve_pending_pass(255, None)  # timeout step
         assert events == [{"type": "PASS_FAILED", "team": "left", "agent_id": "left_0"}]
 
-    def test_new_pass_finalizes_previous_as_completed(self):
+    def test_new_pass_clears_stale_pending_pass(self):
         env = self._make_env(["left_0", "left_1", "left_2"])
         env._resolve_pending_pass(0, "pass")
-        # Rapid second pass before possession was observable: previous completes.
+        # Rapid second pass before possession was observable: stale pass is cleared
+        # without fabricating a PASS_COMPLETED (engine events are authoritative).
         events = env._resolve_pending_pass(1, "pass")
-        assert events == [{"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_0"}]
+        assert events == []
         assert env._pending_pass["agent_id"] == "left_1"
 
 
