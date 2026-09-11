@@ -300,12 +300,13 @@ def evaluate_single_agent_ppo(
     num_episodes: int = 50,
     deterministic: bool = True,
     base_seed: int = 500000,
+    bridge_port: int = 5050,
 ) -> Dict[str, float]:
     from training.gmn_gym import GMNFootballEnv
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-    raw_env = GMNFootballEnv(scenario=scenario, port=5050, use_ws=True)
+    raw_env = GMNFootballEnv(scenario=scenario, port=bridge_port, use_ws=True)
     vec_env = DummyVecEnv([lambda: raw_env])
 
     vec_norm_path = checkpoint_path.replace(".zip", "_vecnormalize.pkl")
@@ -419,12 +420,13 @@ def evaluate_multi_agent_ippo(
     num_episodes: int = 50,
     deterministic: bool = True,
     base_seed: int = 500000,
+    bridge_port: int = 5050,
 ) -> Dict[str, float]:
     from training.gmn_pettingzoo import GMNMultiAgentEnv
     from stable_baselines3 import PPO
 
     model = PPO.load(checkpoint_path)
-    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True)
+    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True, port=bridge_port)
 
     rewards = []
     goals = 0
@@ -582,6 +584,7 @@ def evaluate_multi_agent_mappo(
     num_episodes: int = 50,
     deterministic: bool = True,
     base_seed: int = 500000,
+    bridge_port: int = 5050,
 ) -> Dict[str, float]:
     import torch
     from training.gmn_pettingzoo import GMNMultiAgentEnv
@@ -595,7 +598,7 @@ def evaluate_multi_agent_mappo(
     actor.load_state_dict(checkpoint["actor"])
     actor.eval()
 
-    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True)
+    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True, port=bridge_port)
     controllable_agents = list(env.possible_agents)
 
     rewards = []
@@ -767,6 +770,7 @@ def evaluate_checkpoint_progress(
     base_seed: int = 500000,
     csv_path: str = DEFAULT_CSV_PATH,
     force_reeval: bool = False,
+    bridge_port: int = 5050,
 ) -> Dict[str, Any]:
     """
     Loads checkpoint, runs deterministic evaluation rollout, and appends row to CSV.
@@ -816,6 +820,7 @@ def evaluate_checkpoint_progress(
             num_episodes=num_episodes,
             deterministic=deterministic,
             base_seed=base_seed,
+            bridge_port=bridge_port,
         )
     elif algo_upper == "IPPO":
         eval_metrics = evaluate_multi_agent_ippo(
@@ -824,6 +829,7 @@ def evaluate_checkpoint_progress(
             num_episodes=num_episodes,
             deterministic=deterministic,
             base_seed=base_seed,
+            bridge_port=bridge_port,
         )
     elif algo_upper == "MAPPO":
         eval_metrics = evaluate_multi_agent_mappo(
@@ -832,6 +838,7 @@ def evaluate_checkpoint_progress(
             num_episodes=num_episodes,
             deterministic=deterministic,
             base_seed=base_seed,
+            bridge_port=bridge_port,
         )
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}. Expected PPO, IPPO, or MAPPO.")
@@ -885,11 +892,16 @@ def persist_trend_snapshots(
     output_dir: str = os.path.join(os.path.dirname(__file__), "results"),
     seed: int = None,
     event_counters: Dict[str, Any] = None,
+    event_counters_per_snapshot: List[Dict[str, Any]] = None,
 ) -> str:
     """
     Persists in-training trend snapshots to training/results/trend_<algorithm>_<scenario>.csv.
     When a seed is provided, the filename is suffixed with _seed<seed> to avoid
     write-mode races between concurrent training runs.
+
+    Prefer event_counters_per_snapshot (one dict per snapshot row) so each row
+    carries the cumulative diagnostics captured at that checkpoint. Fall back to
+    the single event_counters dict for backward compatibility with older callers.
     """
     os.makedirs(output_dir, exist_ok=True)
     algo_lower = algorithm.lower()
@@ -897,8 +909,11 @@ def persist_trend_snapshots(
     filename = f"trend_{algo_lower}_{scenario}{seed_suffix}.csv"
     csv_path = os.path.join(output_dir, filename)
 
-    _has_events = event_counters is not None and any(
-        v > 0 for v in event_counters.values() if isinstance(v, int)
+    _per_snapshot = event_counters_per_snapshot is not None and len(event_counters_per_snapshot) == len(snapshots)
+    _has_events = _per_snapshot or (
+        event_counters is not None and any(
+            v > 0 for v in event_counters.values() if isinstance(v, int)
+        )
     )
 
     with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
@@ -910,14 +925,18 @@ def persist_trend_snapshots(
             ])
         else:
             writer.writerow(["step", "episodes", "mean_reward", "goal_rate_pct"])
-        for item in snapshots:
+        for idx, item in enumerate(snapshots):
             step, num_eps, mean_rew, goal_pct = item
             if _has_events:
+                if _per_snapshot:
+                    counters = event_counters_per_snapshot[idx]
+                else:
+                    counters = event_counters
                 writer.writerow([
                     step, num_eps, f"{mean_rew:.4f}", f"{goal_pct:.2f}",
-                    event_counters.get("total_pass_completed_count", 0),
-                    event_counters.get("total_goal_scored_count", 0),
-                    event_counters.get("total_turnover_conceded_count", 0),
+                    counters.get("total_pass_completed_count", 0),
+                    counters.get("total_goal_scored_count", 0),
+                    counters.get("total_turnover_conceded_count", 0),
                 ])
             else:
                 writer.writerow([step, num_eps, f"{mean_rew:.4f}", f"{goal_pct:.2f}"])

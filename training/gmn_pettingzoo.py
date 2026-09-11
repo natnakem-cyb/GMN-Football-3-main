@@ -360,8 +360,6 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         # Ensure Bridge Server is running & connected
         self._ensure_bridge_running()
-        if opponent_difficulty != "medium":
-            self.set_opponent_difficulty(opponent_difficulty)
         # P0 #6: bounded WS receive timeout (never hang on a missing frame).
         self.ws_recv_timeout = float(os.environ.get("GMN_WS_RECV_TIMEOUT", "10.0"))
         if self.auto_start_bridge:
@@ -372,6 +370,12 @@ class GMNMultiAgentEnv(ParallelEnv):
         # skip reset so ws_client stays None until the caller sets it.
         if self.auto_start_bridge:
             self.reset()
+
+        # Set opponent difficulty AFTER bridge is fully ready and connected.
+        # Calling before _connect_ws() can fail silently if the bridge was just
+        # started and its /opponent endpoint is not yet accepting requests.
+        if opponent_difficulty != "medium":
+            self.set_opponent_difficulty(opponent_difficulty)
 
     def set_opponent_difficulty(self, difficulty: str) -> None:
         """Set the right-team (bot) difficulty via the bridge /opponent endpoint."""
