@@ -123,7 +123,7 @@ Technology Stack
 | Node bridge runtime | Node.js via `tsx` |
 | Transport | HTTP (REST) and binary WebSocket (`ws`) |
 | RL API (single-agent) | Gymnasium |
-| RL API (multi-agent) | PettingZoo, with **SuperSuit vectorization actually wired up for IPPO training** (`train_ippo.py` builds a real multi-sub-environment `SuperSuit` vec-env; PPO and MAPPO training still run a single environment instance per process) |
+| RL API (multi-agent) | PettingZoo, with **SuperSuit vectorization wired up for IPPO training** (`train_ippo.py` builds a real multi-sub-environment `SuperSuit` vec-env) and **batched single-bridge stepping for PPO/MAPPO** via `--n-envs N` (`bridge_server.ts` `stepBatch` with pooled engines; not the default) |
 | RL algorithms | Stable-Baselines3 PPO; custom IPPO and MAPPO implementations |
 | ML backend | PyTorch |
 | Browser inference | **`onnxruntime-web`, loading `public/models/mappo_policy.onnx`.** `src/agents/TrainedPolicyAgent.ts` runs real ONNX inference for the in-browser "Neural" controller. The older hand-rolled MLP path (`src/agents/mappo_weights.ts`) is explicitly `@deprecated` in the file itself and retained only for offline reference / test parity, not used in the live decision path. The `RLGymnasiumPanel` supports hot-swapping `.onnx` models at runtime without restarting the app. |
@@ -302,7 +302,11 @@ Current Status
 - HTTP + binary WebSocket bridge with transport-parity tests
 - Gymnasium (single-agent) and PettingZoo (multi-agent, left-team-only) environments
 - Stable-Baselines3 PPO integration, plus custom IPPO and MAPPO implementations
-- **Real vectorized rollout collection for IPPO via SuperSuit** (PPO and MAPPO are not yet vectorized)
+- **Real vectorized rollout collection for IPPO via SuperSuit**
+- **Batched single-bridge stepping** for PPO/MAPPO via `--n-envs N` (`bridge_server.ts` `stepBatch` with pooled engines replaces the old one-process-per-env approach; `train_mappo.py` uses `collect_rollout_batched` when `n_envs > 1`)
+- **Hard action masking** at the policy level: `ObservationEncoder.getActionMask` zeroes out ball-handling actions (pass/shot/dribble) when the player lacks possession and tackle when they have it, so the policy cannot select illegal actions rather than being penalized after the fact
+- **Self-play / opponent pool** (wired, not yet exercised end-to-end): `bridge_server.ts` runs real learned-policy ONNX inference for the right team via cached per-engine sessions (`runOnnxInference`), and `training/opponent_pool.py` snapshots the training actor for the opponent. Wired into `train_mappo.py` via `--self-play` and sampled every episode via `reset()`, but a full training run with `self_play=True` has not yet been confirmed.
+- **Automatic curriculum scheduler**: `training/curriculum_scheduler.py` implements a real rolling-window promote/demote scheduler wired into `train_mappo.py` via `--curriculum`, with correct per-stage episode gating (not a lifetime counter). Unit and integration-tested (`test_curriculum_integration.py`); a full live multi-stage training run with promotion/demotion has not yet been confirmed.
 - ONNX export and browser-side ONNX inference for the trained MAPPO policy, actively used by the live match UI
 - Runtime ONNX hot-swap in `RLGymnasiumPanel` (file picker loads a new `.onnx` and reloads `TrainedPolicyAgent` without restarting)
 - Formation overlay toggle on pitch view (`PitchCanvas.tsx`) showing role labels and offside lines
@@ -310,19 +314,19 @@ Current Status
 - Scenario objective progress bar in `ScenarioSelector.tsx`
 - Scenario registry from 1v0 drills through 5v5 and 11v11
 - Determinism, transport-parity, and observation/action audit test suites
+- `academy_rondo_4v1` is the one scenario where **both sides are genuinely policy-controlled** (all players on both teams are in `controllableAgentIds`); every other scenario has a scripted/frozen right-side opponent
 
 **Not yet done — read before assuming a fully "trained agent" exists:**
 - The MAPPO browser policy on `academy_3_vs_1_with_keeper` has been trained to ~200k steps but has not yet reached the task-brief target of `success_rate >= 40%` over 100 eval episodes. IPPO on the same scenario has reached ~68% goal rate.
-- PPO and MAPPO training still run a single environment instance per process, each step a blocking round-trip to a single Node bridge process — throughput for those two algorithms is well below what's typically needed for full-match RL training. (IPPO's SuperSuit vectorization is a partial exception — verify whether its vectorized sub-environments still each open their own bridge connection before assuming this fully removes the bottleneck.)
-- Training is single-sided: only the left team is ever the learning agent; the opponent is always a fixed-difficulty `RuleBasedAgent`. There is no self-play or opponent-checkpoint pool wired into training yet, though references to self-play exist in `training/modular_networks.py` — its current functional status should be verified rather than assumed.
-- No confirmed automatic curriculum scheduler across the scenario registry, though `training/train_stage2_ppo.py` and `src/components/ScenarioSelector.tsx` reference curriculum-related concepts — verify their actual behavior before relying on them.
+- PPO and MAPPO training still default to a single environment instance per process. Parallel stepping via `--n-envs N` exists and uses a single batched bridge with pooled engines (replacing the old one-process-per-env approach), but it is not the default and has seen less production use than the single-env path.
 - No spatial/SMM/CNN observation path — the contract is a flat 127-float vector, despite "SMM"/"CNN" appearing as comparative references in a few files.
+- A known earlier reward-hacking investigation found trained policies exploiting direct-shoot and pass-spam patterns. Several real bugs in the reward-attribution pipeline have since been found and fixed: event-code transmission from engine to Python, terminal-tick reward-shaper gating (shaped rewards were being stripped on the final frame), and interception/turnover victim attribution (the engine reports `ball_owner_agent_idx=255` on interception frames with no passer ID, so a shaper-side `previous_left_ball_carrier` fallback now attributes the penalty). These fixes are verified via a scripted exploit-test suite (`training/tests/test_reward_exploits.py`) and live-bridge smoke tests. This is not overclaimed as "solved" — a fresh 3-seed 200k retrain (seeds 42/123/999) is currently in progress to confirm the trained-policy behavior actually changed.
 
 GMN-Football-3 should currently be described as an RL-ready football simulation and research platform with one real deployed browser policy for one drill scenario, plus additional non-browser-trained checkpoints for other scenarios — not as a system that already plays professional-level football.
 
 Known Limitations
 -------------------
-- Determinism is not guaranteed for every agent. `RuleBasedAgent` and tackle resolution (`PhysicsEngine.executeTackle`) correctly use the seeded RNG; `NeuralHeuristicAgent` and `HumanAgent` currently use `Math.random()` directly for some decisions, so browser-only opponent behavior isn't reproducible (this doesn't affect training determinism, since neither is wired into the bridge).
+- `NeuralHeuristicAgent` and `HumanAgent` previously used `Math.random()` for some decisions; both now use the seeded `SeededRNG`. Determinism for these agents is improved but not yet asserted by a dedicated regression test — treat as fixed-but-not-locked-down until such a test exists.
 - Contract constants are single-sourced from `src/engine/Contract.ts`; `npm run check:contracts` (part of CI and `npm run lint`) fails when `scripts/sync_contracts.ts` would change the generated Python blocks. Run `npm run sync-contracts` to regenerate.
 - `training/` contains substantially more scripts (duplicate `.ts`/`.py` pairs for several eval and validation tasks, a `modular_encoder`/`modular_networks` pair, stage-2 audit/validation scripts) than are documented in this README's Repository Structure section — treat that section as a guide to the most important files, not an exhaustive list.
 
@@ -334,7 +338,10 @@ Earlier project documentation (including a previous version of this README and t
 |---|---|
 | "The browser 'Neural Policy' controller currently falls back to `RuleBasedAgent`" | False. `App.tsx` routes the `neural` controller directly to `TrainedPolicyAgent`, which runs real ONNX inference. |
 | "ONNX export path is currently unused... runs a hand-written forward pass against `mappo_weights.ts`" | False. `TrainedPolicyAgent.create()` loads `public/models/mappo_policy.onnx` via `onnxruntime-web`; `mappo_weights.ts` is explicitly `@deprecated` and used only for offline/test-parity reference. |
-| "Environment stepping is not parallelized... one environment instance per process" (stated as a blanket fact) | Partially false. `train_ippo.py` uses `SuperSuit` to build a real multi-sub-environment vectorized environment. PPO and MAPPO remain single-instance. |
+| "Environment stepping is not parallelized... one environment instance per process" (stated as a blanket fact) | Partially false. `train_ippo.py` uses `SuperSuit` to build a real multi-sub-environment vectorized environment. PPO and MAPPO also support parallel stepping via `--n-envs N` using a single batched bridge with pooled engines (`bridge_server.ts` `stepBatch`), though it is not the default. |
+| "There is no self-play or opponent-checkpoint pool wired into training" | False. `bridge_server.ts` runs real learned-policy ONNX inference for the right team via cached per-engine sessions, and `training/opponent_pool.py` snapshots the training actor — wired into `train_mappo.py` via `--self-play`. Not yet confirmed in a full end-to-end training run. |
+| "No confirmed automatic curriculum scheduler" | False. `training/curriculum_scheduler.py` implements a rolling-window promote/demote scheduler wired into `train_mappo.py` via `--curriculum`, with per-stage episode gating. Unit and integration-tested; not yet confirmed in a full live multi-stage run. |
+| "`NeuralHeuristicAgent` and `HumanAgent` use `Math.random()` directly" | No longer true. Both now use the seeded `SeededRNG`. A dedicated regression test locking this down does not yet exist. |
 
 If you're extending this project's documentation further, verify claims like these against the actual code rather than carrying them forward — this codebase has previously accumulated stale claims about its own capabilities across multiple documents.
 
