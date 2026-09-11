@@ -4,12 +4,16 @@ Trains a parameter-shared policy network and centralized team critic on cooperat
 football scenarios with explicit pass-chain and assisted-goal incentives.
 
 CANONICAL-TRAINER NOTE (see TASKS.md Item 2):
-- train_mappo.py        = canonical PLAIN trainer (baseline; no shaping).
-- train_mappo_shaped.py = canonical SHAPED trainer (this file). Shaped rewards
+- train_mappo.py        = canonical MAPPO trainer (baseline comparison). Uses the
+  default environment settings, including reward shaping enabled by default
+  (GMNMultiAgentEnv enable_reward_shaping=True). Differences from this script
+  are in default timesteps (200k vs 500k), rollout collector functions used,
+  and the presence of curriculum/self-play support plus forensic terminal logging.
+- train_mappo_shaped.py = explicit reward-shaping trainer (this file). Shaped rewards
   come from CooperativeRewardShaper, wired end-to-end and covered by
   training/tests/test_reward_shaper.py + training/test_reward_shape_e2e.py.
-  Policies from the two trainers are NOT directly comparable: shaped
-  checkpoints encode pass-chain incentives.
+  Policies from the two trainers are NOT directly comparable because this script
+  uses longer default timesteps, validation logging, and explicit shaping toggles.
 
 Hyperparameters:
 - Timesteps: 500,000
