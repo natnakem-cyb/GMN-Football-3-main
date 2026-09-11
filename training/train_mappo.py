@@ -17,8 +17,10 @@ Hyperparameters:
 
 import argparse
 import csv
+import datetime
 import json
 import os
+import subprocess
 import sys
 import time
 from typing import List, Tuple, Dict, Any
@@ -35,6 +37,7 @@ from training.mappo_rollout import collect_rollout, collect_rollout_parallel, co
 from training.mappo_update import ppo_update
 from training.eval_progress import evaluate_checkpoint_progress, persist_trend_snapshots
 from training.curriculum_scheduler import CurriculumScheduler, CURRICULUM_STAGES
+from training.checkpoint_contract import create_experiment_manifest, compute_file_sha256
 
 
 def run_mappo_training(
@@ -56,7 +59,7 @@ def run_mappo_training(
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
-        suffix = "smoke" if is_smoke_test else "trained"
+        suffix = "smoke" if is_smoke_test else "quarantine"
         checkpoint_name = f"mappo_{scenario}_seed{seed}_{suffix}.pt"
     else:
         # Enforce seed-based naming to prevent cross-seed overwrites.
@@ -66,13 +69,21 @@ def run_mappo_training(
                 "Use None or a seed-unique name to prevent overwrites across parallel runs."
             )
 
+    # Quarantine protocol: the final training checkpoint is saved with a quarantine
+    # suffix first. Only after end-of-run evaluation confirms it is the best
+    # deterministic checkpoint is it promoted to the durable _clean.pt artifact.
+    clean_checkpoint_name = checkpoint_name.replace("_quarantine.pt", "_clean.pt").replace("_smoke.pt", "_clean.pt")
+    if clean_checkpoint_name == checkpoint_name:
+        clean_checkpoint_name = f"mappo_{scenario}_seed{seed}_clean.pt"
+
     print("==================================================")
     print(f"GMN FOOTBALL -- MULTI-AGENT PPO (MAPPO) {'SMOKE TEST' if is_smoke_test else 'REAL TRAINING RUN'}")
     print(f"Target Scenario: {scenario} | Timesteps: {timesteps}")
     if resume_path:
         print(f"Resuming From Checkpoint: {resume_path}")
     print("Architecture: SharedActor (Mlp 64x64) + CentralizedCritic (Global State / Set Pooling -> 1)")
-    print(f"Checkpoint Output: models/{checkpoint_name}")
+    print(f"Checkpoint Output (quarantine): models/{checkpoint_name}")
+    print(f"Checkpoint Output (clean, post-eval): models/{clean_checkpoint_name}")
     print("==================================================")
 
     # Set seeds
@@ -87,6 +98,56 @@ def run_mappo_training(
     # Continuous forensic logging: per-episode JSONL trace for the entire run.
     _forensic_dir = os.path.join(os.path.dirname(__file__), "results", "forensics")
     os.makedirs(_forensic_dir, exist_ok=True)
+
+    # H4: Programmatic experiment manifest generation.
+    _runs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runs"))
+    _experiment_name = f"mappo_{scenario}_seed{seed}_{'smoke' if is_smoke_test else 'full'}"
+    _run_dir = os.path.join(_runs_dir, _experiment_name)
+    os.makedirs(_run_dir, exist_ok=True)
+    _manifest_path = os.path.join(_run_dir, "experiment_manifest.json")
+    try:
+        _git_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=os.path.dirname(__file__)
+        ).decode().strip()
+    except Exception:
+        _git_commit = "unavailable"
+    _quarantine_path = os.path.join(models_dir, checkpoint_name)
+    _manifest = create_experiment_manifest(
+        algorithm="MAPPO",
+        scenario=scenario,
+        training_steps=timesteps,
+        seed=seed,
+        checkpoint_path=_quarantine_path,
+        hyperparameters={
+            "rollout_length": 256,
+            "minibatch_size": 256,
+            "ppo_epochs": 4,
+            "learning_rate": 3e-4,
+            "clip_range": 0.15,
+            "value_coef": 0.5,
+            "entropy_coef_start": 0.01,
+            "entropy_coef_end": 0.005,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "max_grad_norm": 0.5,
+            "actor_hidden": 64,
+            "critic_hidden": 64,
+            "obs_dim": OBSERVATION_DIM,
+            "action_dim": ACTION_SPACE_SIZE,
+        },
+        git_commit=_git_commit,
+    )
+    _manifest["experiment"] = _experiment_name
+    _manifest["output_dir"] = _run_dir
+    _manifest["checkpoint_names"] = [
+        f"mappo_{scenario}_seed{seed}_50k.pt",
+        f"mappo_{scenario}_seed{seed}_100k.pt",
+        f"mappo_{scenario}_seed{seed}_150k.pt",
+        f"mappo_{scenario}_seed{seed}_200k.pt",
+    ]
+    with open(_manifest_path, "w", encoding="utf-8") as _mf:
+        json.dump(_manifest, _mf, indent=2)
+    print(f"   [H4] Experiment manifest written to: {_manifest_path}")
 
     print("\n1. Initializing Multi-Agent Environment & MAPPO Networks...")
     # Self-play / opponent pool (Task: opponent generalization). When enabled,
@@ -221,7 +282,7 @@ def run_mappo_training(
     episode_rewards: List[float] = []
     episode_lengths: List[int] = []
     episode_goals: List[int] = []
-    trend_snapshots: List[Tuple[int, int, float, float]] = []  # (step, num_eps, mean_rew, goal_rate)
+    trend_snapshots: List[Tuple[int, int, float, float, Dict[str, Any]]] = []  # (step, num_eps, mean_rew, goal_rate, event_counters)
     loss_history: List[Dict[str, Any]] = []
 
     is_rondo_scenario = scenario == "academy_rondo_4v1"
@@ -421,8 +482,6 @@ def run_mappo_training(
                 recent_retention = [1 if r > retention_threshold else 0 for r in recent_ep]
                 goal_pct = float(np.mean(recent_retention)) * 100.0
 
-            trend_snapshots.append((total_steps_elapsed, len(episode_rewards), mean_rew, goal_pct))
-
             # Log cumulative reward-shaping event counters alongside trend snapshots
             # so we can confirm event-code fixes reach live training, not just tests.
             _shaper_diag = {}
@@ -433,6 +492,7 @@ def run_mappo_training(
                     _shaper_cum = env.reward_shaper.get_cumulative_diagnostics()
                 except Exception:
                     pass
+            trend_snapshots.append((total_steps_elapsed, len(episode_rewards), mean_rew, goal_pct, _shaper_cum))
             if _shaper_cum:
                 print(
                     f"   [EVENT COUNTERS] total_pass_completed={_shaper_cum.get('total_pass_completed_count', 0)} "
@@ -620,29 +680,26 @@ def run_mappo_training(
     # The deployed browser policy (TrainedPolicyAgent) runs deterministically, so the checkpoint
     # shipped to export_onnx.py / public/models must be selected from deterministic evals,
     # NOT from stochastic rollout stats. The rolling best is tracked separately for monitoring.
+    clean_checkpoint_path = os.path.join(models_dir, clean_checkpoint_name)
     if best_deterministic_checkpoint_path and os.path.exists(best_deterministic_checkpoint_path):
         import shutil
-        shutil.copy2(best_deterministic_checkpoint_path, checkpoint_path)
+        shutil.copy2(best_deterministic_checkpoint_path, clean_checkpoint_path)
         print(
-            f"[OK] Best deterministic checkpoint preserved as durable artifact: {checkpoint_path} "
+            f"[OK] Best deterministic checkpoint preserved as durable artifact: {clean_checkpoint_path} "
             f"(from {best_deterministic_checkpoint_path}, best deterministic goal rate: {best_deterministic_goal_rate:.1f}% at step {best_deterministic_checkpoint_step})",
             flush=True,
         )
 
     # Persist trend snapshots
     if trend_snapshots:
-        _final_event_counters = {}
-        if getattr(env, "reward_shaper", None) is not None:
-            try:
-                _final_event_counters = env.reward_shaper.get_cumulative_diagnostics()
-            except Exception:
-                pass
+        # Extract per-snapshot event counters that were captured at each checkpoint.
+        _snapshot_event_counters = [snap[4] if len(snap) > 4 else {} for snap in trend_snapshots]
         persist_trend_snapshots(
             trend_snapshots,
             algorithm="MAPPO",
             scenario=scenario,
             seed=seed,
-            event_counters=_final_event_counters,
+            event_counters_per_snapshot=_snapshot_event_counters,
         )
 
     # 5. Print Training Reward & Performance Trend Summary
@@ -651,7 +708,7 @@ def run_mappo_training(
         metric_label = "Rolling Possession Retention" if is_rondo_scenario else "Rolling Goal Rate"
         print(f"   {'Timestep':>9} | {'Episodes':>8} | {'Rolling Reward':>15} | {metric_label:>25}", flush=True)
         print(f"   {'-'*9}-+-{'-'*8}-+-{'-'*15}-+-{'-'*25}", flush=True)
-        for step, num_eps, rew, goal_rt in trend_snapshots:
+        for step, num_eps, rew, goal_rt, _ in trend_snapshots:
             print(f"   {step:9d} | {num_eps:8d} | {rew:+15.4f} | {goal_rt:25.1f}%", flush=True)
     else:
         total_eps = len(episode_rewards)
@@ -745,6 +802,35 @@ def run_mappo_training(
         terminal_jsonl = getattr(env, "_last_terminal_jsonl", None)
         if terminal_jsonl:
             print(f"   [FORENSIC] Terminal tick JSONL: {terminal_jsonl}", flush=True)
+
+    # H4: Update experiment manifest with final results.
+    try:
+        _final_manifest_path = os.path.join(_run_dir, "experiment_manifest.json")
+        if os.path.exists(_final_manifest_path):
+            with open(_final_manifest_path, "r", encoding="utf-8") as _mf:
+                _final_manifest = json.load(_mf)
+        else:
+            _final_manifest = {}
+        _final_manifest.update({
+            "experiment": _experiment_name,
+            "status": "completed",
+            "completed_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "quarantine_checkpoint": checkpoint_path,
+            "clean_checkpoint": clean_checkpoint_path,
+            "quarantine_checkpoint_hash": compute_file_sha256(checkpoint_path) if os.path.exists(checkpoint_path) else "FILE_NOT_FOUND",
+            "clean_checkpoint_hash": compute_file_sha256(clean_checkpoint_path) if os.path.exists(clean_checkpoint_path) else "FILE_NOT_FOUND",
+            "best_deterministic_goal_rate": best_deterministic_goal_rate,
+            "best_deterministic_step": best_deterministic_checkpoint_step,
+            "best_rolling_goal_rate": best_rolling_goal_rate,
+            "best_rolling_step": best_rolling_checkpoint_step,
+            "total_episodes": len(episode_rewards),
+            "total_timesteps": total_steps_elapsed,
+        })
+        with open(_final_manifest_path, "w", encoding="utf-8") as _mf:
+            json.dump(_final_manifest, _mf, indent=2)
+        print(f"   [H4] Experiment manifest updated: {_final_manifest_path}", flush=True)
+    except Exception as _manifest_err:
+        print(f"   [H4] Manifest update notice: {_manifest_err}", flush=True)
 
     return True
 
