@@ -98,6 +98,12 @@ class CooperativeRewardShaper:
         # be charged to the correct victim. Distinct from current_holder_id,
         # which is reset to None on ownerless frames (exactly when we need this).
         self.previous_left_ball_carrier: Optional[str] = None
+        # M1b forensic trace: per-victim-event attribution records, each showing
+        # the event_type, the event's own agent_id (None on ownerless frames),
+        # the resolved victim, whether the previous_left_ball_carrier fallback
+        # was used, and the resulting shaped rewards. Consumed by the live-bridge
+        # smoke to prove the -0.10 penalty reaches a real interception frame.
+        self._attribution_log: List[Dict[str, Any]] = []
         self.total_pass_completed_count: int = 0
         self.total_goal_scored_count: int = 0
         self.total_turnover_conceded_count: int = 0
@@ -139,6 +145,17 @@ class CooperativeRewardShaper:
             "total_goal_scored_count": self.total_goal_scored_count,
             "total_turnover_conceded_count": self.total_turnover_conceded_count,
         }
+
+    def get_attribution_log(self) -> List[Dict[str, Any]]:
+        """Return the per-victim-event attribution trace captured this episode.
+
+        Each record documents how a PASS_INTERCEPTED/PASS_FAILED/TURNOVER_CONCEDED
+        event was resolved: the event's own agent_id (None on ownerless wire frames),
+        the resolved victim, whether the previous_left_ball_carrier fallback was used,
+        and the resulting shaped rewards. This is the forensic evidence that the
+        -0.10 turnover penalty reaches a real interception frame in a live run.
+        """
+        return list(self._attribution_log)
 
     def compute_shaped_rewards(
         self,
@@ -248,6 +265,22 @@ class CooperativeRewardShaper:
                 # absent), so clear it. Leaving it stale would risk charging
                 # the wrong agent on a later unrelated interception.
                 self.previous_left_ball_carrier = None
+
+                # M1b forensic trace: record how this victim event resolved so the
+                # live-bridge smoke can prove the -0.10 penalty reached a real frame.
+                self._attribution_log.append(
+                    {
+                        "event_type": event_type,
+                        "event_agent_id": agent_id,  # None on ownerless wire frames
+                        "resolved_victim_id": victim_id,
+                        "fallback_used": (
+                            victim_id is not None
+                            and not (agent_id is not None and agent_id in shaped_rewards)
+                        ),
+                        "penalty_applied": victim_id is not None,
+                        "shaped_rewards": {k: float(v) for k, v in shaped_rewards.items()},
+                    }
+                )
                 continue
 
             # For all other events, only apply to left-team events.
