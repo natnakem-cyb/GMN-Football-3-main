@@ -35,6 +35,7 @@ npx tsc --noEmit                                                                
 | M2 | `training/gmn_pettingzoo.py` | Removed terminal-step guard in `step()` that stripped shaped rewards on terminal frames. Implemented assisted-goal bonus: when `pass_chain_length > 0` and a goal is scored, all active left-team agents receive `r_assisted_goal` (+0.50). | New tests: `test_goal_bonus_received_on_terminal_step`, `test_assisted_goal_bonus_distributed_to_all_active_agents`, `test_goal_without_pass_chain_does_not_give_bonus`. |
 | H1 | `training/bridge_server.ts` | `stepBatch` now passes the per-env `engine` variable into `runOnnxInference` and `_applyRuleBasedAction` fallback instead of always using `this.engine`. | Code review; no TS unit-test framework present. |
 | M5 | `training/gmn_pettingzoo.py` | `step_batch` now maintains per-sub-env `pending_pass`, `reward_shaper`, and `last_actions`. Added `_build_shaper_events`, `_apply_shaping_for_env`, and refactored `_resolve_pending_pass_state` as stateless helper. Non-rondo batched rewards normalized to per-agent dicts. | New tests: `TestM5BatchedRewardShaping` (5 tests covering event mapping, pending-pass state machine, shaping application, and env-state initialization). |
+| M1b | `training/gmn_pettingzoo.py` | **Closed the M1 attribution gap.** Added `previous_left_ball_carrier` state to `CooperativeRewardShaper`. On `PASS_INTERCEPTED`/`PASS_FAILED`/`TURNOVER_CONCEDED`, the shaper now falls back to the last remembered left carrier when the event's `agent_id` is missing or non-left (the live wire frame reports `ball_owner_agent_idx=255`, so events arrive with no `agent_id`). Carrier is updated on every left-owned frame, preserved across ownerless/right-owned frames (interceptions arrive precisely as ownerless frames — the old `current_holder_id` was reset to `None` there, which is why it could not be reused), and cleared after a victim event resolves it. Explicit left `agent_id` on a well-formed event still takes precedence. | New tests: `test_m1_interception_without_agent_id_uses_previous_left_carrier` (live-style: drives `_build_shaper_events(...,255)` → `compute_shaped_rewards`, asserts `-0.10` on the previous carrier), `test_m1_interception_without_prior_carrier_charges_nothing` (negative case), `test_m1_explicit_agent_id_takes_precedence_over_carrier`. Integration verification confirmed `-0.10` delivered end-to-end through the real `step()` event-building path. |
 
 ## Phase 1 Forensic Smoke Test (2026-09-11)
 
@@ -67,9 +68,9 @@ Evidence snippet (terminal JSONL episode ending with interception):
 - `test_pass_intercepted_with_right_team_tag_penalizes_left_agent` — PASSES
 - `test_turnover_conceded_with_right_team_tag_penalizes_left_agent` — PASSES
 
-**Gap:** The engine's `pass_intercepted` binary frame reports `ball_owner_agent_idx=255` (no owner) and does not embed the left passer's ID. The shaper's M1 fix correctly penalizes the left agent **when the event dict carries a valid left `agent_id`**, but the engine does not provide that ID in the observed scenario. Without a pending-pass state (agents don't pass), the shaper cannot attribute the penalty.
+**Gap (CLOSED in M1b):** The engine's `pass_intercepted` binary frame reports `ball_owner_agent_idx=255` (no owner) and does not embed the left passer's ID. The original M1 fix correctly penalizes the left agent **when the event dict carries a valid left `agent_id`**, but the engine does not provide that ID in the observed scenario. Without a pending-pass state (agents don't pass), the shaper could not attribute the penalty.
 
-**Required to proceed:** Either (a) the engine must include passer attribution in interception events, or (b) the shaper must track `previous_left_ball_carrier` across steps.
+**Resolution (M1b):** Implemented option (b) — the shaper now tracks `previous_left_ball_carrier` across steps and uses it as the penalty target when `agent_id` is missing or a right-team player. This was preferred over an engine contract change because it requires no wire-format change and the engine-side `passerAgentId` can be added later as an optional hardening. An integration check confirmed the `-0.10` penalty is now delivered end-to-end through the real `step()` event-building path (`_build_shaper_events(...,255)` → `compute_shaped_rewards`), even though a full live-bridge smoke run has not yet been re-executed.
 
 ### M2 – Terminal goal reward (no assist)
 
@@ -107,8 +108,8 @@ Counters move monotonically in the expected direction when corresponding events 
 
 ### Recommendation
 
-**Do not launch the 200k baseline until M1 attribution is closed.** The current shaper logic is correct for events that carry a valid left-team `agent_id`, but the engine's `pass_intercepted` frame in this scenario uses `ball_owner_agent_idx=255` (no owner) and provides no passer ID. The smoke test confirms that without passing behavior, turnovers are counted but the -0.10 per-agent penalty is not delivered to the left passer.
+**M1 attribution is now closed (shaper-side, option b).** The `-0.10` per-agent penalty is delivered to the previous left ball carrier even when the interception frame reports `ball_owner_agent_idx=255` and carries no `agent_id`. This was verified end-to-end through the real `step()` event-building path.
 
-Resolve via one of:
-1. Engine contract change: include `passerAgentId` in `pass_intercepted` frames.
-2. Shaper state change: track `previous_left_ball_carrier` and use it as the penalty target when `agent_id` is missing or a right-team player.
+**Remaining gap before the 200k baseline:** The *live-bridge* 5k smoke has **not** been re-run after M1b. The fix is proven at the unit/integration level (real `_build_shaper_events` → `compute_shaped_rewards` path, all 8 `TestM1M2SemanticFixes` tests green), but the original forensic observation that turnovers are "counted but the −0.10 is not delivered" has not yet been confirmed as *fixed* in a live bridge episode. Re-run the forensic smoke (`python -m training.train_mappo --scenario academy_3_vs_1_with_keeper --seed 42 --timesteps 5000 --n-envs 1`) to observe a live −0.10 on an interception before launching 200k.
+
+Note: `total_pass_completed=0` in prior smoke means passing behavior has not yet emerged, so the carrier is established by dribbling/possession frames, not by passes. The fix correctly handles both origins.

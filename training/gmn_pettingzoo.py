@@ -93,6 +93,11 @@ class CooperativeRewardShaper:
         self.p_ball_hogging = penalty_ball_hogging
         self.p_turnover = penalty_turnover
         self.max_hold_ticks = max_unassisted_hold_ticks
+        # M1 attribution: remembers the last left-team agent that had the ball,
+        # so an ownerless interception frame (ball_owner_agent_idx=255) can still
+        # be charged to the correct victim. Distinct from current_holder_id,
+        # which is reset to None on ownerless frames (exactly when we need this).
+        self.previous_left_ball_carrier: Optional[str] = None
         self.total_pass_completed_count: int = 0
         self.total_goal_scored_count: int = 0
         self.total_turnover_conceded_count: int = 0
@@ -103,6 +108,8 @@ class CooperativeRewardShaper:
         self.pass_chain_length: int = 0
         self.current_holder_id: Optional[str] = None
         self.holder_ticks: int = 0
+        # M1 attribution: clear the remembered left carrier on episode reset.
+        self.previous_left_ball_carrier: Optional[str] = None
         self.pass_completed_count: int = 0
         self.goal_scored_count: int = 0
         self.turnover_conceded_count: int = 0
@@ -169,12 +176,26 @@ class CooperativeRewardShaper:
                 self.current_holder_id = holder_id
                 self.holder_ticks = 1
 
+            # M1 attribution: remember the last left-team ball carrier so that
+            # an ownerless interception frame (ball_owner_agent_idx=255, which
+            # makes current_ball_owner resolve to None below) can still be
+            # charged to the correct victim. We update on every left-owned
+            # frame (same or different left agent) so the carrier is always
+            # the most recent known left holder.
+            if holder_id and holder_id in shaped_rewards:
+                self.previous_left_ball_carrier = holder_id
+
             if self.holder_ticks > self.max_hold_ticks and holder_id in shaped_rewards:
                 shaped_rewards[holder_id] += self.p_ball_hogging
                 self.ball_hogging_count += 1
         else:
             self.current_holder_id = None
             self.holder_ticks = 0
+            # M1: Do NOT clear previous_left_ball_carrier here. Interceptions
+            # and turnovers arrive precisely as ownerless/right-owned frames
+            # (ball_owner_agent_idx=255). Clearing now would erase the victim at
+            # the exact moment we need to charge them. The carrier is cleared
+            # only after a victim event resolves it (see below) or on reset().
 
         # 2. Process Discrete Engine Events
         # M1: Some negative events are tagged team="right" by the engine because
@@ -195,18 +216,38 @@ class CooperativeRewardShaper:
 
             # M1: Negative events where left-team agent is the victim.
             if event_type in _LEFT_TEAM_VICTIM_EVENT_TYPES:
+                # Determine the victim. Prefer an explicit left-team agent_id
+                # present in shaped_rewards; otherwise fall back to the last
+                # remembered left ball carrier (previous_left_ball_carrier).
+                # The fallback is what closes the M1 gap: the live wire frame
+                # reports ball_owner_agent_idx=255 (no owner) so the event
+                # arrives with agent_id=None, but we still know who lost the ball.
+                victim_id: Optional[str] = None
+                if agent_id is not None and agent_id in shaped_rewards:
+                    victim_id = agent_id
+                elif (
+                    self.previous_left_ball_carrier is not None
+                    and self.previous_left_ball_carrier in shaped_rewards
+                ):
+                    victim_id = self.previous_left_ball_carrier
+
                 if event_type == "PASS_INTERCEPTED":
                     self.pass_chain_length = 0
                     self.pass_intercepted_count += 1
                     self.total_turnover_conceded_count += 1
-                    if agent_id in shaped_rewards:
-                        shaped_rewards[agent_id] += self.p_turnover
+                    if victim_id is not None:
+                        shaped_rewards[victim_id] += self.p_turnover
                 elif event_type in ("PASS_FAILED", "TURNOVER_CONCEDED"):
                     self.pass_chain_length = 0
                     self.turnover_conceded_count += 1
                     self.total_turnover_conceded_count += 1
-                    if agent_id in shaped_rewards:
-                        shaped_rewards[agent_id] += self.p_turnover
+                    if victim_id is not None:
+                        shaped_rewards[victim_id] += self.p_turnover
+
+                # M1: the carrier has now been resolved (charged or confirmed
+                # absent), so clear it. Leaving it stale would risk charging
+                # the wrong agent on a later unrelated interception.
+                self.previous_left_ball_carrier = None
                 continue
 
             # For all other events, only apply to left-team events.
@@ -219,6 +260,12 @@ class CooperativeRewardShaper:
                 self.total_pass_completed_count += 1
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] += self.r_pass
+                # M1: a completed pass means the receiver is now the left ball
+                # carrier. Update previous_left_ball_carrier so a subsequent
+                # ownerless interception frame charges the new holder, not the
+                # passer (who no longer has the ball).
+                if agent_id is not None and agent_id in shaped_rewards:
+                    self.previous_left_ball_carrier = agent_id
 
             elif event_type == "SHOT_MISSED":
                 if agent_id in shaped_rewards:
