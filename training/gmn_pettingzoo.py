@@ -84,12 +84,14 @@ class CooperativeRewardShaper:
         reward_assisted_goal_bonus: float = 0.50,
         penalty_solitary_shot: float = -0.30,
         penalty_ball_hogging: float = -0.02,
+        penalty_turnover: float = -0.10,
         max_unassisted_hold_ticks: int = 15,
     ):
         self.r_pass = reward_pass_completion
         self.r_assisted_goal = reward_assisted_goal_bonus
         self.p_solitary_shot = penalty_solitary_shot
         self.p_ball_hogging = penalty_ball_hogging
+        self.p_turnover = penalty_turnover
         self.max_hold_ticks = max_unassisted_hold_ticks
         self.total_pass_completed_count: int = 0
         self.total_goal_scored_count: int = 0
@@ -175,6 +177,15 @@ class CooperativeRewardShaper:
             self.holder_ticks = 0
 
         # 2. Process Discrete Engine Events
+        # M1: Some negative events are tagged team="right" by the engine because
+        # the opposing team performed the interception/tackle/foul, but the
+        # left-team agent identified in the event is the one who lost possession
+        # and must receive the penalty. Process these regardless of event_team.
+        _LEFT_TEAM_VICTIM_EVENT_TYPES = frozenset({
+            "PASS_INTERCEPTED",
+            "PASS_FAILED",
+            "TURNOVER_CONCEDED",
+        })
         for event in step_events:
             if not isinstance(event, dict):
                 continue
@@ -182,6 +193,23 @@ class CooperativeRewardShaper:
             event_team = event.get("team")
             agent_id = event.get("agent_id")
 
+            # M1: Negative events where left-team agent is the victim.
+            if event_type in _LEFT_TEAM_VICTIM_EVENT_TYPES:
+                if event_type == "PASS_INTERCEPTED":
+                    self.pass_chain_length = 0
+                    self.pass_intercepted_count += 1
+                    self.total_turnover_conceded_count += 1
+                    if agent_id in shaped_rewards:
+                        shaped_rewards[agent_id] += self.p_turnover
+                elif event_type in ("PASS_FAILED", "TURNOVER_CONCEDED"):
+                    self.pass_chain_length = 0
+                    self.turnover_conceded_count += 1
+                    self.total_turnover_conceded_count += 1
+                    if agent_id in shaped_rewards:
+                        shaped_rewards[agent_id] += self.p_turnover
+                continue
+
+            # For all other events, only apply to left-team events.
             if event_team != "left":
                 continue
 
@@ -192,20 +220,9 @@ class CooperativeRewardShaper:
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] += self.r_pass
 
-            elif event_type == "PASS_INTERCEPTED":
-                self.pass_chain_length = 0
-                self.pass_intercepted_count += 1
-                if agent_id in shaped_rewards:
-                    shaped_rewards[agent_id] -= 0.10
-
             elif event_type == "SHOT_MISSED":
                 if agent_id in shaped_rewards:
                     shaped_rewards[agent_id] -= 0.05
-
-            elif event_type in ("PASS_FAILED", "TURNOVER_CONCEDED"):
-                self.pass_chain_length = 0
-                self.turnover_conceded_count += 1
-                self.total_turnover_conceded_count += 1
 
             elif event_type == "SHOT_TAKEN":
                 # Penalize shots taken without a preceding completed pass in the
@@ -233,8 +250,14 @@ class CooperativeRewardShaper:
                         self.solitary_shot_count += 1
 
             elif event_type == "GOAL_SCORED":
-                if agent_id in shaped_rewards:
-                    shaped_rewards[agent_id] += 2.00
+                # M2: The engine already provides the raw goal reward (e.g. +2.00)
+                # in the step's base reward. Here we add the cooperative assisted-goal
+                # bonus when the goal came from a pass chain.
+                if self.pass_chain_length > 0:
+                    for active_agent in active_agents:
+                        if active_agent in shaped_rewards:
+                            shaped_rewards[active_agent] += self.r_assisted_goal
+                    self.assisted_goal_count += 1
                 self.goal_scored_count += 1
                 self.total_goal_scored_count += 1
                 self.pass_chain_length = 0
@@ -441,7 +464,15 @@ class GMNMultiAgentEnv(ParallelEnv):
 
     def _init_batch_envs(self, batch_results: List[Dict[str, Any]]) -> None:
         """Initialize per-env rollout state from a batch reset response."""
-        self._batch_envs = [self._decode_reset_result(result) for result in batch_results]
+        self._batch_envs = []
+        for result in batch_results:
+            env_state = self._decode_reset_result(result)
+            # M5: Per-env reward-shaping state so the batched path applies the
+            # same cooperative curriculum as the single-env path.
+            env_state["pending_pass"] = None
+            env_state["reward_shaper"] = CooperativeRewardShaper() if self.enable_reward_shaping else None
+            env_state["last_actions"] = {}
+            self._batch_envs.append(env_state)
 
     def reset_batch(self, seeds: Optional[List[int]] = None) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
         """Reset all sub-environments in the batch and return per-env (obs, info) tuples."""
@@ -551,6 +582,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                 action_bytes[i] = act
             action_bytes_per_env.append(bytes(action_bytes))
             controllable_ids_per_env.append(current_agents)
+            # M5: Store actions for reward-shaping attribution (solitary shot, etc.).
+            env_state["last_actions"] = dict(actions)
         # Build batched binary frame: [0xFF (1B)] [B (1B)] [N (1B)] [B * N action bytes]
         N = len(controllable_ids_per_env[0]) if controllable_ids_per_env else 0
         frame = bytearray(3 + self.batch_size * N)
@@ -657,7 +690,28 @@ class GMNMultiAgentEnv(ParallelEnv):
                     for agent in terminal_agents
                 }
             else:
-                env_rewards = shared_reward
+                # M5: Normalize non-rondo rewards to a per-agent dict so shaping
+                # can add cooperative bonuses on top.
+                env_rewards = {agent: shared_reward for agent in terminal_agents}
+
+            # M5: Apply cooperative reward shaping per sub-environment so the
+            # batched path exercises the same curriculum as the single-env path.
+            shaped_rewards = self._apply_shaping_for_env(
+                env_state=env_state,
+                shared_reward=shared_reward,
+                shared_term=shared_term,
+                shared_trunc=shared_trunc,
+                event_code=event_code,
+                ball_owner_agent_idx=ball_owner_agent_idx,
+                score_l=score_l,
+                score_r=score_r,
+                actions=env_state.get("last_actions", {}),
+            )
+            if shaped_rewards:
+                for agent in terminal_agents:
+                    if agent in shaped_rewards:
+                        env_rewards[agent] = shaped_rewards[agent]
+
             results.append((observations, env_rewards, shared_term, shared_trunc, shared_info))
         return results
 
@@ -952,61 +1006,160 @@ class GMNMultiAgentEnv(ParallelEnv):
             infos[agent]["action_mask"] = action_masks[agent]
         return {agent: {"observation": observations[agent], "action_mask": action_masks[agent]} for agent in self.agents}, infos
 
-    def _resolve_pending_pass(
-        self,
+    @staticmethod
+    def _resolve_pending_pass_state(
+        pending_pass: Optional[Dict[str, Any]],
         ball_owner_agent_idx: int,
         current_ev_type: Optional[str],
-    ) -> List[Dict[str, Any]]:
+        agents: List[str],
+    ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """
-        Pending-pass state machine over per-step possession.
-
-        The engine emits "pass" at initiation. A pass is resolved as:
-          - PASS_COMPLETED: a controllable LEFT agent other than the passer gains
-            possession (the passer re-gaining it also counts, benignly).
-          - PASS_FAILED: possession flips to the right team, a turnover/out-of-play
-            event fires, or the ball stays loose beyond `pending timeout`.
-        Resolution events are ordered BEFORE any same-step frame event by the caller.
+        Stateless pending-pass resolution. Returns (resolution_events, new_pending_pass).
+        Used by both the single-env step() and the batched step_batch() path.
         """
         events: List[Dict[str, Any]] = []
 
         # A new pass attempt while one is pending: clear the stale pending
         # pass; the engine's explicit pass_completed / pass_intercepted events
         # (Phase 11) are the authoritative source of truth.
-        if current_ev_type == "pass" and self._pending_pass is not None:
-            self._pending_pass = None
+        if current_ev_type == "pass" and pending_pass is not None:
+            pending_pass = None
 
-        if self._pending_pass is not None:
-            self._pending_pass["age"] += 1
+        if pending_pass is not None:
+            pending_pass["age"] += 1
             resolved_type: Optional[str] = None
-            if 0 <= ball_owner_agent_idx < len(self.agents):
-                owner_id = self.agents[ball_owner_agent_idx]
-                if owner_id != self._pending_pass["agent_id"]:
+            if 0 <= ball_owner_agent_idx < len(agents):
+                owner_id = agents[ball_owner_agent_idx]
+                if owner_id != pending_pass["agent_id"]:
                     resolved_type = (
                         "PASS_FAILED" if owner_id.startswith("right_") else "PASS_COMPLETED"
                     )
             elif current_ev_type in ("interception", "tackle", "foul", "out_of_bounds", "offside"):
                 resolved_type = "PASS_FAILED"
-            if resolved_type is None and self._pending_pass["age"] > 60:
+            if resolved_type is None and pending_pass["age"] > 60:
                 resolved_type = "PASS_FAILED"
             if resolved_type is not None:
                 events.append(
                     {
                         "type": resolved_type,
                         "team": "left",
-                        "agent_id": self._pending_pass["agent_id"],
+                        "agent_id": pending_pass["agent_id"],
                     }
                 )
-                self._pending_pass = None
+                pending_pass = None
 
-        if current_ev_type == "pass" and self._pending_pass is None:
+        if current_ev_type == "pass" and pending_pass is None:
             passer = (
-                self.agents[ball_owner_agent_idx]
-                if 0 <= ball_owner_agent_idx < len(self.agents)
+                agents[ball_owner_agent_idx]
+                if 0 <= ball_owner_agent_idx < len(agents)
                 else None
             )
-            self._pending_pass = {"agent_id": passer, "age": 0}
+            pending_pass = {"agent_id": passer, "age": 0}
 
+        return events, pending_pass
+
+    def _resolve_pending_pass(
+        self,
+        ball_owner_agent_idx: int,
+        current_ev_type: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        """Legacy single-env wrapper around _resolve_pending_pass_state."""
+        events, self._pending_pass = GMNMultiAgentEnv._resolve_pending_pass_state(
+            self._pending_pass, ball_owner_agent_idx, current_ev_type, self.agents
+        )
         return events
+
+    @staticmethod
+    def _build_shaper_events(
+        event_code: int,
+        score_l: int,
+        score_r: int,
+        agents: List[str],
+        ball_owner_agent_idx: int,
+    ) -> List[Dict[str, Any]]:
+        """Map a binary frame event_code to shaper-consumable step_events."""
+        step_events: List[Dict[str, Any]] = []
+        if 0 < event_code < len(EVENT_CODE_MAP):
+            ev_type = EVENT_CODE_MAP[event_code]
+            if ev_type:
+                shaper_type = None
+                shaper_team = "left"
+                if ev_type == "pass":
+                    shaper_type = None
+                elif ev_type == "shot":
+                    shaper_type = "SHOT_TAKEN"
+                elif ev_type == "shot_saved":
+                    shaper_type = "SHOT_SAVED"
+                elif ev_type == "shot_missed":
+                    shaper_type = "SHOT_MISSED"
+                elif ev_type == "goal":
+                    shaper_type = "GOAL_SCORED"
+                    shaper_team = "left" if score_l > 0 else "right"
+                elif ev_type in ("interception", "tackle", "foul"):
+                    shaper_type = "TURNOVER_CONCEDED"
+                    shaper_team = "right"
+                elif ev_type == "pass_completed":
+                    shaper_type = "PASS_COMPLETED"
+                    shaper_team = "left"
+                elif ev_type == "pass_intercepted":
+                    shaper_type = "PASS_INTERCEPTED"
+                    shaper_team = "right"
+
+                if shaper_type is not None:
+                    event_dict: Dict[str, Any] = {"type": shaper_type, "team": shaper_team}
+                    if 0 <= ball_owner_agent_idx < len(agents):
+                        event_dict["agent_id"] = agents[ball_owner_agent_idx]
+                    step_events.append(event_dict)
+        return step_events
+
+    @staticmethod
+    def _apply_shaping_for_env(
+        env_state: Dict[str, Any],
+        shared_reward: float,
+        shared_term: bool,
+        shared_trunc: bool,
+        event_code: int,
+        ball_owner_agent_idx: int,
+        score_l: int,
+        score_r: int,
+        actions: Dict[str, int],
+    ) -> Dict[str, float]:
+        """M5: Apply cooperative reward shaping for one sub-environment."""
+        shaper = env_state.get("reward_shaper")
+        if shaper is None:
+            return {}
+
+        current_ev_type = EVENT_CODE_MAP[event_code] if 0 < event_code < len(EVENT_CODE_MAP) else None
+        agents = env_state["agents"]
+
+        # Build step_events from the frame's event_code.
+        step_events = GMNMultiAgentEnv._build_shaper_events(event_code, score_l, score_r, agents, ball_owner_agent_idx)
+
+        # Resolve pending pass for this sub-env.
+        resolution_events, env_state["pending_pass"] = GMNMultiAgentEnv._resolve_pending_pass_state(
+            env_state.get("pending_pass"), ball_owner_agent_idx, current_ev_type, agents
+        )
+        step_events = resolution_events + step_events
+
+        # Store actions for shot-attribution fallback.
+        env_state["last_actions"] = actions
+
+        current_ball_owner = None
+        if 0 <= ball_owner_agent_idx < len(agents):
+            agent_id = agents[ball_owner_agent_idx]
+            team = "left" if not agent_id.startswith("right_") else "right"
+            current_ball_owner = {"agent_id": agent_id, "team": team}
+
+        try:
+            return shaper.compute_shaped_rewards(
+                base_rewards={a: shared_reward for a in agents},
+                step_events=step_events,
+                info_ground_truth={"current_ball_owner": current_ball_owner},
+                active_agents=list(agents),
+                actions=actions,
+            )
+        except Exception:
+            return {}
 
     def step(
         self,
@@ -1282,12 +1435,14 @@ class GMNMultiAgentEnv(ParallelEnv):
                     active_agents=list(self.agents),
                     actions=actions,
                 )
-                # Only mutate per-agent rewards on non-terminal steps so terminal
-                # reward values stay exactly as the engine emitted them.
-                if not shared_term and not shared_trunc:
-                    for agent in self.agents:
-                        if agent in shaped_rewards:
-                            rewards[agent] = shaped_rewards[agent]
+                # M2: Always apply shaped rewards, including on terminal steps.
+                # The engine's raw reward (e.g. +2.00 goal signal) is already in
+                # `rewards[agent]`; the shaper adds cooperative bonuses on top.
+                # Skipping on terminal steps caused goal bonuses and assisted-goal
+                # bonuses to be silently dropped.
+                for agent in self.agents:
+                    if agent in shaped_rewards:
+                        rewards[agent] = shaped_rewards[agent]
             except Exception as e:
                 logger.debug(f"Reward shaping skipped due to error: {e}")
 

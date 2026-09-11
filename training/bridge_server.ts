@@ -321,7 +321,7 @@ export class GMNBridgeService {
                 return;
               }
             try {
-              const actionIdx = await this.runOnnxInference(session, this.engine, player);
+              const actionIdx = await this.runOnnxInference(session, engine, player);
               actionMap.set(player.id, mapDiscreteAction(actionIdx));
               try {
               } catch (e) {}
@@ -329,7 +329,7 @@ export class GMNBridgeService {
               try {
               } catch (e) {}
               console.warn(`[GMN Snapshot] ONNX inference failed for ${player.id}, falling back to rule-based: ${err.message}`);
-              this._applyRuleBasedAction(player, actionMap);
+              this._applyRuleBasedAction(player, actionMap, engine);
             }
               return;
             }
