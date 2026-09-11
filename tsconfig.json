@@ -17,5 +17,5 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "training"]
+  "include": ["src", "training", "scripts"]
 }
