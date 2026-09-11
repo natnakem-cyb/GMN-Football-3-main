@@ -453,6 +453,128 @@ class TestM1M2SemanticFixes:
         assert shaper.pass_chain_length == 0
         assert shaper.assisted_goal_count == 0
 
+    def test_m1_interception_without_agent_id_uses_previous_left_carrier(self):
+        """M1 live-style regression: a pass_intercepted frame built the way
+        production does — via _build_shaper_events with ball_owner_agent_idx=255
+        (no owner) and therefore no agent_id — must still charge the previous
+        left ball carrier exactly p_turnover (-0.10).
+
+        This is the real binary-frame path. The older tests inject a synthetic
+        agent_id and pass directly to compute_shaped_rewards; this one drives
+        the full attribution chain so it cannot be gamed by a unit test that
+        already knows the answer.
+        """
+        from training.gmn_pettingzoo import GMNMultiAgentEnv
+
+        shaper = CooperativeRewardShaper()
+        shaper.reset()
+
+        agents = ["left_0", "left_1", "left_2"]
+        interception_code = EVENT_CODE_MAP.index("pass_intercepted")
+
+        # Step 1: a left agent owns the ball, establishing the carrier.
+        # current_ball_owner is set by the env from ball_owner_agent_idx on a
+        # normal owned frame. Here we simulate that owned frame via ground_truth.
+        owned_info = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+        shaper.compute_shaped_rewards(
+            base_rewards={a: 0.0 for a in agents},
+            step_events=[],
+            info_ground_truth=owned_info,
+            active_agents=list(agents),
+        )
+        assert shaper.previous_left_ball_carrier == "left_0"
+
+        # Step 2: interception frame exactly as the wire produces it —
+        # event_code=15, ball_owner_agent_idx=255, no agent_id on the event.
+        wire_events = GMNMultiAgentEnv._build_shaper_events(
+            interception_code, 0, 0, agents, 255
+        )
+        assert wire_events == [{"type": "PASS_INTERCEPTED", "team": "right"}]
+        assert "agent_id" not in wire_events[0], (
+            "Live wire frame must NOT carry an agent_id; attribution depends on "
+            "previous_left_ball_carrier, not the frame itself."
+        )
+
+        # current_ball_owner resolves to None on an ownerless (255) frame.
+        ownerless_info = {"current_ball_owner": None}
+        rewards = shaper.compute_shaped_rewards(
+            base_rewards={a: 0.0 for a in agents},
+            step_events=wire_events,
+            info_ground_truth=ownerless_info,
+            active_agents=list(agents),
+        )
+
+        # The previous carrier (left_0) is charged; others are untouched.
+        assert rewards["left_0"] == pytest.approx(-0.10)
+        assert rewards["left_1"] == pytest.approx(0.0)
+        assert rewards["left_2"] == pytest.approx(0.0)
+        # Counters still increment.
+        assert shaper.pass_intercepted_count == 1
+        assert shaper.total_turnover_conceded_count == 1
+        # Carrier is cleared after the victim event resolves it.
+        assert shaper.previous_left_ball_carrier is None
+
+    def test_m1_interception_without_prior_carrier_charges_nothing(self):
+        """M1 negative case: ownerless interception frame with NO previous left
+        carrier must not fabricate a penalty. Only counters increment."""
+        from training.gmn_pettingzoo import GMNMultiAgentEnv
+
+        shaper = CooperativeRewardShaper()
+        shaper.reset()
+
+        agents = ["left_0", "left_1"]
+        interception_code = EVENT_CODE_MAP.index("pass_intercepted")
+
+        # No prior owned frame → previous_left_ball_carrier is None.
+        assert shaper.previous_left_ball_carrier is None
+
+        wire_events = GMNMultiAgentEnv._build_shaper_events(
+            interception_code, 0, 0, agents, 255
+        )
+        rewards = shaper.compute_shaped_rewards(
+            base_rewards={a: 0.0 for a in agents},
+            step_events=wire_events,
+            info_ground_truth={"current_ball_owner": None},
+            active_agents=list(agents),
+        )
+
+        # No invented penalty.
+        assert rewards["left_0"] == pytest.approx(0.0)
+        assert rewards["left_1"] == pytest.approx(0.0)
+        # Counters still increment even when attribution is impossible.
+        assert shaper.pass_intercepted_count == 1
+        assert shaper.total_turnover_conceded_count == 1
+
+    def test_m1_explicit_agent_id_takes_precedence_over_carrier(self):
+        """M1: when a well-formed event carries a valid left agent_id, that id is
+        charged even if previous_left_ball_carrier points elsewhere."""
+        shaper = CooperativeRewardShaper()
+        shaper.reset()
+
+        agents = ["left_0", "left_1"]
+        # Establish left_0 as carrier.
+        shaper.compute_shaped_rewards(
+            base_rewards={a: 0.0 for a in agents},
+            step_events=[],
+            info_ground_truth={"current_ball_owner": {"team": "left", "agent_id": "left_0"}},
+            active_agents=list(agents),
+        )
+        assert shaper.previous_left_ball_carrier == "left_0"
+
+        # Well-formed event names left_1 explicitly.
+        step_events = [{"type": "PASS_INTERCEPTED", "team": "right", "agent_id": "left_1"}]
+        rewards = shaper.compute_shaped_rewards(
+            base_rewards={a: 0.0 for a in agents},
+            step_events=step_events,
+            info_ground_truth={"current_ball_owner": None},
+            active_agents=list(agents),
+        )
+
+        assert rewards["left_1"] == pytest.approx(-0.10)
+        assert rewards["left_0"] == pytest.approx(0.0)
+        # Carrier cleared after resolution.
+        assert shaper.previous_left_ball_carrier is None
+
 
 # ---------------------------------------------------------------------------
 # M5 – Batched path must exercise reward shaping with per-env state.
