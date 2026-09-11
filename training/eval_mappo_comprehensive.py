@@ -48,23 +48,27 @@ def build_evaluation_metadata(checkpoint_path: str, num_episodes: int, scenario:
     }
 
 
-# Action name mapping (matches ActionType in src/types/football.ts)
+# Canonical 19-action mapping
 ACTION_NAMES = [
     "IDLE", "LEFT", "RIGHT", "UP", "DOWN",
     "UP_LEFT", "UP_RIGHT", "DOWN_LEFT", "DOWN_RIGHT",
     "SHORT_PASS", "LONG_PASS", "HIGH_PASS",
-    "SHOT",
-    "SPRINT",
-    "SLIDE_TACKLE", "INTERCEPT",
-    "DIRECTIONAL_PASS", "DRIBBLE", "SKILL"
+    "SHOT", "SPRINT",
+    "RELEASE_DIRECTION", "RELEASE_SPRINT",
+    "SLIDING", "DRIBBLE", "RELEASE_DRIBBLE"
 ]
 
-# Shot actions
-SHOT_ACTIONS = {12}  # SHOT
-PASS_ACTIONS = {9, 10, 11}  # SHORT_PASS, LONG_PASS, HIGH_PASS
-SPRINT_ACTION = 13
-DRIBBLE_ACTION = 17
-TACKLE_ACTIONS = {14, 15}  # SLIDE_TACKLE, INTERCEPT
+SHOT_ACTIONS = {12}
+PASS_ACTIONS = {9, 10, 11}
+SPRINT_ACTIONS = {13}
+RELEASE_DIRECTION_ACTIONS = {14}
+RELEASE_SPRINT_ACTIONS = {15}
+TACKLE_ACTIONS = {16}
+DRIBBLE_ACTIONS = {17}
+RELEASE_DRIBBLE_ACTIONS = {18}
+
+assert len(ACTION_NAMES) == 19, f"Expected 19 actions, got {len(ACTION_NAMES)}"
+assert len(set(ACTION_NAMES)) == 19, "Action names must be unique"
 
 
 def extract_ball_from_obs(obs: np.ndarray) -> Dict[str, float]:
@@ -145,6 +149,7 @@ def evaluate_checkpoint_comprehensive(
     shot_actions_list = []
     pass_actions_list = []
     tackle_actions_list = []
+    action_counts_per_episode_list = []  # list of length-19 lists, one per episode
 
     # Ground-truth metrics from EPISODE_STATS WebSocket frame
     gt_possession_list = []
@@ -177,6 +182,7 @@ def evaluate_checkpoint_comprehensive(
         shot_actions = 0
         pass_actions = 0
         tackle_actions = 0
+        action_counts_this_episode = [0] * 19
         last_info = {}
         episode_ground_truth = {}
 
@@ -208,6 +214,9 @@ def evaluate_checkpoint_comprehensive(
                     pass_actions += 1
                 if act_int in TACKLE_ACTIONS:
                     tackle_actions += 1
+
+                if 0 <= act_int < 19:
+                    action_counts_this_episode[act_int] += 1
 
             obs_dict, rews, terms, truncs, infos = env.step(action_dict)
             obs_dict = unwrap_obs(obs_dict)
@@ -281,6 +290,7 @@ def evaluate_checkpoint_comprehensive(
         shot_actions_list.append(ep_metrics.shots_total)
         pass_actions_list.append(ep_metrics.passes_attempted)
         tackle_actions_list.append(tackle_actions)
+        action_counts_per_episode_list.append(action_counts_this_episode)
 
         # Collect ground-truth metrics from EPISODE_STATS frame
         if episode_ground_truth:
@@ -387,6 +397,17 @@ def evaluate_checkpoint_comprehensive(
     agg["mean_episode_length"] = float(np.mean(lengths_list)) if lengths_list else 0.0
     agg["std_episode_length"] = float(np.std(lengths_list)) if lengths_list else 0.0
     agg["mean_episode_duration_seconds"] = float(np.mean(lengths_list)) / 60.0 if lengths_list else 0.0
+
+    # Full 19-action distribution from evaluator counters
+    if action_counts_per_episode_list:
+        action_counts_total = [sum(eps[i] for eps in action_counts_per_episode_list) for i in range(19)]
+        action_counts_mean = [float(np.mean([eps[i] for eps in action_counts_per_episode_list])) for i in range(19)]
+        total_actions = max(1, sum(action_counts_total))
+        agg["action_distribution"] = [c / total_actions for c in action_counts_total]
+        for i, name in enumerate(ACTION_NAMES):
+            agg[f"action_{name.lower()}_per_episode_mean"] = action_counts_mean[i]
+        # Defensive override: ensure tackle metric is anchored to SLIDING (16)
+        agg["tackles_per_episode_mean"] = action_counts_mean[16]
     # Outcome-split pass/shot accuracy
     agg["pass_accuracy_goal_episodes"] = {
         "mean": float(np.mean(gt_pass_accuracy_goal)) * 100.0 if gt_pass_accuracy_goal else 0.0,
