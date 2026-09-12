@@ -36,7 +36,7 @@ export const ScenarioSelector: React.FC<ScenarioSelectorProps> = ({
               : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
           }`}
         >
-          âš½ Free Play Match
+          ⚽ Free Play Match
         </button>
       </div>
 

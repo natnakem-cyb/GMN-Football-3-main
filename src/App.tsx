@@ -360,7 +360,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-emerald-950/40 text-lg">
-              âš½
+              ⚽
             </div>
             <div>
               <h1 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2">
@@ -471,7 +471,7 @@ export default function App() {
           {/* Neural Policy Unavailable Banner */}
           {neuralFallbackActive && (
             <div className="mb-2 p-2 rounded-lg bg-amber-900/80 border border-amber-600 text-amber-100 text-xs font-semibold text-center">
-              âš ï¸ Neural Policy Unavailable — Using Rule-Based Fallback.
+              ⚠️ Neural Policy Unavailable — Using Rule-Based Fallback.
               {modelError ? ` Error: ${modelError}` : ' No trained checkpoint loaded.'}
             </div>
           )}

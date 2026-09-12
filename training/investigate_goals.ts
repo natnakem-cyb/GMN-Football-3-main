@@ -26,7 +26,7 @@ async function main() {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
-  console.log(`âœ“ Session created. Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
+  console.log(`✓ Session created. Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
 
   const inputName = session.inputNames[0] || 'obs';
   const outputName = session.outputNames[0] || 'action_logits';

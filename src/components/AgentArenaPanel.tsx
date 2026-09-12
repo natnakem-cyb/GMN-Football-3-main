@@ -81,19 +81,19 @@ export const AgentArenaPanel: React.FC<AgentArenaPanelProps> = ({
                 onChange={(e) => onUpdateTeamLeft({ controller: e.target.value as any })}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-medium focus:ring-1 focus:ring-blue-500"
               >
-                <option value="human">ðŸ‘¤ Human Player (Keyboard / Touch)</option>
-                <option value="rule_based">ðŸ¤– Tactical Rule AI</option>
+                <option value="human">🧑 Human Player (Keyboard / Touch)</option>
+                <option value="rule_based">🤖 Tactical Rule AI</option>
                 {!modelError ? (
                   <option value="neural">
-                    ðŸ§  Neural Policy (Trained MAPPO — ONNX / 127-dim)
+                    🧠 Neural Policy (Trained MAPPO — ONNX / 127-dim)
                   </option>
                 ) : (
                   <option value="neural" disabled>
-                    ðŸ§  Neural Policy (Unavailable: {modelError})
+                    🧠 Neural Policy (Unavailable: {modelError})
                   </option>
                 )}
-                <option value="heuristic">ðŸ“Š Heuristic Bot (Untrained Baseline)</option>
-                <option value="scripted">ðŸ“œ Scripted Scenario Bot</option>
+                <option value="heuristic">📊 Heuristic Bot (Untrained Baseline)</option>
+                <option value="scripted">📜 Scripted Scenario Bot</option>
               </select>
               {modelError && (
                 <div className="mt-2 p-2 rounded-lg bg-amber-950/80 border border-amber-600/80 text-[11px] text-amber-300 flex items-center gap-1.5 font-semibold animate-fadeIn">
@@ -157,12 +157,12 @@ export const AgentArenaPanel: React.FC<AgentArenaPanelProps> = ({
                 onChange={(e) => onUpdateTeamRight({ controller: e.target.value as any })}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-medium focus:ring-1 focus:ring-red-500"
               >
-                <option value="rule_based">ðŸ¤– Tactical Rule AI</option>
-                <option value="heuristic">ðŸ“Š Heuristic Bot (Untrained Baseline)</option>
-                <option value="human">ðŸ‘¤ Human Player</option>
-                <option value="scripted">ðŸ“œ Scripted Scenario Bot</option>
+                <option value="rule_based">🤖 Tactical Rule AI</option>
+                <option value="heuristic">📊 Heuristic Bot (Untrained Baseline)</option>
+                <option value="human">🧑 Human Player</option>
+                <option value="scripted">📜 Scripted Scenario Bot</option>
                 <option value="neural" disabled title="Trained policy is left-side only (trained to attack the right goal)">
-                  ðŸ§  Neural Policy (Left-side only, no mirroring)
+                  🧠 Neural Policy (Left-side only, no mirroring)
                 </option>
               </select>
               <p className="text-[11px] text-slate-400 mt-1">
