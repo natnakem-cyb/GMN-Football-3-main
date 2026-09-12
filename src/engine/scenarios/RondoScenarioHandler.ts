@@ -24,6 +24,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
   private ballOutOfAreaTime = 0;
   private prevBallX = 0;
   private lastDefenderReward = 0;
+  private defenderJustWonPossessionThisTick = false;
 
   // --- ScenarioHandler -------------------------------------------------------
   onReset(): void {
@@ -37,6 +38,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
     this.ballOutOfAreaTime = 0;
     this.prevBallX = 0;
     this.lastDefenderReward = 0;
+    this.defenderJustWonPossessionThisTick = false;
   }
 
   onStep(engine: GameEngine, dt: number, prevBallX: number): void {
@@ -75,10 +77,18 @@ export class RondoScenarioHandler implements ScenarioHandler {
       this.defenderPossessionTime = 0;
     }
 
-    // Consecutive possession timer for retention bonus
+    // Consecutive possession timer for retention bonus.
+    // Capture the PRE-mutation value of lastPossessionTeam before onStep mutates
+    // it for the current tick. BUG-2 fix: defender transition reward was dead
+    // code because computeReward compared the freshly-mutated field against
+    // itself; snapshot here so computeReward can read the genuine previous tick.
+    const previousPossessionTeam = this.lastPossessionTeam;
     const currentPossessionTeam = engine.ball.ownerId
       ? engine.players.find((p) => p.id === engine.ball.ownerId)?.team ?? null
       : null;
+    this.defenderJustWonPossessionThisTick =
+      currentPossessionTeam === 'right' && previousPossessionTeam !== 'right';
+
     if (currentPossessionTeam === 'left') {
       if (this.lastPossessionTeam === 'left') {
         this.consecutivePossessionTime += dt;
@@ -116,11 +126,6 @@ export class RondoScenarioHandler implements ScenarioHandler {
       ? engine.players.find((p) => p.id === engine.ball.ownerId)?.team ?? null
       : null;
 
-    // Audit P0 fix: compute defender possession transition for transition reward.
-    // The defender gets +0.2 only when ownership CHANGES to right, not every tick.
-    const defenderJustWonPossession =
-      ballOwnerTeam === 'right' && this.lastPossessionTeam !== 'right';
-
     const { attackerReward, defenderReward } = ObservationEncoder.computeRondoReward({
       prevBallX: this.prevBallX,
       currBallX: engine.ball.position.x,
@@ -132,7 +137,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
       prevDefenderDistToBall: this.prevDefenderDistToBall,
       drillRadius: 0.35,
       consecutivePossessionTime: this.consecutivePossessionTime,
-      defenderJustWonPossession,
+      defenderJustWonPossession: this.defenderJustWonPossessionThisTick,
     });
     this.lastDefenderReward = defenderReward;
     this.prevDefenderDistToBall = this.currentDefenderDistToBall;
