@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "gnn_graph_schema_v1.json",
-  "title": "GNN Graph Schema v1",
-  "description": "v2 extends v1 with Track A formation structure (11_vs_11 only) and Track B continuous shape descriptors (academy scenarios). Machine-readable schema for GMN-Football-3 GNN graph representations.",
+  "title": "GNN Graph Schema v3",
+  "description": "v3 extends v2 with SCENARIO node objective_vocabulary multi-hot, reward_scoring, reward_completion, and required rewards. Machine-readable schema for GMN-Football-3 GNN graph representations.",
   "type": "object",
   "required": [
     "scenario",
@@ -381,7 +381,11 @@
         "id",
         "time_limit_seconds",
         "terminate_on_opponent_possession",
-        "objectives"
+        "objectives",
+        "objective_vocabulary",
+        "reward_scoring",
+        "reward_completion",
+        "rewards"
       ],
       "properties": {
         "node_type": {
@@ -425,6 +429,23 @@
               "description": "Reward for completing all objectives. Source: ScenarioConfig.rewards.completion."
             }
           }
+        },
+        "objective_vocabulary": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "description": "Multi-hot encoding of objective ids present in this scenario. Alphabetical order: [avoid_dispossess, clean_sheet, complete_pass, complete_passes, control_possession, create_triangle, retain_possession, score_goal, within_time, win_match]. Length = 10 (current vocabulary). Extend if new objective ids are added. See Phase 3 section 1."
+        },
+        "reward_scoring": {
+          "type": "number",
+          "description": "Reward for scoring a goal. Top-level convenience field mirroring rewards.scoring. Source: ScenarioConfig.rewards.scoring."
+        },
+        "reward_completion": {
+          "type": "number",
+          "description": "Reward for completing all objectives. Top-level convenience field mirroring rewards.completion. Source: ScenarioConfig.rewards.completion."
         }
       }
     },
