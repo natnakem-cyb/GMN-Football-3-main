@@ -102,6 +102,28 @@ function testDrillObjectivesUnchanged(): void {
   check(objective(e, 'within_time').isCompleted, 'within_time completes when goal scored before limit');
 }
 
+function testCreateTriangleAggregate(): void {
+  console.log('\n[drill] create_triangle aggregate evaluation');
+  const sc = ACADEMY_SCENARIOS.find((s) => s.id === 'academy_3_vs_1_with_keeper')!;
+  const e = new GameEngine();
+  e.loadScenario(sc, 7);
+  // Audit fix: objective text was renamed to match the aggregate evaluation.
+  // The engine completes create_triangle on >= 2 aggregate completed passes
+  // by the left team (GameEngine.ts evaluateScenarioConditions), NOT on a
+  // possession-turnover-free chain. The text must not overclaim a chain.
+  check(
+    objective(e, 'create_triangle').text === 'Complete 2+ passes in the episode',
+    'create_triangle text matches aggregate evaluation (no "without losing possession" claim)'
+  );
+  // 0 passes -> not complete.
+  e.step(new Map(), 1 / 60);
+  check(objective(e, 'create_triangle').isCompleted === false, 'create_triangle NOT complete at 0 aggregate passes');
+  // 2 aggregate completed passes -> complete.
+  e.stats.completedPasses.left = 2;
+  e.step(new Map(), 1 / 60);
+  check(objective(e, 'create_triangle').isCompleted, 'create_triangle completes on >= 2 aggregate completed passes');
+}
+
 function main() {
   console.log('====================================================');
   console.log('GMN-FOOTBALL-3 — SCENARIO COMPLETION LOGIC TEST');
@@ -109,6 +131,7 @@ function main() {
   test5v5();
   test11v11();
   testDrillObjectivesUnchanged();
+  testCreateTriangleAggregate();
   console.log('\n====================================================');
   if (failures === 0) console.log('✓ ALL SCENARIO COMPLETION CHECKS PASSED');
   else {
