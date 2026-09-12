@@ -373,7 +373,26 @@ def run_mappo_training(
             episode_lengths.append(ep_info["length"])
             episode_goals.append(ep_info["goal"])
             if scheduler is not None:
-                scheduler.record_result(ep_info.get("success", bool(ep_info["goal"])))
+                # Audit P0 fix: prefer explicit "success" field from collectors.
+                # Never silently treat goal as success for match/rondo stages:
+                # if success/score/event are all missing, log a warning and
+                # fall back to goal explicitly (not is_scenario_success on a
+                # fabricated empty info dict, which would mis-score matches).
+                if "success" in ep_info:
+                    scheduler.record_result(ep_info["success"])
+                elif "score" in ep_info or "event" in ep_info:
+                    _score = ep_info.get("score", {})
+                    _event = ep_info.get("event", {})
+                    _scenario = ep_info.get("scenario", "academy_empty_goal")
+                    _info = {"score": _score, "event": _event}
+                    from training.curriculum_scheduler import is_scenario_success
+                    _success = is_scenario_success(_scenario, _info)
+                    print(f"[WARN] train_mappo: ep_info missing 'success' field, computed via is_scenario_success={_success}")
+                    scheduler.record_result(_success)
+                else:
+                    print("[WARN] train_mappo: ep_info missing 'success' AND score/event; "
+                          "falling back to goal flag (match/rondo stages may be mis-scored)")
+                    scheduler.record_result(bool(ep_info.get("goal", False)))
 
         # 2. Compute GAE Advantages and Returns
         advantages, returns = compute_gae(
