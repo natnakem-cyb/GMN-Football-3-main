@@ -116,6 +116,11 @@ export class RondoScenarioHandler implements ScenarioHandler {
       ? engine.players.find((p) => p.id === engine.ball.ownerId)?.team ?? null
       : null;
 
+    // Audit P0 fix: compute defender possession transition for transition reward.
+    // The defender gets +0.2 only when ownership CHANGES to right, not every tick.
+    const defenderJustWonPossession =
+      ballOwnerTeam === 'right' && this.lastPossessionTeam !== 'right';
+
     const { attackerReward, defenderReward } = ObservationEncoder.computeRondoReward({
       prevBallX: this.prevBallX,
       currBallX: engine.ball.position.x,
@@ -127,6 +132,7 @@ export class RondoScenarioHandler implements ScenarioHandler {
       prevDefenderDistToBall: this.prevDefenderDistToBall,
       drillRadius: 0.35,
       consecutivePossessionTime: this.consecutivePossessionTime,
+      defenderJustWonPossession,
     });
     this.lastDefenderReward = defenderReward;
     this.prevDefenderDistToBall = this.currentDefenderDistToBall;

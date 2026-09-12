@@ -549,6 +549,12 @@ export class GameEngine {
 
     const passCompletedByLeft = newEventsThisTick.some((e) => e.type === 'pass_completed' && e.team === 'left');
 
+    // Audit P0 fix: pass the current ball owner team so the checkpoint reward is
+    // possession-gated (no progress reward for loose-ball or opponent-driven X).
+    const _ballOwnerTeam = this.ball.ownerId
+      ? this.players.find((p) => p.id === this.ball.ownerId)?.team ?? null
+      : null;
+
     let { reward, checkpoint, newMaxBallProgressX } = ObservationEncoder.computeReward(
       prevBallX,
       this.ball.position.x,
@@ -556,6 +562,7 @@ export class GameEngine {
       CONTROLLED_TRAINING_TEAM,
       this.maxBallProgressX,
       passCompletedByLeft,
+      _ballOwnerTeam,
     );
     this.maxBallProgressX = newMaxBallProgressX;
 
