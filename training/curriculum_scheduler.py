@@ -12,6 +12,26 @@ from typing import Any, Dict, List, Optional
 
 
 # Stage ladder derived from ScenarioRegistry.ts (academy_rondo_4v1 is excluded as a parallel track).
+#
+# Curriculum vs registry (audit P1 note, Issue 5):
+# - CURRICULUM_STAGES is a strict SUBSET of the 12 scenarios registered in
+#   src/scenarios/ScenarioRegistry.ts. It contains 8 of them; the remaining 4
+#   are deliberately NOT on the ladder:
+#     * academy_rondo_4v1 (ScenarioRegistry.ts:319) — parallel rondo track,
+#       trained via --scenario academy_rondo_4v1, not promoted through this
+#       ladder (its success rule in is_scenario_success is rondo-specific).
+#     * academy_3_vs_1_keeper_aggressive / academy_3_vs_1_shifted /
+#       academy_3_vs_1_randomized (ScenarioRegistry.ts:214/249/284) —
+#       held-out generalization variants. They are never promoted to
+#       automatically; add them to this list only as an explicit design
+#       decision (e.g. for a generalization fine-tune stage).
+# - Topology naming: `academy_3_vs_1_*` stages are 3 attackers vs 1 defender
+#   PLUS a goalkeeper for the *_with_keeper variants — i.e. the id counts
+#   outfield opponents only. academy_3_vs_1_with_keeper is actually
+#   3A_vs_1D_plus_GK (teamLeftPlayers: 3, teamRightPlayers: 2 with
+#   hasGoalkeeperRight: true, ScenarioRegistry.ts:110-113/122-126).
+#   Scenario ids must NOT be renamed (they are wire keys used by training
+#   checkpoints and the bridge); treat the id as topology shorthand.
 CURRICULUM_STAGES: List[str] = [
     "academy_empty_goal",
     "academy_run_to_score",

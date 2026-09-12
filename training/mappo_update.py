@@ -102,6 +102,19 @@ def ppo_update(
             # Pass 3D tensor (batch_size, num_agents, obs_dim) to CentralizedCritic
             values_pred = critic(joint_obs_t[batch_idx])
             value_loss = ((values_pred - returns_t[batch_idx]) ** 2).mean()
+            # NOTE (audit P1, Issue 6): the critic input `joint_obs_t` is the same
+            # per-timestep state repeated once per agent, so the critic loss is
+            # effectively computed over T*num_agents samples. For SHARED returns
+            # ((T,) shape above) the repeats are identical (state, return) pairs,
+            # so the loss scale is invariant to num_agents (mean of identical
+            # duplicates = mean of the originals). For PER-AGENT returns ((T,
+            # num_agents) shape) the critic sees the same state with different
+            # targets from all agents — the loss gradient is then agent-count
+            # weighted and the state-only critic cannot disambiguate the targets.
+            # A "mean over agents before critic loss" normalization would fix the
+            # weighting but also changes what the critic is trained to predict
+            # (state value vs per-agent value) — that is a semantic redesign, not
+            # a one-line fix, so it is deferred (documented, not applied).
 
             loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
 
