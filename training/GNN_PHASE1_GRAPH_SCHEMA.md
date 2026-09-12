@@ -231,7 +231,7 @@ Phase 0 confirmed `academy_3_vs_1_defender_3` is actually **3v4 with a goalkeepe
 }
 ```
 
-### 4.2 Node list (10 nodes)
+### 4.2 Node list (12 nodes)
 
 **GOAL nodes (2):**
 - `goal_left`: team=`left`, position=`{x: -1.0, y: 0.0}`, width=`0.14`, height=`0.05`, depth=`0.04`
@@ -245,15 +245,24 @@ Phase 0 confirmed `academy_3_vs_1_defender_3` is actually **3v4 with a goalkeepe
 
 **PLAYER nodes (7):**
 
-| global_id | team | team_index | position | velocity | role | is_active | is_controlled | is_goalkeeper |
-|-----------|------|------------|----------|----------|------|-----------|---------------|---------------|
-| `left_0` | left | 0 | `{x: 0.20, y: 0.00}` | `{vx: 0.0, vy: 0.0}` | CAM | true | true | false |
-| `left_1` | left | 1 | `{x: 0.45, y: -0.22}` | `{vx: 0.0, vy: 0.0}` | LW | false | false | false |
-| `left_2` | left | 2 | `{x: 0.45, y: 0.22}` | `{vx: 0.0, vy: 0.0}` | RW | false | false | false |
-| `right_0` | right | 0 | `{x: 0.88, y: 0.00}` | `{vx: 0.0, vy: 0.0}` | GK | false | false | true |
-| `right_1` | right | 1 | `{x: 0.52, y: -0.16}` | `{vx: 0.0, vy: 0.0}` | CB | false | false | false |
-| `right_2` | right | 2 | `{x: 0.52, y: 0.16}` | `{vx: 0.0, vy: 0.0}` | CB | false | false | false |
-| `right_3` | right | 3 | `{x: 0.68, y: 0.00}` | `{vx: 0.0, vy: 0.0}` | CB | false | false | false |
+| global_id | team | team_index | position | velocity | role | is_active | is_controlled | is_goalkeeper | line_id | lane_id |
+|-----------|------|------------|----------|----------|------|-----------|---------------|---------------|---------|---------|
+| `left_0` | left | 0 | `{x: 0.20, y: 0.00}` | `{vx: 0.0, vy: 0.0}` | CAM | true | true | false | 0 | 1 |
+| `left_1` | left | 1 | `{x: 0.45, y: -0.22}` | `{vx: 0.0, vy: 0.0}` | LW | false | false | false | 1 | 0 |
+| `left_2` | left | 2 | `{x: 0.45, y: 0.22}` | `{vx: 0.0, vy: 0.0}` | RW | false | false | false | 1 | 2 |
+| `right_0` | right | 0 | `{x: 0.88, y: 0.00}` | `{vx: 0.0, vy: 0.0}` | GK | false | false | true | 2 | 1 |
+| `right_1` | right | 1 | `{x: 0.52, y: -0.16}` | `{vx: 0.0, vy: 0.0}` | CB | false | false | false | 0 | 0 |
+| `right_2` | right | 2 | `{x: 0.52, y: 0.16}` | `{vx: 0.0, vy: 0.0}` | CB | false | false | false | 0 | 2 |
+| `right_3` | right | 3 | `{x: 0.68, y: 0.00}` | `{vx: 0.0, vy: 0.0}` | CB | false | false | false | 1 | 1 |
+
+**TEAM_SHAPE nodes (2):**
+
+These are summary nodes with no edges. They are included in the `nodes` array after all PLAYER nodes.
+
+- `TEAM_SHAPE` (left): `formation_deviation = { inter_line_spacing_variance: 0.0, mean_line_compactness: 0.25, num_lines: 2, num_lanes: 3 }`
+- `TEAM_SHAPE` (right): `formation_deviation = { inter_line_spacing_variance: 0.0004, mean_line_compactness: 0.1667, num_lines: 3, num_lanes: 3 }`
+
+Values sourced from `GNN_PHASE2_FORMATION_MODEL.md` §5.3/§5.4 (computed from actual spawn coordinates via 1D gap-detection).
 
 **Derived features for each player:**
 
@@ -284,8 +293,10 @@ Right team (4 players, 6 pairs):
 - right_2 ↔ right_3: `sqrt((0.68-0.52)² + (0.00-0.16)²)` = `0.226`
 - Compactness = `(0.394 + 0.394 + 0.200 + 0.320 + 0.226 + 0.226) / 6` = `0.293`
 
-**Total nodes: 10** (2 GOAL + 1 BALL + 1 SCENARIO + 7 PLAYER).  
-**Verification:** `ScenarioRegistry.ts` defines `teamLeftPlayers: 3` and `teamRightPlayers: 4` for this scenario. 3 + 4 = 7 players. 7 + 1 ball + 2 goals + 1 scenario = 10 nodes. ✓
+**Total nodes: 12** (2 GOAL + 1 BALL + 1 SCENARIO + 7 PLAYER + 2 TEAM_SHAPE).  
+**Verification:** `ScenarioRegistry.ts` defines `teamLeftPlayers: 3` and `teamRightPlayers: 4` for this scenario. 3 + 4 = 7 players. 7 + 1 ball + 2 goals + 1 scenario + 2 TEAM_SHAPE = 12 nodes. ✓
+
+**TEAM_SHAPE edges:** TEAM_SHAPE nodes are summary nodes and have no edges. Edge count is unchanged.
 
 ### 4.3 Edge list (21 edges)
 
@@ -348,13 +359,15 @@ Right team (C(4,2) = 6):
     { "node_type": "GOAL", "node_id": "goal_left", "team": "left", "position": { "x": -1.0, "y": 0.0 }, "width": 0.14, "height": 0.05, "depth": 0.04 },
     { "node_type": "GOAL", "node_id": "goal_right", "team": "right", "position": { "x": 1.0, "y": 0.0 }, "width": 0.14, "height": 0.05, "depth": 0.04 },
     { "node_type": "BALL", "node_id": "ball", "position": { "x": 0.25, "y": 0.0, "z": 0.0 }, "velocity": { "vx": 0.0, "vy": 0.0, "vz": 0.0 }, "ownership": "none", "speed": 0.0 },
-    { "node_type": "PLAYER", "global_id": "left_0", "team": "left", "team_index": 0, "position": { "x": 0.2, "y": 0.0 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CAM", "role_one_hot": [0,0,0,0,0,0,0,0,0,0,1,0], "is_active": true, "is_controlled": true, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.333, "nearest_opponent_dist": 0.358, "team_width": 0.44, "team_depth": 0.25, "compactness": 0.369, "stretch": 0.25, "receiver_availability": 1.0 } },
-    { "node_type": "PLAYER", "global_id": "left_1", "team": "left", "team_index": 1, "position": { "x": 0.45, "y": -0.22 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "LW", "role_one_hot": [0,0,0,0,0,0,0,0,1,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.333, "nearest_opponent_dist": 0.092, "team_width": 0.44, "team_depth": 0.25, "compactness": 0.369, "stretch": 0.25, "receiver_availability": 1.0 } },
-    { "node_type": "PLAYER", "global_id": "left_2", "team": "left", "team_index": 2, "position": { "x": 0.45, "y": 0.22 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "RW", "role_one_hot": [0,0,0,0,0,0,0,0,0,1,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.333, "nearest_opponent_dist": 0.092, "team_width": 0.44, "team_depth": 0.25, "compactness": 0.369, "stretch": 0.25, "receiver_availability": 1.0 } },
-    { "node_type": "PLAYER", "global_id": "right_0", "team": "right", "team_index": 0, "position": { "x": 0.88, "y": 0.0 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "GK", "role_one_hot": [1,0,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": true, "features": { "nearest_teammate_dist": 0.200, "nearest_opponent_dist": 0.483, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 } },
-    { "node_type": "PLAYER", "global_id": "right_1", "team": "right", "team_index": 1, "position": { "x": 0.52, "y": -0.16 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CB", "role_one_hot": [0,1,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.226, "nearest_opponent_dist": 0.092, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 } },
-    { "node_type": "PLAYER", "global_id": "right_2", "team": "right", "team_index": 2, "position": { "x": 0.52, "y": 0.16 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CB", "role_one_hot": [0,1,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.226, "nearest_opponent_dist": 0.092, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 } },
-    { "node_type": "PLAYER", "global_id": "right_3", "team": "right", "team_index": 3, "position": { "x": 0.68, "y": 0.0 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CB", "role_one_hot": [0,1,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.200, "nearest_opponent_dist": 0.318, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 } }
+    { "node_type": "PLAYER", "global_id": "left_0", "team": "left", "team_index": 0, "position": { "x": 0.2, "y": 0.0 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CAM", "role_one_hot": [0,0,0,0,0,0,0,0,0,0,1,0], "is_active": true, "is_controlled": true, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.333, "nearest_opponent_dist": 0.358, "team_width": 0.44, "team_depth": 0.25, "compactness": 0.369, "stretch": 0.25, "receiver_availability": 1.0 }, "line_id": 0, "lane_id": 1 },
+    { "node_type": "PLAYER", "global_id": "left_1", "team": "left", "team_index": 1, "position": { "x": 0.45, "y": -0.22 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "LW", "role_one_hot": [0,0,0,0,0,0,0,0,1,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.333, "nearest_opponent_dist": 0.092, "team_width": 0.44, "team_depth": 0.25, "compactness": 0.369, "stretch": 0.25, "receiver_availability": 1.0 }, "line_id": 1, "lane_id": 0 },
+    { "node_type": "PLAYER", "global_id": "left_2", "team": "left", "team_index": 2, "position": { "x": 0.45, "y": 0.22 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "RW", "role_one_hot": [0,0,0,0,0,0,0,0,0,1,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.333, "nearest_opponent_dist": 0.092, "team_width": 0.44, "team_depth": 0.25, "compactness": 0.369, "stretch": 0.25, "receiver_availability": 1.0 }, "line_id": 1, "lane_id": 2 },
+    { "node_type": "PLAYER", "global_id": "right_0", "team": "right", "team_index": 0, "position": { "x": 0.88, "y": 0.0 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "GK", "role_one_hot": [1,0,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": true, "features": { "nearest_teammate_dist": 0.200, "nearest_opponent_dist": 0.483, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 }, "line_id": 2, "lane_id": 1 },
+    { "node_type": "PLAYER", "global_id": "right_1", "team": "right", "team_index": 1, "position": { "x": 0.52, "y": -0.16 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CB", "role_one_hot": [0,1,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.226, "nearest_opponent_dist": 0.092, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 }, "line_id": 0, "lane_id": 0 },
+    { "node_type": "PLAYER", "global_id": "right_2", "team": "right", "team_index": 2, "position": { "x": 0.52, "y": 0.16 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CB", "role_one_hot": [0,1,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.226, "nearest_opponent_dist": 0.092, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 }, "line_id": 0, "lane_id": 2 },
+    { "node_type": "PLAYER", "global_id": "right_3", "team": "right", "team_index": 3, "position": { "x": 0.68, "y": 0.0 }, "velocity": { "vx": 0.0, "vy": 0.0 }, "role": "CB", "role_one_hot": [0,1,0,0,0,0,0,0,0,0,0,0], "is_active": false, "is_controlled": false, "is_goalkeeper": false, "features": { "nearest_teammate_dist": 0.200, "nearest_opponent_dist": 0.318, "team_width": 0.32, "team_depth": 0.36, "compactness": 0.293, "stretch": 0.36, "receiver_availability": 1.0 }, "line_id": 1, "lane_id": 1 },
+    { "node_type": "TEAM_SHAPE", "team": "left", "formation_deviation": { "inter_line_spacing_variance": 0.0, "mean_line_compactness": 0.25, "num_lines": 2, "num_lanes": 3 } },
+    { "node_type": "TEAM_SHAPE", "team": "right", "formation_deviation": { "inter_line_spacing_variance": 0.0004, "mean_line_compactness": 0.1667, "num_lines": 3, "num_lanes": 3 } }
   ],
   "edges": [
     { "edge_type": "TEAMMATE", "source": "left_0", "target": "left_1" },
@@ -479,10 +492,12 @@ The following attributes from the original GNN proposal §8 scenario node schema
 
 | Element | v1 status | Count in worked example |
 |---------|-----------|------------------------|
-| Node types | PLAYER, BALL, GOAL, SCENARIO | 10 total (7 PLAYER + 1 BALL + 2 GOAL + 1 SCENARIO) |
+| Node types | PLAYER, BALL, GOAL, SCENARIO, TEAM_SHAPE | 12 total (7 PLAYER + 1 BALL + 2 GOAL + 1 SCENARIO + 2 TEAM_SHAPE) |
 | Edge types | TEAMMATE, OPPONENT, NEAR, POSSESSES | 21 total (9 TEAMMATE + 12 OPPONENT + 0 NEAR + 0 POSSESSES) |
 | PLAYER features from 127-dim obs | Position, velocity, role, role_one_hot, is_active, is_controlled, is_goalkeeper | 7 raw features |
 | PLAYER derived features | 7 (nearest-teammate dist, nearest-opponent dist, team_width, team_depth, compactness, stretch, receiver_availability) | 7 derived features |
+| PLAYER new fields (Phase 2) | line_id, lane_id | 2 new fields |
+| TEAM_SHAPE fields | formation_deviation (inter_line_spacing_variance, mean_line_compactness, num_lines, num_lanes) | 1 new node type |
 | Deferred node/edge types | FORMATION_SLOT, FORMATION_ADJACENCY, FORMATION_LINE, FORMATION_LANE, SEQUENCE_NEXT, CONSTRAINED_BY | 6 types |
 | Deferred features | Line spacing, lane occupancy, formation deviation, pressure at pass/shot time | 4 features |
 | Deferred scenario fields | max_touches, allowed_actions, forbidden_actions, target_player, target_zone, step_limit | 6 fields |
