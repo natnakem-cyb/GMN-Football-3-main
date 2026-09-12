@@ -93,6 +93,7 @@ def export_to_onnx(
             "obs": {0: "batch_size"},
             "action_logits": {0: "batch_size"},
         },
+        dynamo=False,
     )
 
     # Ensure single self-contained ONNX model (no external data split)

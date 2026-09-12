@@ -56,6 +56,7 @@ def run_mappo_training(
     curriculum_promote_threshold: float = 0.6,
     curriculum_demote_threshold: float = 0.1,
     curriculum_min_episodes: int = 200,
+    models_dir: str = None,
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -90,7 +91,7 @@ def run_mappo_training(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "models"))
+    models_dir = models_dir or os.path.abspath(os.path.join(os.path.dirname(__file__), "models"))
     logs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "logs"))
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
@@ -865,7 +866,7 @@ def run_mappo_training(
         _final_manifest.update({
             "experiment": _experiment_name,
             "status": "completed",
-            "completed_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
             "quarantine_checkpoint": checkpoint_path,
             "clean_checkpoint": clean_checkpoint_path,
             "quarantine_checkpoint_hash": compute_file_sha256(checkpoint_path) if os.path.exists(checkpoint_path) else "FILE_NOT_FOUND",

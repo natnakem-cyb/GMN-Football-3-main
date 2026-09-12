@@ -80,6 +80,8 @@ class TestTrainMappoCurriculum:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = os.path.join(tmpdir, "curriculum_state.json")
+            models_dir = os.path.join(tmpdir, "models")
+            os.makedirs(models_dir, exist_ok=True)
             # Pre-seed the scheduler so it has just enough history to promote
             # immediately when evaluate_and_step() is called at the start of
             # the first rollout. We want to verify the *mid-run* transition,
@@ -124,6 +126,7 @@ class TestTrainMappoCurriculum:
                             dist = MagicMock()
                             dist.sample.return_value = torch.zeros(obs.shape[0], dtype=torch.long)
                             dist.log_prob.return_value = torch.zeros(obs.shape[0])
+                            dist.entropy.return_value = torch.zeros(obs.shape[0])
                             return dist
 
                     class FakeCritic(torch.nn.Module):
@@ -150,6 +153,7 @@ class TestTrainMappoCurriculum:
                         curriculum_promote_threshold=0.6,
                         curriculum_demote_threshold=0.1,
                         curriculum_min_episodes=3,
+                        models_dir=models_dir,
                     )
 
             # After training, the scheduler state file should show promotion.
@@ -167,6 +171,8 @@ class TestTrainMappoCurriculum:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = os.path.join(tmpdir, "curriculum_state.json")
+            models_dir = os.path.join(tmpdir, "models")
+            os.makedirs(models_dir, exist_ok=True)
             scheduler = CurriculumScheduler(
                 stages=[
                     "academy_empty_goal",
@@ -204,6 +210,7 @@ class TestTrainMappoCurriculum:
                             dist = MagicMock()
                             dist.sample.return_value = torch.zeros(obs.shape[0], dtype=torch.long)
                             dist.log_prob.return_value = torch.zeros(obs.shape[0])
+                            dist.entropy.return_value = torch.zeros(obs.shape[0])
                             return dist
 
                     class FakeCritic(torch.nn.Module):
@@ -230,6 +237,7 @@ class TestTrainMappoCurriculum:
                         curriculum_promote_threshold=0.6,
                         curriculum_demote_threshold=0.1,
                         curriculum_min_episodes=3,
+                        models_dir=models_dir,
                     )
 
             saved_scheduler = CurriculumScheduler.load(state_path)
