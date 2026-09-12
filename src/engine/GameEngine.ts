@@ -502,10 +502,11 @@ export class GameEngine {
         });
 
         // 3. Ball physics
+        const prevBallPos = { x: this.ball.position.x, y: this.ball.position.y, z: this.ball.position.z };
         PhysicsEngine.updateBall(this.ball, this.players, dt);
 
-        // 4. Ball pickup / interception checks
-        this.checkBallPossession();
+        // 4. Ball pickup / interception checks (CCD swept-volume for shots in flight)
+        this.checkBallPossession(prevBallPos);
 
         // Scenario-specific per-tick state tracking
         this.scenarioHandler?.onStep(this, dt, prevBallX);
@@ -921,7 +922,7 @@ export class GameEngine {
     return offsideReceivers;
   }
 
-  private checkBallPossession(): void {
+  private checkBallPossession(prevBallPos?: { x: number; y: number; z: number }): void {
     if (this.ball.isInAir && this.ball.position.z > 0.04) {
       return; // Ball too high to be controlled on ground
     }
@@ -929,10 +930,24 @@ export class GameEngine {
     const ballPos2D: Vector2D = { x: this.ball.position.x, y: this.ball.position.y };
 
     for (const player of this.players) {
-      const dist = Vec2.distance(player.position, ballPos2D);
       const catchRadius = player.isGoalkeeper ? PITCH.goalkeeperCatchRadius : PhysicsEngine.BALL_CONTROL_DIST;
 
+      // CCD (swept-volume) for shots in flight: test segment prevBallPos → currBallPos
+      // instead of a point sample at the end position. This prevents a fast shot from
+      // tunneling through a player in a single tick when Δx > catchRadius.
+      let dist: number;
+      if (this.ball.isShotInFlight && prevBallPos) {
+        dist = Vec2.distPointToSegment2D(
+          player.position,
+          { x: prevBallPos.x, y: prevBallPos.y },
+          ballPos2D
+        );
+      } else {
+        dist = Vec2.distance(player.position, ballPos2D);
+      }
+
       if (dist < catchRadius && !player.isTackling) {
+        // GK save roll for shots in flight (existing behavior, now triggered by CCD contact)
         if (player.isGoalkeeper && this.ball.isShotInFlight) {
           const velocity2D: Vector2D = { x: this.ball.velocity.x, y: this.ball.velocity.y };
           const shotSpeed = Vec2.length(velocity2D);
@@ -966,7 +981,25 @@ export class GameEngine {
             break; // matches existing loop pattern — this player touched the ball this tick
           }
           // else: save succeeds, fall through to the existing possession-assignment
-          // logic below unchanged (clean catch, isShotInFlight already cleared there per Â§2)
+          // logic below unchanged (clean catch, isShotInFlight already cleared there per §2)
+        }
+
+        // Outfield block for shots in flight: no save roll, just deflect/dump speed.
+        // A body in the corridor must be able to stop a center drive without a 75% roll.
+        if (!player.isGoalkeeper && this.ball.isShotInFlight) {
+          this.ball.velocity.x *= 0.35;
+          this.ball.velocity.y *= 0.35;
+          this.ball.velocity.z = Math.abs(this.ball.velocity.z) * 0.5;
+          this.ball.isShotInFlight = false;
+          this.ball.ownerId = null;
+          this.players.forEach((p) => (p.hasBall = false));
+          this.recordEvent(
+            'shot_blocked',
+            `${player.name} blocked the shot`,
+            player.position,
+            player.team
+          );
+          break;
         }
 
         // If ball was unowned or changing owner
