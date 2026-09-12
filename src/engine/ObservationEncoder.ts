@@ -199,11 +199,13 @@ export class ObservationEncoder {
    * Ball progress checkpoint: max(+0.02, deltaX * 0.2) per step, only on new high-water mark
    * Verified pass completion: +0.15 per successful pass
    *
-   * NOTE: Shot-attempt bonuses were deliberately removed in Phase 11 to prevent
-   * reward exploitation via action spam. The checkpoint reward is intentionally
-   * unconditional on shot quality; if possession-gated checkpointing is required,
-   * the caller must supply ball-owner context and the function signature must be
-   * extended accordingly.
+   * Audit P0 fix (possession-gated checkpointing): when the caller supplies
+   * `ballOwnerTeam` (i.e. the parameter is non-undefined), the checkpoint reward
+   * AND the high-water mark update are gated on the controlled training team
+   * owning the ball. A loose ball (null owner) or an opponent-driven (right) X
+   * advance grants no progress reward and does not raise the high-water mark
+   * (so regaining possession is not penalized by opponent movement). When the
+   * parameter is omitted (undefined), the old ungated behavior is preserved.
    */
   static computeReward(
     prevBallX: number,
@@ -212,6 +214,7 @@ export class ObservationEncoder {
     targetTeam: TeamSide = CONTROLLED_TRAINING_TEAM,
     maxBallProgressX?: number,
     passCompletedByTargetTeam = false,
+    ballOwnerTeam?: TeamSide | null,
   ): { reward: number; checkpoint: number; newMaxBallProgressX: number } {
     if (targetTeam !== CONTROLLED_TRAINING_TEAM) {
       throw new Error(
@@ -233,25 +236,36 @@ export class ObservationEncoder {
       reward -= 1.0;
     }
 
+    // Audit P0 fix: possession gate. When the caller supplies a ball owner
+    // (parameter is non-undefined), checkpoint progress only applies while the
+    // controlled training team owns the ball. Loose-ball (null owner) or
+    // opponent-driven (right) X movement earns no checkpoint and does not raise
+    // the high-water mark. When the parameter is omitted (undefined), legacy
+    // ungated behavior is preserved for unit tests / old call sites.
+    const possessionGatePassed =
+      ballOwnerTeam === undefined || ballOwnerTeam === CONTROLLED_TRAINING_TEAM;
+
     // Reduced monotonic checkpoint reward: pays only on new high-water mark.
     const isLeftControlled = targetTeam === CONTROLLED_TRAINING_TEAM;
-    if (isLeftControlled) {
-      if (currBallX > newMaxBallProgressX) {
-        const deltaX = currBallX - newMaxBallProgressX;
-        if (deltaX > 0.005) {
-          checkpoint = Math.min(0.02, deltaX * 0.2);
-          reward += checkpoint;
+    if (possessionGatePassed) {
+      if (isLeftControlled) {
+        if (currBallX > newMaxBallProgressX) {
+          const deltaX = currBallX - newMaxBallProgressX;
+          if (deltaX > 0.005) {
+            checkpoint = Math.min(0.02, deltaX * 0.2);
+            reward += checkpoint;
+          }
+          newMaxBallProgressX = currBallX;
         }
-        newMaxBallProgressX = currBallX;
-      }
-    } else {
-      if (currBallX < newMaxBallProgressX) {
-        const deltaX = newMaxBallProgressX - currBallX;
-        if (deltaX > 0.005) {
-          checkpoint = Math.min(0.02, deltaX * 0.2);
-          reward += checkpoint;
+      } else {
+        if (currBallX < newMaxBallProgressX) {
+          const deltaX = newMaxBallProgressX - currBallX;
+          if (deltaX > 0.005) {
+            checkpoint = Math.min(0.02, deltaX * 0.2);
+            reward += checkpoint;
+          }
+          newMaxBallProgressX = currBallX;
         }
-        newMaxBallProgressX = currBallX;
       }
     }
 
@@ -273,7 +287,8 @@ export class ObservationEncoder {
    * Reward components:
    * - Attacker possession in drill area: +0.01 per tick
    * - Completed attacker-to-attacker pass: +0.1
-   * - Defender interception/tackle: +0.2
+   * - Defender interception/tackle: +0.2 ONCE on possession transition to right
+   *   (not per-tick; prevents exploit where defender accumulates ~12.0 over 60 ticks)
    * - Consecutive possession retention bonuses at 5s/10s/15s/20s
    *
    * @param prevBallX previous ball x position (unused but kept for signature stability)
@@ -286,6 +301,7 @@ export class ObservationEncoder {
    * @param prevDefenderDistToBall previous defender-to-ball distance
    * @param drillRadius radius of the drill area around center pitch
    * @param consecutivePossessionTime seconds of continuous left-team possession
+   * @param defenderJustWonPossession true when ownership transitioned to right this tick
    */
   static computeRondoReward({
     prevBallX: _prevBallX,
@@ -298,6 +314,7 @@ export class ObservationEncoder {
     prevDefenderDistToBall,
     drillRadius = 0.35,
     consecutivePossessionTime = 0,
+    defenderJustWonPossession = false,
   }: {
     prevBallX: number;
     currBallX: number;
@@ -309,6 +326,7 @@ export class ObservationEncoder {
     prevDefenderDistToBall: number;
     drillRadius?: number;
     consecutivePossessionTime?: number;
+    defenderJustWonPossession?: boolean;
   }): { attackerReward: number; defenderReward: number } {
     let attackerReward = 0;
     let defenderReward = 0;
@@ -325,11 +343,17 @@ export class ObservationEncoder {
       attackerReward += 0.1;
     }
 
-    // Defender: reward for winning possession via interception/tackle
-    if (ballOwnerTeam === 'right') {
+    // Defender: reward for winning possession via interception/tackle.
+    // Audit P0 fix: this is now a TRANSITION reward (+0.2 once when ownership
+    // changes to right), not a per-tick reward (+0.2 every tick while right
+    // has the ball). The per-tick version was an exploit: a defender could
+    // accumulate ~12.0 over 60 ticks of continuous possession.
+    if (defenderJustWonPossession) {
       defenderReward += 0.2;
+    }
 
-      // Shaping: reward defender for closing distance to ball
+    // Shaping: reward defender for closing distance to ball (only when right owns)
+    if (ballOwnerTeam === 'right') {
       const distDelta = prevDefenderDistToBall - defenderDistToBall;
       if (distDelta > 0) {
         defenderReward += Math.min(0.05, distDelta * 0.5);
