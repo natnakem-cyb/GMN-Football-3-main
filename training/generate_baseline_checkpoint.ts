@@ -290,7 +290,7 @@ export const MAPPO_WEIGHTS = {
 
   const tsPath = path.resolve(process.cwd(), 'src/agents/mappo_weights.ts');
   fs.writeFileSync(tsPath, tsContent, 'utf-8');
-  console.log(`âœ“ Synchronized TypeScript weights to: ${tsPath} (${fs.statSync(tsPath).size} bytes)`);
+  console.log(`✓ Synchronized TypeScript weights to: ${tsPath} (${fs.statSync(tsPath).size} bytes)`);
 
   // 3. Build ONNX model binary
   const w0Float = new Float32Array(weights.w0);
@@ -304,12 +304,12 @@ export const MAPPO_WEIGHTS = {
   const onnxPath = path.resolve(process.cwd(), 'public/models/mappo_policy.onnx');
   fs.mkdirSync(path.dirname(onnxPath), { recursive: true });
   fs.writeFileSync(onnxPath, onnxBuffer);
-  console.log(`âœ“ Exported ONNX model binary to: ${onnxPath} (${onnxBuffer.length} bytes)`);
+  console.log(`✓ Exported ONNX model binary to: ${onnxPath} (${onnxBuffer.length} bytes)`);
 
   // 4. Verify ONNX Model Execution with onnxruntime-web
   console.log('\nValidating ONNX model with ONNX Runtime Web...');
   const session = await ort.InferenceSession.create(onnxPath, { executionProviders: ['wasm'] });
-  console.log(`âœ“ ONNX Session created successfully! Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
+  console.log(`✓ ONNX Session created successfully! Inputs: ${session.inputNames}, Outputs: ${session.outputNames}`);
 
   // Test with sample 127-dim observation
   const testObs = new Float32Array(OBSERVATION_DIM);
@@ -317,7 +317,7 @@ export const MAPPO_WEIGHTS = {
   const tensor = new ort.Tensor('float32', testObs, [1, OBSERVATION_DIM]);
   const results = await session.run({ obs: tensor });
   const logits = results.action_logits.data as Float32Array;
-  console.log(`âœ“ ONNX Inference sample logits (top 5): [${logits[0].toFixed(4)}, ${logits[1].toFixed(4)}, ${logits[2].toFixed(4)}, ${logits[3].toFixed(4)}, ${logits[4].toFixed(4)}]`);
+  console.log(`✓ ONNX Inference sample logits (top 5): [${logits[0].toFixed(4)}, ${logits[1].toFixed(4)}, ${logits[2].toFixed(4)}, ${logits[3].toFixed(4)}, ${logits[4].toFixed(4)}]`);
 
   // 5. Check bitwise parity with TypeScript forward math
   let _maxDiff = 0; void _maxDiff;
@@ -327,7 +327,7 @@ export const MAPPO_WEIGHTS = {
       sum += weights.w0[i * OBSERVATION_DIM + j] * testObs[j];
     }
   }
-  console.log('âœ“ Bitwise and Float Parity Verified!');
+  console.log('✓ Bitwise and Float Parity Verified!');
   console.log('====================================================');
 }
 

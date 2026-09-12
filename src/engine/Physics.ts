@@ -86,7 +86,7 @@ export class PhysicsEngine {
       ball.velocity.z -= PhysicsEngine.GRAVITY * dt;
       ball.velocity.x *= PhysicsEngine.AIR_DRAG;
       ball.velocity.y *= PhysicsEngine.AIR_DRAG;
-      // Magnus lift from backspin (Ï‰ Ã— v), only meaningful while the ball is
+      // Magnus lift from backspin (ω × v), only meaningful while the ball is
       // in the air. Deterministic — derived from the kick, no RNG.
       if (ball.angularVelocity) {
         const mag = PhysicsEngine.magnusAcceleration(ball.velocity, ball.angularVelocity);
@@ -247,7 +247,7 @@ export class PhysicsEngine {
       x += vx * dt;
       y += vy * dt;
 
-      // Magnus lift (Ï‰ Ã— v) — identical formula to updateBall so the projected
+      // Magnus lift (ω × v) — identical formula to updateBall so the projected
       // curved trajectory agrees with the live simulation.
       if (angularVelocity) {
         const mag = PhysicsEngine.magnusAcceleration({ x: vx, y: vy, z }, angularVelocity);
@@ -305,8 +305,8 @@ export class PhysicsEngine {
 
   /**
    * Deterministic backspin from a kick. Backspin direction is chosen so the
-   * Magnus force (Ï‰ Ã— v) always produces upward lift regardless of travel
-   * direction: Ï‰y = -sign(vx) * (BACKSPIN_PER_LOFT * loft).
+   * Magnus force (ω × v) always produces upward lift regardless of travel
+   * direction: ωy = -sign(vx) * (BACKSPIN_PER_LOFT * loft).
    */
   static computeKickSpin(velocity: Vector3D, loft: number): Vector3D {
     const omegaY = -Math.sign(velocity.x || 0) * PhysicsEngine.BACKSPIN_PER_LOFT * loft;
@@ -314,7 +314,7 @@ export class PhysicsEngine {
   }
 
   /**
-   * Magnus acceleration: a = C_M * (Ï‰ Ã— v). Shared by `updateBall` and
+   * Magnus acceleration: a = C_M * (ω × v). Shared by `updateBall` and
    * `projectShotAtGoalLine` so live trajectories and shot-quality projections
    * curve identically (single source of truth / no geometry divergence).
    */

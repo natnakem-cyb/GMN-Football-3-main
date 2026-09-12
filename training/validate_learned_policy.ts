@@ -218,11 +218,11 @@ export class PolicyValidationMasterRunner {
     const mdPath = path.resolve(process.cwd(), 'training/validation_report.md');
 
     fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), 'utf-8');
-    console.log(`\nâœ“ Saved full JSON validation report to: ${jsonPath}`);
+    console.log(`\n✓ Saved full JSON validation report to: ${jsonPath}`);
 
     const mdContent = this.formatMarkdownReport(report);
     fs.writeFileSync(mdPath, mdContent, 'utf-8');
-    console.log(`âœ“ Saved formatted Markdown validation report to: ${mdPath}\n`);
+    console.log(`✓ Saved formatted Markdown validation report to: ${mdPath}\n`);
   }
 
   private formatMarkdownReport(report: MasterValidationReport): string {
@@ -244,12 +244,12 @@ export class PolicyValidationMasterRunner {
     for (const c of report.criteria) {
       const vBadge =
         c.verdict === 'PASS'
-          ? 'âœ… **PASS**'
+          ? '✅ **PASS**'
           : c.verdict === 'REJECTED'
-          ? 'ðŸ›‘ **REJECTED**'
+          ? '🛑 **REJECTED**'
           : c.verdict === 'INCONCLUSIVE'
-          ? 'âš ï¸ **INCONCLUSIVE**'
-          : 'âŒ **FAIL**';
+          ? '⚠️ **INCONCLUSIVE**'
+          : '❌ **FAIL**';
       lines.push(`| ${c.step} | ${c.name} | ${vBadge} | ${c.evidence} |`);
     }
 
@@ -269,7 +269,7 @@ export class PolicyValidationMasterRunner {
     lines.push(`- **Total Vectors Tested:** ${report.browserParity.totalVectorsTested}`);
     lines.push(`- **Max Absolute Logit Delta:** \`${report.browserParity.maxAbsoluteLogitDiff.toExponential(4)}\``);
     lines.push(`- **Action Mismatches:** ${report.browserParity.actionMismatches}`);
-    lines.push(`- **Parity Status:** ${report.browserParity.isParityVerified ? 'âœ… 100% PARITY' : 'âŒ MISMATCH'}`);
+    lines.push(`- **Parity Status:** ${report.browserParity.isParityVerified ? '✅ 100% PARITY' : '❌ MISMATCH'}`);
 
     return lines.join('\n');
   }
