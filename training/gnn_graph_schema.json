@@ -2,27 +2,66 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "gnn_graph_schema_v1.json",
   "title": "GNN Graph Schema v1",
-  "description": "Machine-readable schema for GMN-Football-3 GNN graph representations. v1 scope is restricted to data confirmed present in Phase 0 audit (commit a0f4c0a).",
+  "description": "v2 extends v1 with Track A formation structure (11_vs_11 only) and Track B continuous shape descriptors (academy scenarios). Machine-readable schema for GMN-Football-3 GNN graph representations.",
   "type": "object",
-  "required": ["scenario", "nodes", "edges"],
+  "required": [
+    "scenario",
+    "nodes",
+    "edges"
+  ],
   "properties": {
-    "scenario": { "$ref": "#/$defs/scenario_node" },
+    "scenario": {
+      "$ref": "#/$defs/scenario_node"
+    },
     "nodes": {
       "type": "array",
-      "items": { "oneOf": [
-        { "$ref": "#/$defs/player_node" },
-        { "$ref": "#/$defs/ball_node" },
-        { "$ref": "#/$defs/goal_node" }
-      ]}
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/player_node"
+          },
+          {
+            "$ref": "#/$defs/ball_node"
+          },
+          {
+            "$ref": "#/$defs/goal_node"
+          },
+          {
+            "$ref": "#/$defs/formation_slot_node"
+          },
+          {
+            "$ref": "#/$defs/team_shape_node"
+          }
+        ]
+      }
     },
     "edges": {
       "type": "array",
-      "items": { "oneOf": [
-        { "$ref": "#/$defs/teammate_edge" },
-        { "$ref": "#/$defs/opponent_edge" },
-        { "$ref": "#/$defs/near_edge" },
-        { "$ref": "#/$defs/possesses_edge" }
-      ]}
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/teammate_edge"
+          },
+          {
+            "$ref": "#/$defs/opponent_edge"
+          },
+          {
+            "$ref": "#/$defs/near_edge"
+          },
+          {
+            "$ref": "#/$defs/possesses_edge"
+          },
+          {
+            "$ref": "#/$defs/formation_adjacency_edge"
+          },
+          {
+            "$ref": "#/$defs/formation_line_edge"
+          },
+          {
+            "$ref": "#/$defs/formation_lane_edge"
+          }
+        ]
+      }
     }
   },
   "$defs": {
@@ -40,16 +79,25 @@
         "is_active",
         "is_controlled",
         "is_goalkeeper",
-        "features"
+        "features",
+        "line_id",
+        "lane_id"
       ],
       "properties": {
-        "node_type": { "const": "PLAYER" },
+        "node_type": {
+          "const": "PLAYER"
+        },
         "global_id": {
           "type": "string",
           "pattern": "^(left|right)_[0-9]+$",
           "description": "Deterministic ID: {team}_{0-based index within team}. Matches 127-dim observation ordering (left indices 0-10, right indices 0-10)."
         },
-        "team": { "enum": ["left", "right"] },
+        "team": {
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
         "team_index": {
           "type": "integer",
           "minimum": 0,
@@ -58,28 +106,61 @@
         },
         "position": {
           "type": "object",
-          "required": ["x", "y"],
+          "required": [
+            "x",
+            "y"
+          ],
           "properties": {
-            "x": { "type": "number", "description": "Pitch x in [-1.0, 1.0]. Source: ObservationEncoder.ts indices 0-21 (left) or 44-65 (right)." },
-            "y": { "type": "number", "description": "Pitch y in [-0.42, 0.42]. Source: ObservationEncoder.ts indices 0-21 (left) or 44-65 (right)." }
+            "x": {
+              "type": "number",
+              "description": "Pitch x in [-1.0, 1.0]. Source: ObservationEncoder.ts indices 0-21 (left) or 44-65 (right)."
+            },
+            "y": {
+              "type": "number",
+              "description": "Pitch y in [-0.42, 0.42]. Source: ObservationEncoder.ts indices 0-21 (left) or 44-65 (right)."
+            }
           }
         },
         "velocity": {
           "type": "object",
-          "required": ["vx", "vy"],
+          "required": [
+            "vx",
+            "vy"
+          ],
           "properties": {
-            "vx": { "type": "number", "description": "Velocity x scaled by 50. Source: ObservationEncoder.ts indices 22-43 (left) or 66-87 (right)." },
-            "vy": { "type": "number", "description": "Velocity y scaled by 50. Source: ObservationEncoder.ts indices 22-43 (left) or 66-87 (right)." }
+            "vx": {
+              "type": "number",
+              "description": "Velocity x scaled by 50. Source: ObservationEncoder.ts indices 22-43 (left) or 66-87 (right)."
+            },
+            "vy": {
+              "type": "number",
+              "description": "Velocity y scaled by 50. Source: ObservationEncoder.ts indices 22-43 (left) or 66-87 (right)."
+            }
           }
         },
         "role": {
           "type": "string",
-          "enum": ["GK", "CB", "LB", "RB", "CDM", "CM", "LM", "RM", "LW", "RW", "CAM", "ST"],
+          "enum": [
+            "GK",
+            "CB",
+            "LB",
+            "RB",
+            "CDM",
+            "CM",
+            "LM",
+            "RM",
+            "LW",
+            "RW",
+            "CAM",
+            "ST"
+          ],
           "description": "Tactical role. Source: ScenarioConfig.setup.leftPlayers/rightPlayers role field, or inferPlayerRole() fallback (Contract.ts:74-112)."
         },
         "role_one_hot": {
           "type": "array",
-          "items": { "type": "number" },
+          "items": {
+            "type": "number"
+          },
           "minItems": 12,
           "maxItems": 12,
           "description": "12-float one-hot over ROLE_VOCABULARY. Source: ObservationEncoder.ts indices 115-126."
@@ -141,36 +222,87 @@
               "description": "1.0 if nearest_opponent_dist > NEAR threshold (0.065), else 0.0. Binary openness signal derived from nearest-opponent distance."
             }
           }
+        },
+        "line_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Deterministic line assignment from 1D gap-detection on teammate x-coordinates. 0 = deepest (most defensive) line. Computed by sorting teammates by x, splitting at gaps > 0.15. Track B only: no formation template used. For 11_vs_11, this is derived from actual positions, not from the FORMATIONS template."
+        },
+        "lane_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Deterministic lane assignment from 1D gap-detection on teammate y-coordinates. 0 = lowest y (top of pitch from left teams view). Computed by sorting teammates by y, splitting at gaps > 0.15. Track B only: no formation template used."
         }
       }
     },
     "ball_node": {
       "type": "object",
-      "required": ["node_type", "node_id", "position", "velocity", "ownership", "speed"],
+      "required": [
+        "node_type",
+        "node_id",
+        "position",
+        "velocity",
+        "ownership",
+        "speed"
+      ],
       "properties": {
-        "node_type": { "const": "BALL" },
-        "node_id": { "const": "ball" },
+        "node_type": {
+          "const": "BALL"
+        },
+        "node_id": {
+          "const": "ball"
+        },
         "position": {
           "type": "object",
-          "required": ["x", "y", "z"],
+          "required": [
+            "x",
+            "y",
+            "z"
+          ],
           "properties": {
-            "x": { "type": "number", "description": "Source: ObservationEncoder.ts index 88." },
-            "y": { "type": "number", "description": "Source: ObservationEncoder.ts index 89." },
-            "z": { "type": "number", "description": "Source: ObservationEncoder.ts index 90." }
+            "x": {
+              "type": "number",
+              "description": "Source: ObservationEncoder.ts index 88."
+            },
+            "y": {
+              "type": "number",
+              "description": "Source: ObservationEncoder.ts index 89."
+            },
+            "z": {
+              "type": "number",
+              "description": "Source: ObservationEncoder.ts index 90."
+            }
           }
         },
         "velocity": {
           "type": "object",
-          "required": ["vx", "vy", "vz"],
+          "required": [
+            "vx",
+            "vy",
+            "vz"
+          ],
           "properties": {
-            "vx": { "type": "number", "description": "Velocity x scaled by 50. Source: ObservationEncoder.ts index 91." },
-            "vy": { "type": "number", "description": "Velocity y scaled by 50. Source: ObservationEncoder.ts index 92." },
-            "vz": { "type": "number", "description": "Velocity z scaled by 50. Source: ObservationEncoder.ts index 93." }
+            "vx": {
+              "type": "number",
+              "description": "Velocity x scaled by 50. Source: ObservationEncoder.ts index 91."
+            },
+            "vy": {
+              "type": "number",
+              "description": "Velocity y scaled by 50. Source: ObservationEncoder.ts index 92."
+            },
+            "vz": {
+              "type": "number",
+              "description": "Velocity z scaled by 50. Source: ObservationEncoder.ts index 93."
+            }
           }
         },
         "ownership": {
           "type": "string",
-          "enum": ["none", "left", "right"],
+          "enum": [
+            "none",
+            "left",
+            "right"
+          ],
           "description": "Ball ownership. Source: ObservationEncoder.ts indices 94-96 one-hot."
         },
         "speed": {
@@ -181,38 +313,83 @@
     },
     "goal_node": {
       "type": "object",
-      "required": ["node_type", "node_id", "team", "position", "width", "height", "depth"],
+      "required": [
+        "node_type",
+        "node_id",
+        "team",
+        "position",
+        "width",
+        "height",
+        "depth"
+      ],
       "properties": {
-        "node_type": { "const": "GOAL" },
+        "node_type": {
+          "const": "GOAL"
+        },
         "node_id": {
           "type": "string",
-          "enum": ["goal_left", "goal_right"],
+          "enum": [
+            "goal_left",
+            "goal_right"
+          ],
           "description": "Deterministic goal ID: goal_left at x=-1.0, goal_right at x=1.0."
         },
         "team": {
           "type": "string",
-          "enum": ["left", "right"],
+          "enum": [
+            "left",
+            "right"
+          ],
           "description": "Which team's goal line this is. goal_left is the goal defended by the left team (at x=-1.0). goal_right is the goal defended by the right team (at x=1.0)."
         },
         "position": {
           "type": "object",
-          "required": ["x", "y"],
+          "required": [
+            "x",
+            "y"
+          ],
           "properties": {
-            "x": { "type": "number", "description": "Goal line x coordinate. Source: Rules.ts PITCH.minX (-1.0) for goal_left, PITCH.maxX (1.0) for goal_right." },
-            "y": { "type": "number", "description": "Goal center y coordinate. Source: Rules.ts goal geometry is centered at y=0." }
+            "x": {
+              "type": "number",
+              "description": "Goal line x coordinate. Source: Rules.ts PITCH.minX (-1.0) for goal_left, PITCH.maxX (1.0) for goal_right."
+            },
+            "y": {
+              "type": "number",
+              "description": "Goal center y coordinate. Source: Rules.ts goal geometry is centered at y=0."
+            }
           }
         },
-        "width": { "const": 0.14, "description": "Goal mouth width. Source: Rules.ts PITCH.goalWidth = 0.14 (y from -0.07 to 0.07)." },
-        "height": { "const": 0.05, "description": "Goal crossbar height. Source: Rules.ts PITCH.goalHeight = 0.05." },
-        "depth": { "const": 0.04, "description": "Goal depth behind goal line. Source: Rules.ts PITCH.goalDepth = 0.04." }
+        "width": {
+          "const": 0.14,
+          "description": "Goal mouth width. Source: Rules.ts PITCH.goalWidth = 0.14 (y from -0.07 to 0.07)."
+        },
+        "height": {
+          "const": 0.05,
+          "description": "Goal crossbar height. Source: Rules.ts PITCH.goalHeight = 0.05."
+        },
+        "depth": {
+          "const": 0.04,
+          "description": "Goal depth behind goal line. Source: Rules.ts PITCH.goalDepth = 0.04."
+        }
       }
     },
     "scenario_node": {
       "type": "object",
-      "required": ["node_type", "node_id", "id", "time_limit_seconds", "terminate_on_opponent_possession", "objectives"],
+      "required": [
+        "node_type",
+        "node_id",
+        "id",
+        "time_limit_seconds",
+        "terminate_on_opponent_possession",
+        "objectives"
+      ],
       "properties": {
-        "node_type": { "const": "SCENARIO" },
-        "node_id": { "const": "scenario" },
+        "node_type": {
+          "const": "SCENARIO"
+        },
+        "node_id": {
+          "const": "scenario"
+        },
         "id": {
           "type": "string",
           "description": "Scenario identifier. Source: ScenarioConfig.id (ScenarioRegistry.ts)."
@@ -227,57 +404,120 @@
         },
         "objectives": {
           "type": "array",
-          "items": { "$ref": "#/$defs/objective" },
+          "items": {
+            "$ref": "#/$defs/objective"
+          },
           "description": "Scenario objectives. Source: ScenarioConfig.objectives (ScenarioRegistry.ts). Evaluated by GameEngine.ts:1192-1269."
         },
         "rewards": {
           "type": "object",
-          "required": ["scoring", "completion"],
+          "required": [
+            "scoring",
+            "completion"
+          ],
           "properties": {
-            "scoring": { "type": "number", "description": "Reward for scoring a goal. Source: ScenarioConfig.rewards.scoring." },
-            "completion": { "type": "number", "description": "Reward for completing all objectives. Source: ScenarioConfig.rewards.completion." }
+            "scoring": {
+              "type": "number",
+              "description": "Reward for scoring a goal. Source: ScenarioConfig.rewards.scoring."
+            },
+            "completion": {
+              "type": "number",
+              "description": "Reward for completing all objectives. Source: ScenarioConfig.rewards.completion."
+            }
           }
         }
       }
     },
     "objective": {
       "type": "object",
-      "required": ["id", "text", "is_completed", "is_failed"],
+      "required": [
+        "id",
+        "text",
+        "is_completed",
+        "is_failed"
+      ],
       "properties": {
         "id": {
           "type": "string",
           "description": "Objective identifier. Known values: score_goal, within_time, complete_pass, create_triangle, retain_possession, complete_passes, win_match, control_possession, clean_sheet. Source: ScenarioRegistry.ts objectives arrays."
         },
-        "text": { "type": "string", "description": "Human-readable objective text. Source: ScenarioRegistry.ts." },
-        "is_completed": { "type": "boolean", "description": "True if objective was achieved. Set by GameEngine.ts evaluateScenarioConditions()." },
-        "is_failed": { "type": "boolean", "description": "True if objective was failed. Set by GameEngine.ts evaluateScenarioConditions()." }
+        "text": {
+          "type": "string",
+          "description": "Human-readable objective text. Source: ScenarioRegistry.ts."
+        },
+        "is_completed": {
+          "type": "boolean",
+          "description": "True if objective was achieved. Set by GameEngine.ts evaluateScenarioConditions()."
+        },
+        "is_failed": {
+          "type": "boolean",
+          "description": "True if objective was failed. Set by GameEngine.ts evaluateScenarioConditions()."
+        }
       }
     },
     "teammate_edge": {
       "type": "object",
-      "required": ["edge_type", "source", "target"],
+      "required": [
+        "edge_type",
+        "source",
+        "target"
+      ],
       "properties": {
-        "edge_type": { "const": "TEAMMATE" },
-        "source": { "type": "string", "description": "Source player global_id." },
-        "target": { "type": "string", "description": "Target player global_id." }
+        "edge_type": {
+          "const": "TEAMMATE"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source player global_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target player global_id."
+        }
       }
     },
     "opponent_edge": {
       "type": "object",
-      "required": ["edge_type", "source", "target"],
+      "required": [
+        "edge_type",
+        "source",
+        "target"
+      ],
       "properties": {
-        "edge_type": { "const": "OPPONENT" },
-        "source": { "type": "string", "description": "Source player global_id." },
-        "target": { "type": "string", "description": "Target player global_id." }
+        "edge_type": {
+          "const": "OPPONENT"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source player global_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target player global_id."
+        }
       }
     },
     "near_edge": {
       "type": "object",
-      "required": ["edge_type", "source", "target", "distance", "threshold"],
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "distance",
+        "threshold"
+      ],
       "properties": {
-        "edge_type": { "const": "NEAR" },
-        "source": { "type": "string", "description": "Source player global_id." },
-        "target": { "type": "string", "description": "Target player global_id." },
+        "edge_type": {
+          "const": "NEAR"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source player global_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target player global_id."
+        },
         "distance": {
           "type": "number",
           "minimum": 0,
@@ -291,11 +531,214 @@
     },
     "possesses_edge": {
       "type": "object",
-      "required": ["edge_type", "source", "target"],
+      "required": [
+        "edge_type",
+        "source",
+        "target"
+      ],
       "properties": {
-        "edge_type": { "const": "POSSESSES" },
-        "source": { "type": "string", "description": "Player global_id who possesses the ball." },
-        "target": { "const": "ball", "description": "Fixed target node ID for the ball." }
+        "edge_type": {
+          "const": "POSSESSES"
+        },
+        "source": {
+          "type": "string",
+          "description": "Player global_id who possesses the ball."
+        },
+        "target": {
+          "const": "ball",
+          "description": "Fixed target node ID for the ball."
+        }
+      }
+    },
+    "team_shape_node": {
+      "type": "object",
+      "required": [
+        "node_type",
+        "team",
+        "formation_deviation"
+      ],
+      "properties": {
+        "node_type": {
+          "const": "TEAM_SHAPE"
+        },
+        "team": {
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "formation_deviation": {
+          "type": "object",
+          "required": [
+            "inter_line_spacing_variance",
+            "mean_line_compactness",
+            "num_lines",
+            "num_lanes"
+          ],
+          "properties": {
+            "inter_line_spacing_variance": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Variance of inter-line spacing. Computed from consecutive line centroid x-gaps. 0 when fewer than 2 lines exist. See Phase 2 section 3.3.1."
+            },
+            "mean_line_compactness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Mean per-line compactness (population std of y within line, normalized by team width). See Phase 2 section 3.3.2."
+            },
+            "num_lines": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of distinct lines detected for this team via gap-detection on x."
+            },
+            "num_lanes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of distinct lanes detected for this team via gap-detection on y."
+            }
+          }
+        }
+      }
+    },
+    "formation_slot_node": {
+      "type": "object",
+      "required": [
+        "node_type",
+        "slot_id",
+        "team",
+        "role",
+        "xRatio",
+        "yRatio",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "node_type": {
+          "const": "FORMATION_SLOT"
+        },
+        "slot_id": {
+          "type": "string",
+          "pattern": "^(left|right)_slot[0-9]+$",
+          "description": "Deterministic ID: {team}_{0-based index in FORMATIONS array}. Source: Rules.ts FORMATIONS array index."
+        },
+        "team": {
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "GK",
+            "CB",
+            "LB",
+            "RB",
+            "CDM",
+            "CM",
+            "LM",
+            "RM",
+            "LW",
+            "RW",
+            "CAM",
+            "ST"
+          ],
+          "description": "Tactical role from FormationNode.role. Source: Rules.ts FormationNode."
+        },
+        "xRatio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Template x-ratio from FormationNode.xRatio. Source: Rules.ts FormationNode."
+        },
+        "yRatio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Template y-ratio from FormationNode.yRatio. Source: Rules.ts FormationNode."
+        },
+        "x": {
+          "type": "number",
+          "description": "Absolute pitch x computed by getFormationPositions. Source: Rules.ts:141-168."
+        },
+        "y": {
+          "type": "number",
+          "description": "Absolute pitch y computed by getFormationPositions. Source: Rules.ts:141-168."
+        }
+      }
+    },
+    "formation_adjacency_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "FORMATION_ADJACENCY"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source FORMATION_SLOT slot_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target FORMATION_SLOT slot_id."
+        }
+      }
+    },
+    "formation_line_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "line_id"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "FORMATION_LINE"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source FORMATION_SLOT slot_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target FORMATION_SLOT slot_id."
+        },
+        "line_id": {
+          "type": "integer",
+          "description": "Line identifier: 0=GK, 1=Defense, 2=Midfield, 3=Attack. Derived from xRatio bands (Phase 2 section 2.4)."
+        }
+      }
+    },
+    "formation_lane_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "lane_id"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "FORMATION_LANE"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source FORMATION_SLOT slot_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target FORMATION_SLOT slot_id."
+        },
+        "lane_id": {
+          "type": "integer",
+          "description": "Lane identifier: 0=Left, 1=Center, 2=Right. Derived from yRatio bands (Phase 2 section 2.5)."
+        }
       }
     }
   }
