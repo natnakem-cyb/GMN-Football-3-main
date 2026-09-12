@@ -211,7 +211,7 @@ export const RLGymnasiumPanel: React.FC<RLGymnasiumPanelProps> = ({
             Normalized coordinates: [-1..1, -0.42..0.42], velocities, ball z-axis, ownership flags.
           </p>
 
-          <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-3 overflow-y-auto max-h-56 font-mono text-[11px] leading-relaxed">
+          <div className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-3 font-mono text-[11px] leading-relaxed">
             <div className="grid grid-cols-5 sm:grid-cols-8 gap-1.5 text-center">
               {rawVector.map((val, idx) => (
                 <div
