@@ -65,6 +65,19 @@ export class Vec2 {
       y: a.y + (b.y - a.y) * t,
     };
   }
+
+  static distPointToSegment2D(p: Vector2D, a: Vector2D, b: Vector2D): number {
+    const ab = Vec2.sub(b, a);
+    const ap = Vec2.sub(p, a);
+    const abLenSq = Vec2.lengthSq(ab);
+    if (abLenSq === 0) {
+      return Vec2.distance(p, a);
+    }
+    let t = Vec2.dot(ap, ab) / abLenSq;
+    t = Math.max(0, Math.min(1, t));
+    const closest = Vec2.add(a, Vec2.scale(ab, t));
+    return Vec2.distance(p, closest);
+  }
 }
 
 export class Vec3 {

@@ -53,6 +53,7 @@ export const EVENT_CODE_MAP = [
   'offside',
   'pass_completed',
   'pass_intercepted',
+  'shot_blocked',
 ] as const;
 
 export function getEventCode(eventType?: string): number {
