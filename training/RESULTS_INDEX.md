@@ -128,3 +128,15 @@ Counters move monotonically in the expected direction when corresponding events 
 **Remaining gap before the 200k baseline:** The *live-bridge* 5k smoke has **not** been re-run after M1b. The fix is proven at the unit/integration level (real `_build_shaper_events` → `compute_shaped_rewards` path, all 8 `TestM1M2SemanticFixes` tests green), but the original forensic observation that turnovers are "counted but the −0.10 is not delivered" has not yet been confirmed as *fixed* in a live bridge episode. Re-run the forensic smoke (`python -m training.train_mappo --scenario academy_3_vs_1_with_keeper --seed 42 --timesteps 5000 --n-envs 1`) to observe a live −0.10 on an interception before launching 200k.
 
 Note: `total_pass_completed=0` in prior smoke means passing behavior has not yet emerged, so the carrier is established by dribbling/possession frames, not by passes. The fix correctly handles both origins.
+
+## Physics fix log (2026-09-12 — CCD shot block)
+
+Commits: `fc123cf` fix(rondo) · `<next>` fix(physics): CCD segment catch for shots in flight · `<next>` fix(physics): GK save and outfield block on shot CCD contact; goals after contact · `<next>` test(physics): collinear default SHOT is not a tap-in · `<next>` test(exploits): shot-spam bar is conversion, not reward<=0 · `<next>` docs: shot tunneling / CCD log in RESULTS_INDEX.
+
+| Issue | File(s) | Fix | Verification |
+|---|---|---|---|
+| P0 | `src/engine/Vector.ts`, `src/engine/GameEngine.ts`, `src/engine/Contract.ts`, `src/types/football.ts` | Added `Vec2.distPointToSegment2D` helper. `GameEngine.step` snapshots `prevBallPos` before `updateBall`. `checkBallPossession` uses swept-volume (segment) distance instead of point-sample when `isShotInFlight` is true, preventing a fast shot from tunneling through CB/GK in one tick. Outfield players now **block** shots on CCD contact (deflect + clear `isShotInFlight`, no 75% save roll). GK retains existing save roll on CCD contact. `shot_blocked` event added at new code index 16 (existing event codes unchanged). | `training/test_shot_ccd_block_integration.ts` — 20 trials collinear GK-on-line: 0 goals (0%), 20 blocks/saves; 5 control trials GK off-line: goals still possible (≥1). `npx tsc --noEmit` clean. Existing rondo tests green. |
+| P0 | `training/tests/test_reward_exploits.py` | Changed Policy C (ShotSpam) and D (DiagonalShot) assertions from `total_reward <= 0` to `total_goals <= 2` over 10 episodes. A real goal pays +2 and must not be hidden by shaper penalties; the bar is conversion rate, not net reward. `_run_policy` now tracks goals from live `info["score"]` deltas. | Engine integration + updated exploit contract. Pre-fix: 6/6 collinear goals. Post-fix: 0/20 with CCD. |
+| P2 | `academy_3_vs_1_with_keeper` spawn | No spawn offset applied. CCD is the authoritative fix; spawn collinearity is noted as a residual. | — |
+
+Residuals: pass tunneling (fast ground passes can still tunnel through outfield players at 0.038 catch radius); GK dive (GK stays on line); spawn collinearity (CAM-CB-GK on y=0).
