@@ -18,14 +18,14 @@ function assert(condition: boolean, msg: string): void {
   if (!condition) throw new Error(msg);
 }
 
-function runShotTrial(engine: GameEngine, camId: string, gkId: string, moveGkOffLine = false): {
+function runShotTrial(engine: GameEngine, camId: string, gkId: string, seed: number, moveGkOffLine = false): {
   goal: boolean;
   hadBlockOrSave: boolean;
   ticks: number;
 } {
   const scenario = ACADEMY_SCENARIOS.find((s) => s.id === 'academy_3_vs_1_with_keeper')!;
 
-  engine.setSeed(Math.floor(Math.random() * 100000));
+  engine.setSeed(seed);
   engine.loadScenario(scenario);
 
   const cam = engine.players.find((p) => p.id === camId)!;
@@ -119,7 +119,7 @@ function main(): void {
   const results: { goal: boolean; hadBlockOrSave: boolean; ticks: number }[] = [];
 
   for (let i = 0; i < NUM_TRIALS; i++) {
-    const result = runShotTrial(engine, camId, gkId, false);
+    const result = runShotTrial(engine, camId, gkId, 1000 + i, false);
     results.push(result);
     if (result.goal) goals++;
     if (result.hadBlockOrSave) blocksOrSaves++;
@@ -135,7 +135,7 @@ function main(): void {
   let controlGoals = 0;
   const NUM_CONTROL = 5;
   for (let i = 0; i < NUM_CONTROL; i++) {
-    const result = runShotTrial(engine, camId, gkId, true);
+    const result = runShotTrial(engine, camId, gkId, 2000 + i, true);
     if (result.goal) controlGoals++;
   }
 
