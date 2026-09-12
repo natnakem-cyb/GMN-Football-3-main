@@ -182,6 +182,6 @@ def create_experiment_manifest(
         "is_valid": is_valid,
         "rejection_reason": rejection_reason,
         "hyperparameters": hyperparameters or {},
-        "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     return manifest
