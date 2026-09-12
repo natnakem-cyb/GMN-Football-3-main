@@ -27,6 +27,19 @@ C:\Python314\python.exe training/test_reward_shape_e2e.py                       
 npx tsc --noEmit                                                                   # contract/type check
 ```
 
+## Audit fix log (2026-09-12 — P0/P1 audit fixes, branch `fix/audit-p0-p1`)
+
+| Issue | File(s) | Fix | Verification |
+|---|---|---|---|
+| 1 (P0) | `training/mappo_rollout.py` | All three collectors (`collect_rollout`, `collect_rollout_parallel`, `collect_rollout_batched`) now build `terminal_info` (score + event) and emit `"success"` (via `is_scenario_success`) on every `completed_episodes` entry, alongside the legacy `goal` metric. Parallel collector previously had NO success field; batched likewise. Also fixed: parallel collector's `_terminal_info` now reads `score` from `info` (the `_last_frame_score` diagnostic attr is single-path only); batched collector's `goal` metric now reads the top-level shared info `score.left` (real batched env delivers a top-level info dict, not per-agent). | `training/tests/test_rollout_success_emission.py` (fake single/parallel/batched envs; 5_vs_5 win, rondo, academy goal-stage cases) — all green. |
+| 2 (P0) | `src/engine/ObservationEncoder.ts`, `src/engine/scenarios/RondoScenarioHandler.ts` | Rondo defender reward is now a **transition** reward: `defenderJustWonPossession` flag computed in the handler (ownership change to right) and paid +0.2 ONCE — not +0.2/tick (was ≈12.0 over 60 ticks). Attacker +0.01 possession / +0.1 pass behavior unchanged. | `npx tsc --noEmit` clean; `training/test_rondo_transition_reward.ts` — 60 ticks of continuous right possession = 0.2, transition tick = 0.2, non-transition = 0. |
+| 3 (P0) | `src/engine/ObservationEncoder.ts`, `src/engine/GameEngine.ts` | Ball-progress checkpoint is now **possession-gated** (Option A): `computeReward` takes `ballOwnerTeam`; when supplied (GameEngine always supplies it), checkpoint AND high-water-mark update only occur while the controlled training team owns the ball. Loose ball / right-driven X advance pays 0 and does not raise the mark (regaining possession is not penalized). Legacy ungated behavior preserved when the param is omitted (undefined) for old call sites. | `training/test_reward_equivalence.ts` — left-owned advance pays, loose-ball and right-owned advance pay 0, legacy path preserved. |
+| 4 (P0/P1) | `src/scenarios/ScenarioRegistry.ts` | Renamed `create_triangle` objective text from "Connect 2+ passes without losing possession" to "Complete 2+ passes in the episode" to match the engine's aggregate `completedPasses` evaluation (chain semantics deferred — see residual risks). Scenario id unchanged (wire key). | `npx tsx training/test_scenario_completion.ts` — text-match test plus ≥2-passes completion tests green. |
+| 5 (P1) | `training/curriculum_scheduler.py`, `training/README.md` | Documented: `CURRICULUM_STAGES` is a strict subset of the 12-scenario registry (rondo = parallel track; aggressive/shifted/randomized = held-out variants); `academy_3_vs_1_with_keeper` is actually 3A_vs_1D_plus_GK (id counts outfield opponents; ids must not be renamed). | Docs only. |
+| 6 (P1) | `training/mappo_update.py` | Documented (no code change): critic loss samples scale as T×num_agents because the joint state is repeated per agent. For shared returns the repeats are identical pairs so loss scale is invariant; for per-agent returns the state-only critic receives the same state with different targets — a "mean over agents" normalization would change critic semantics, so it is deferred. | Code review; follow-up opened in this log. |
+
+Residual risks / deferred: `create_triangle` chain semantics (needs per-possession pass-chain tracking in engine stats); critic per-agent-return normalization (semantic redesign); offside FIFA suite; physics real-world calibration; live-bridge 5k smoke re-run after M1b (pre-existing).
+
 ## Semantic fix log (2026-09-11)
 
 | ID | File | Fix description | Verification |
