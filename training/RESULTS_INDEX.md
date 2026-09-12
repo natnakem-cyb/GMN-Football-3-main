@@ -29,6 +29,8 @@ npx tsc --noEmit                                                                
 
 ## Audit fix log (2026-09-12 — P0/P1 audit fixes, branch `fix/audit-p0-p1`)
 
+Commits: `0da29aa` fix(curriculum) · `afec1e6` fix(reward) · `2b1835a` fix(objectives) · `debc3fb` docs(curriculum). Merged to `main` as a merge commit (audit-p0-p1). Baseline note: training/curriculum metrics after these fixes are not strictly comparable to pre-fix runs without a footnote (success labeling, Rondo defender reward scale, and ball-progress gating all changed) — treat post-merge runs as the new baseline epoch.
+
 | Issue | File(s) | Fix | Verification |
 |---|---|---|---|
 | 1 (P0) | `training/mappo_rollout.py` | All three collectors (`collect_rollout`, `collect_rollout_parallel`, `collect_rollout_batched`) now build `terminal_info` (score + event) and emit `"success"` (via `is_scenario_success`) on every `completed_episodes` entry, alongside the legacy `goal` metric. Parallel collector previously had NO success field; batched likewise. Also fixed: parallel collector's `_terminal_info` now reads `score` from `info` (the `_last_frame_score` diagnostic attr is single-path only); batched collector's `goal` metric now reads the top-level shared info `score.left` (real batched env delivers a top-level info dict, not per-agent). | `training/tests/test_rollout_success_emission.py` (fake single/parallel/batched envs; 5_vs_5 win, rondo, academy goal-stage cases) — all green. |
