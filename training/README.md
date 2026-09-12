@@ -3,6 +3,28 @@
 This directory contains the full training pipeline: environment wrappers, trainers,
 evaluation harnesses, network definitions, debugging/trace utilities, and tests.
 
+## Curriculum vs scenario registry (audit note)
+
+The MAPPO curriculum ladder (`CURRICULUM_STAGES` in `training/curriculum_scheduler.py`)
+is a **strict subset** of the 12 scenarios registered in
+`src/scenarios/ScenarioRegistry.ts`:
+
+- 8 stages are on the ladder (promotion/demotion driven by
+  `is_scenario_success` win-rate thresholds).
+- `academy_rondo_4v1` is a **parallel track** — trained directly with
+  `python training/train_mappo.py --scenario academy_rondo_4v1`, never promoted
+  through the ladder (its success rule is rondo-specific: no goals conceded +
+  `scenario_complete`).
+- `academy_3_vs_1_keeper_aggressive`, `academy_3_vs_1_shifted`, and
+  `academy_3_vs_1_randomized` are **held-out generalization variants**. They are
+  intentionally not part of the ladder; adding them is an explicit design
+  decision, not an automatic extension.
+
+Topology naming: `academy_3_vs_1_with_keeper` means **3 attackers vs 1 defender
+plus a goalkeeper** (teamLeftPlayers: 3, teamRightPlayers: 2 with a GK role,
+`ScenarioRegistry.ts:110-126`). The id counts outfield opponents only. Scenario
+ids are wire keys used by checkpoints and the bridge and must not be renamed.
+
 ## Quick start
 
 ```bash

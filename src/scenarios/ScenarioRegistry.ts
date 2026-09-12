@@ -128,7 +128,7 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
       positionJitter: 0.05,
     },
     objectives: [
-      { id: 'create_triangle', text: 'Connect 2+ passes without losing possession', isCompleted: false, isFailed: false },
+      { id: 'create_triangle', text: 'Complete 2+ passes in the episode', isCompleted: false, isFailed: false },
       { id: 'score_goal', text: 'Score past the goalkeeper', isCompleted: false, isFailed: false },
     ],
     terminateOnOpponentPossession: true,

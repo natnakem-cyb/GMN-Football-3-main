@@ -384,6 +384,16 @@ def collect_rollout_parallel(
                 )
 
                 info0 = infos[current_agents[0]]
+                # Audit P0 fix: prefer the score carried in the step's info dict
+                # (the real env contract, replicated per agent). The
+                # _last_frame_* attributes are single-env diagnostics and are
+                # not guaranteed to exist on every env implementation stepped
+                # by this collector — an absent attribute used to yield
+                # {"left": -1, "right": -1} and silently falsify match/rondo
+                # success.
+                _score_p = info0.get("score") if isinstance(info0, dict) else None
+                if not isinstance(_score_p, dict):
+                    _score_p = terminal_score if isinstance(terminal_score, dict) else {}
                 episode_reward = float(env._mappo_ep_rew)
                 terminal_record = {
                     "terminal_frame_reward": terminal_frame_reward,
@@ -401,11 +411,28 @@ def collect_rollout_parallel(
                     with open(terminal_jsonl_path, "a") as f:
                         f.write(json.dumps(terminal_record) + "\n")
 
+                # Audit P0 fix: emit curriculum success signal for this episode.
+                # Uses is_scenario_success so match/rondo stages use the correct
+                # rule (left > right, or score.right==0 + scenario_complete)
+                # instead of relying on goal==True as a proxy for success.
+                # NOTE: preserve the raw event type here. Downstream
+                # is_scenario_success distinguishes 'goal' from
+                # 'scenario_complete', so mapping everything non-goal to ''
+                # would break the rondo success rule.
+                _scenario_id = getattr(env, "scenario", "academy_empty_goal")
+                _raw_event_type = info0.get("event", {}).get("type") or ""
+                _terminal_info = {
+                    "score": _score_p,
+                    "event": {"type": _raw_event_type},
+                }
+                _success = is_scenario_success(_scenario_id, _terminal_info)
+
                 completed_episodes.append(
                     {
                         "reward": episode_reward,
                         "length": int(env._mappo_ep_len),
                         "goal": int(bool(info0.get("event", {}).get("type") == "goal")),
+                        "success": _success,
                         "env": envs.index(env),
                     }
                 )
@@ -660,14 +687,22 @@ def collect_rollout_batched(
 
             if shared_term or shared_trunc:
                 goal_scored = 0
-                for agent_info in (info or {}).values():
-                    if isinstance(agent_info, dict) and agent_info.get("score", {}).get("left", 0) > 0:
-                        goal_scored = 1
-                        break
-
-                # Step 3: reward-chain trace on terminal tick
+                # Extract terminal score/event from the shared top-level info
+                # dict FIRST (real batched contract: gmn_pettingzoo.step_batch
+                # returns ONE shared info per sub-env), then derive the goal
+                # metric. Keep a per-agent scan as a fallback for wrappers that
+                # replicate shared info per agent.
                 event_code = info.get("eventCode", -1) if isinstance(info, dict) else -1
                 score = info.get("score", {"left": -1, "right": -1}) if isinstance(info, dict) else {"left": -1, "right": -1}
+                if isinstance(score, dict) and score.get("left", 0) > 0:
+                    goal_scored = 1
+                else:
+                    for agent_info in (info or {}).values():
+                        if isinstance(agent_info, dict) and agent_info.get("score", {}).get("left", 0) > 0:
+                            goal_scored = 1
+                            break
+
+                # Step 3: reward-chain trace on terminal tick
                 print(
                     f"[REWARD-CHAIN] terminal_tick env={env_idx} | "
                     f"binary_frame={terminal_frame_reward:.6f} | "
@@ -694,10 +729,42 @@ def collect_rollout_batched(
                     with open(terminal_jsonl_path, "a") as f:
                         f.write(json.dumps(terminal_record) + "\n")
 
+                # Audit P0 fix: emit curriculum success signal for this episode.
+                # Preserve the raw per-agent event type (goal vs
+                # scenario_complete) so is_scenario_success can apply the
+                # correct rule per stage.
+                _scenario_id_b = getattr(env, "scenario", "academy_empty_goal")
+                # The real batched env (gmn_pettingzoo.step_batch) returns ONE
+                # shared top-level info dict per sub-env: {"score": {...},
+                # "event": {"type": ...}, "eventCode": ..., ...}. Read the
+                # event type from the top level first; keep a per-agent scan
+                # as a fallback for wrappers that replicate shared info per
+                # agent (same shape as the single-env step path).
+                _raw_event_type_b = ""
+                if isinstance(info, dict):
+                    _ev_b = info.get("event")
+                    if isinstance(_ev_b, dict):
+                        _raw_event_type_b = _ev_b.get("type") or ""
+                    if not _raw_event_type_b:
+                        for agent_info in info.values():
+                            if isinstance(agent_info, dict):
+                                _raw_event_type_b = (
+                                    agent_info.get("event", {}).get("type") or ""
+                                )
+                                if _raw_event_type_b:
+                                    break
+
+                _terminal_info_b = {
+                    "score": score if isinstance(score, dict) else {},
+                    "event": {"type": _raw_event_type_b},
+                }
+                _success_b = is_scenario_success(_scenario_id_b, _terminal_info_b)
+
                 completed_episodes.append({
                     "reward": episode_reward,
                     "length": int(state["ep_len"]),
                     "goal": goal_scored,
+                    "success": _success_b,
                     "env": env_idx,
                 })
                 state["ep_rew"] = 0.0
