@@ -353,6 +353,9 @@ Right team (C(4,2) = 6):
     "objectives": [
       { "id": "score_goal", "text": "Score past three defenders and goalkeeper", "is_completed": false, "is_failed": false }
     ],
+    "objective_vocabulary": [0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+    "reward_scoring": 1.0,
+    "reward_completion": 500,
     "rewards": { "scoring": 1.0, "completion": 500 }
   },
   "nodes": [
