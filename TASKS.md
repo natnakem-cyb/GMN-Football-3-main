@@ -208,3 +208,13 @@ All 9 checkpoints + eval JSONs + replay preserved in `training/models/` and `tra
 
 **Pending:**
 - [ ] Decide whether the Phase 10 comprehensive eval JSONs need a genuine re-run with corrected event instrumentation (engine-stat ground truth was already correct; per-tick event-derived metrics undercounted).
+
+## Task 8 — Run validation and produce final report of the current work
+- [x] Phase 4 tests: `python -m pytest training/tests/test_gnn_phase4.py -v` → 33/33 passed
+- [x] Graph builder tests: `python -m pytest training/tests/test_gnn_graph_builder.py -v` → 30/30 passed
+- [x] Reward exploit tests: `python -m pytest training/tests/test_reward_exploits.py -v` → 6/6 passed
+- [x] TypeScript: `npx tsc --noEmit` → 0 errors
+- [x] Frontend regression: `npm test` → 15/15 scenarios + determinism passed
+- [x] Full Python suite: `python -m pytest training/tests/ -v` → 173/174 passed
+  - Note: 1 transient failure in `test_schema_validation_academy_3_vs_1_defender_3` due to port contention when running full suite; passes in isolation
+- [x] Final validation report: `docs/GNN_PHASE4_VALIDATION_REPORT.md` updated with actual results
