@@ -131,6 +131,13 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
       { id: 'create_triangle', text: 'Complete 2+ passes in the episode', isCompleted: false, isFailed: false },
       { id: 'score_goal', text: 'Score past the goalkeeper', isCompleted: false, isFailed: false },
     ],
+    taskSpec: {
+      taskType: 'academy_drill',
+      formation: '4-3-3',
+      targetPassesCount: 2,
+      targetGoalsCount: 1,
+      terminateOnTurnover: true,
+    },
     terminateOnOpponentPossession: true,
     rewards: {
       scoring: 1.0,
@@ -345,6 +352,12 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
       { id: 'retain_possession', text: 'Retain possession for the full 20 seconds', isCompleted: false, isFailed: false },
       { id: 'complete_passes', text: 'Complete 10+ passes', isCompleted: false, isFailed: false },
     ],
+    taskSpec: {
+      taskType: 'keep_ball',
+      formation: '4-3-3',
+      terminateOnTurnover: false,
+      spatialBounds: { shape: 'rectangle', width: 0.7, height: 0.7 },
+    },
     terminateOnOpponentPossession: false,
     rewards: {
       scoring: 0,

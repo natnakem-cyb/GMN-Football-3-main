@@ -196,6 +196,40 @@ export interface ScenarioObjective {
   isFailed: boolean;
 }
 
+export interface SpatialBounds {
+  shape: 'circle' | 'rectangle';
+  radius?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface ScenarioTaskSpec {
+  taskType?: 'academy_drill' | 'keep_ball' | 'match';
+  formation?: FormationType;
+  allowedActions?: 'ALL' | ActionType[];
+  forbiddenActions?: ActionType[];
+  touchLimitPerPossession?: number;
+  dribblingAllowed?: boolean;
+  shootingAllowed?: boolean;
+  passingRequired?: boolean;
+  targetPassesCount?: number;
+  targetGoalsCount?: number;
+  spatialBounds?: SpatialBounds;
+  stepLimit?: number;
+  terminateOnTurnover?: boolean;
+}
+
+export interface ScenarioDynamicState {
+  ticksRemaining: number;
+  totalTicks: number;
+  passesCompleted: number;
+  goalsCompleted: number;
+  currentPossessionTeam: 'left' | 'right' | 'none';
+  touchesInCurrentPossession?: number;
+  sequenceStage?: number;
+  sequenceLength?: number;
+}
+
 export interface ScenarioConfig {
   id: string;
   stage: number;
@@ -216,6 +250,7 @@ export interface ScenarioConfig {
     positionJitter?: number;
   };
   objectives: ScenarioObjective[];
+  taskSpec?: ScenarioTaskSpec;
   terminateOnOpponentPossession?: boolean;
   rewards: {
     scoring: number;
@@ -238,6 +273,7 @@ export interface RLObservation {
   score: [number, number];
   stepsLeft: number;
   rawVector: number[]; // 127-float simple115_v3_role observation vector (115 base + 12 role one-hot)
+  zScenario?: Float32Array; // 8-dim deterministic task feature vector (z_scenario)
 }
 
 export interface RLStepResult {

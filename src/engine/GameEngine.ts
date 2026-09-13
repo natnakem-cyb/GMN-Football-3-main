@@ -1,4 +1,4 @@
-﻿import { ActionType, AgentAction, Ball, FormationType, GameMode, MatchEvent, MatchScore, MatchStateStatus, MatchStats, Player, ReplayFrame, RLObservation, RLStepResult, ScenarioConfig, TeamConfig, TeamSide, Vector2D } from '../types/football';
+﻿import { ActionType, AgentAction, Ball, FormationType, GameMode, MatchEvent, MatchScore, MatchStateStatus, MatchStats, Player, ReplayFrame, RLObservation, RLStepResult, ScenarioConfig, ScenarioDynamicState, TeamConfig, TeamSide, Vector2D } from '../types/football';
 import { PITCH, getFormationPositions, computeOffsideLineX, isGoalMouthPoint } from './Rules';
 import { PhysicsEngine } from './Physics';
 import { Vec2 } from './Vector';
@@ -7,6 +7,7 @@ import { CONTROLLED_TRAINING_TEAM } from './Contract';
 import { SeededRNG } from './SeededRNG';
 import { ScenarioHandler } from './scenarios/ScenarioHandler';
 import { RondoScenarioHandler } from './scenarios/RondoScenarioHandler';
+import { TaskEncoder } from './TaskEncoder';
 
 export class GameEngine {
   public rng: SeededRNG = new SeededRNG(0);
@@ -95,8 +96,21 @@ export class GameEngine {
 
   private scenarioHandler: ScenarioHandler | null = null;
 
+  private scenarioDynamicState: ScenarioDynamicState = {
+    ticksRemaining: 0,
+    totalTicks: 0,
+    passesCompleted: 0,
+    goalsCompleted: 0,
+    currentPossessionTeam: 'none',
+  };
+  private lastLeftPossession = false;
+
   public getActiveScenarioHandler(): ScenarioHandler | null {
     return this.scenarioHandler;
+  }
+
+  public getScenarioDynamicState(): ScenarioDynamicState {
+    return { ...this.scenarioDynamicState };
   }
 
   private static readonly SCENARIO_HANDLER_REGISTRY: Record<string, () => ScenarioHandler> = {
@@ -225,6 +239,15 @@ export class GameEngine {
     this.ball.velocity = { x: 0, y: 0, z: 0 };
 
     this.recordEvent('kickoff', 'Match Kickoff', { x: 0, y: 0 });
+
+    this.scenarioDynamicState = {
+      ticksRemaining: 3600,
+      totalTicks: 3600,
+      passesCompleted: 0,
+      goalsCompleted: 0,
+      currentPossessionTeam: 'none',
+    };
+    this.lastLeftPossession = false;
   }
 
   public setSeed(seed: number): void {
@@ -232,7 +255,7 @@ export class GameEngine {
   }
 
   public getObservation(): RLObservation {
-    return ObservationEncoder.encode(
+    const obs = ObservationEncoder.encode(
       this.players,
       this.ball,
       this.controlledPlayerId,
@@ -241,6 +264,10 @@ export class GameEngine {
       this.activeScenario ? this.activeScenario.timeLimitSeconds * 60 : 3600,
       this.gameMode
     );
+    return {
+      ...obs,
+      zScenario: TaskEncoder.encode(this.activeScenario, this.getScenarioDynamicState()),
+    };
   }
 
   public loadScenario(scenario: ScenarioConfig, seed?: number): void {
@@ -269,6 +296,14 @@ export class GameEngine {
     // step of a new episode cannot emit prior-episode player ids.
     this.executedBallActionPlayerIds = new Set();
     this.lastScenarioResolutionEmitted = false;
+    this.scenarioDynamicState = {
+      ticksRemaining: this.activeScenario ? Math.max(0, this.activeScenario.timeLimitSeconds * 60 - this.tickCount) : 0,
+      totalTicks: this.activeScenario ? this.activeScenario.timeLimitSeconds * 60 : 3600,
+      passesCompleted: 0,
+      goalsCompleted: 0,
+      currentPossessionTeam: 'none',
+    };
+    this.lastLeftPossession = false;
     this.scenarioHandler = GameEngine.SCENARIO_HANDLER_REGISTRY[scenario.id]?.() ?? null;
     this.scenarioHandler?.onReset();
     this.gameMode = scenario.id.startsWith('academy') ? GameMode.Normal : GameMode.KickOff;
@@ -509,6 +544,35 @@ export class GameEngine {
 
         // 4. Ball pickup / interception checks (CCD swept-volume for shots in flight)
         this.checkBallPossession(prevBallPos);
+
+        // Update deterministic dynamic task state from authoritative engine signals.
+        if (this.activeScenario) {
+          const totalTicks = this.activeScenario.timeLimitSeconds * 60;
+          const ticksRemaining = Math.max(0, totalTicks - this.tickCount);
+          const owner = this.ball.ownerId
+            ? this.players.find((p) => p.id === this.ball.ownerId)
+            : undefined;
+          const possessionTeam: 'left' | 'right' | 'none' = owner
+            ? owner.team === 'left'
+              ? 'left'
+              : 'right'
+            : 'none';
+
+          // Turnover: left had possession last tick and no longer has it this tick.
+          if (this.lastLeftPossession && possessionTeam !== 'left') {
+            // Pass counter is episode-total, so we do NOT reset it on turnover.
+            // Only `passesCompleted` is tracked; consecutive-pass semantics are
+            // intentionally unavailable because the engine does not expose them.
+          }
+
+          this.scenarioDynamicState.ticksRemaining = ticksRemaining;
+          this.scenarioDynamicState.totalTicks = totalTicks;
+          this.scenarioDynamicState.passesCompleted = this.stats.completedPasses.left;
+          this.scenarioDynamicState.goalsCompleted = this.score.left;
+          this.scenarioDynamicState.currentPossessionTeam = possessionTeam;
+
+          this.lastLeftPossession = possessionTeam === 'left';
+        }
 
         // Scenario-specific per-tick state tracking
         this.scenarioHandler?.onStep(this, dt, prevBallX);
