@@ -390,6 +390,19 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
         self.reward_shaper = CooperativeRewardShaper() if enable_reward_shaping else None
+        self.reward_adapter = None
+        if enable_reward_shaping:
+            try:
+                from training.reward_adapters import get_reward_adapter
+                self.reward_adapter = get_reward_adapter(scenario)
+                print(f"[RewardAdapter] active={type(self.reward_adapter).__name__} scenario={scenario}", flush=True)
+            except Exception:
+                self.reward_adapter = None
+        # Backward-compat: existing trainers read env.reward_shaper for
+        # diagnostics/attribution. When an adapter is active, delegate those
+        # reads to the adapter (which preserves the same method surface).
+        if self.reward_adapter is not None:
+            self.reward_shaper = self.reward_adapter
         self._pending_pass: Optional[Dict[str, Any]] = None
         # Per-env rollout state for batched mode: list of dicts with keys
         # obs_dict, ep_rew, ep_len, agents, possible_agents, agent_order, obs_dim
@@ -467,6 +480,14 @@ class GMNMultiAgentEnv(ParallelEnv):
     def set_scenario(self, scenario: str) -> None:
         """Switch the active scenario and clear rollout state so the next reset uses it."""
         self.scenario = scenario
+        if getattr(self, "enable_reward_shaping", False):
+            try:
+                from training.reward_adapters import get_reward_adapter
+                self.reward_adapter = get_reward_adapter(scenario)
+                self.reward_shaper = self.reward_adapter
+                print(f"[RewardAdapter] active={type(self.reward_adapter).__name__} scenario={scenario}", flush=True)
+            except Exception:
+                self.reward_adapter = None
         # Clear MAPPO rollout scratch state so collect_rollout() re-initializes
         # from the new scenario rather than replaying stale observations.
         self._mappo_obs = None
@@ -519,6 +540,13 @@ class GMNMultiAgentEnv(ParallelEnv):
             # same cooperative curriculum as the single-env path.
             env_state["pending_pass"] = None
             env_state["reward_shaper"] = CooperativeRewardShaper() if self.enable_reward_shaping else None
+            env_state["reward_adapter"] = None
+            if self.enable_reward_shaping:
+                try:
+                    from training.reward_adapters import get_reward_adapter
+                    env_state["reward_adapter"] = get_reward_adapter(self.scenario)
+                except Exception:
+                    env_state["reward_adapter"] = None
             env_state["last_actions"] = {}
             self._batch_envs.append(env_state)
 
@@ -594,6 +622,16 @@ class GMNMultiAgentEnv(ParallelEnv):
         if not isinstance(result, dict):
             raise RuntimeError(f"[GMN-Batch] reset_one({env_idx}) missing result payload")
         state = self._decode_reset_result(result)
+        state["pending_pass"] = None
+        state["reward_shaper"] = CooperativeRewardShaper() if self.enable_reward_shaping else None
+        state["reward_adapter"] = None
+        if self.enable_reward_shaping:
+            try:
+                from training.reward_adapters import get_reward_adapter
+                state["reward_adapter"] = get_reward_adapter(self.scenario)
+            except Exception:
+                state["reward_adapter"] = None
+        state["last_actions"] = {}
         self._batch_envs[env_idx] = state
         return (state["obs_dict"], {a: state["info"] for a in state["agents"]})
 
@@ -744,7 +782,7 @@ class GMNMultiAgentEnv(ParallelEnv):
 
             # M5: Apply cooperative reward shaping per sub-environment so the
             # batched path exercises the same curriculum as the single-env path.
-            shaped_rewards = self._apply_shaping_for_env(
+            shaped_rewards, timeout_penalty = self._apply_shaping_for_env(
                 env_state=env_state,
                 shared_reward=shared_reward,
                 shared_term=shared_term,
@@ -755,7 +793,19 @@ class GMNMultiAgentEnv(ParallelEnv):
                 score_r=score_r,
                 actions=env_state.get("last_actions", {}),
             )
-            if shaped_rewards:
+            if timeout_penalty is not None:
+                # Shot-clock fired for this sub-env: apply the penalty on top
+                # of the shaped rewards and mark the episode truncated (not
+                # terminated) so GAE bootstraps the value function. Applied
+                # AFTER shaped_rewards overwrite so the -0.5 is not lost.
+                for agent in terminal_agents:
+                    if agent in env_rewards and agent in shaped_rewards:
+                        env_rewards[agent] = shaped_rewards[agent] + timeout_penalty
+                shared_trunc = True
+                shared_info["episode_length_steps"] = env_state.get("ep_len", 0)
+                shared_info["episode_physics_ticks"] = env_state.get("ep_len", 0)
+                env_state["agents"] = []
+            if shaped_rewards and timeout_penalty is None:
                 for agent in terminal_agents:
                     if agent in shaped_rewards:
                         env_rewards[agent] = shaped_rewards[agent]
@@ -985,6 +1035,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.reward_components = []
         if self.reward_shaper is not None:
             self.reward_shaper.reset()
+        if getattr(self, "reward_adapter", None) is not None:
+            try:
+                self.reward_adapter.reset()
+            except Exception:
+                pass
         self._pending_pass = None
 
         # Self-play / opponent-pool selection: pick an opponent for this episode.
@@ -1171,11 +1226,16 @@ class GMNMultiAgentEnv(ParallelEnv):
         score_l: int,
         score_r: int,
         actions: Dict[str, int],
-    ) -> Dict[str, float]:
-        """M5: Apply cooperative reward shaping for one sub-environment."""
+    ) -> Tuple[Dict[str, float], Optional[float]]:
+        """M5: Apply cooperative reward shaping for one sub-environment.
+
+        Returns (shaped, timeout_penalty) where timeout_penalty is non-None
+        only when the active adapter's shot-clock fires this step (caller
+        applies it to every agent reward and emits truncated=True).
+        """
         shaper = env_state.get("reward_shaper")
         if shaper is None:
-            return {}
+            return {}, None
 
         current_ev_type = EVENT_CODE_MAP[event_code] if 0 < event_code < len(EVENT_CODE_MAP) else None
         agents = env_state["agents"]
@@ -1199,15 +1259,27 @@ class GMNMultiAgentEnv(ParallelEnv):
             current_ball_owner = {"agent_id": agent_id, "team": team}
 
         try:
+            adapter = env_state.get("reward_adapter")
+            if adapter is not None:
+                shaped = adapter.compute_shaped_rewards(
+                    base_rewards={a: shared_reward for a in agents},
+                    step_events=step_events,
+                    info_ground_truth={"current_ball_owner": current_ball_owner},
+                    active_agents=list(agents),
+                    actions=actions,
+                    tick=env_state.get("ep_len", 0),
+                )
+                timeout_penalty = adapter.check_shot_clock()
+                return shaped, timeout_penalty
             return shaper.compute_shaped_rewards(
                 base_rewards={a: shared_reward for a in agents},
                 step_events=step_events,
                 info_ground_truth={"current_ball_owner": current_ball_owner},
                 active_agents=list(agents),
                 actions=actions,
-            )
+            ), None
         except Exception:
-            return {}
+            return {}, None
 
     def step(
         self,
@@ -1434,6 +1506,10 @@ class GMNMultiAgentEnv(ParallelEnv):
         truncations: Dict[str, bool] = {}
         infos: Dict[str, Any] = {}
 
+        # Populate per-agent observations and base rewards from the frame.
+        # Per-agent terminations/truncations are applied AFTER the shaping
+        # block below so the shot-clock truncation can take effect on this
+        # same step.
         for i, agent in enumerate(self.agents):
             offset = header_size + i * obs_bytes
             obs = np.frombuffer(data, dtype="<f4", count=OBSERVATION_DIM, offset=offset).copy()
@@ -1442,8 +1518,6 @@ class GMNMultiAgentEnv(ParallelEnv):
                 rewards[agent] = defender_reward if agent.startswith("right_") else shared_reward
             else:
                 rewards[agent] = shared_reward
-            terminations[agent] = shared_term
-            truncations[agent] = shared_trunc
             infos[agent] = dict(shared_info)
             infos[agent]["action_mask"] = action_masks[agent]
             observations[agent] = {
@@ -1478,13 +1552,35 @@ class GMNMultiAgentEnv(ParallelEnv):
                         team = "right"
                     current_ball_owner = {"agent_id": agent_id, "team": team}
 
-                shaped_rewards = self.reward_shaper.compute_shaped_rewards(
-                    base_rewards=rewards,
-                    step_events=step_events,
-                    info_ground_truth={"current_ball_owner": current_ball_owner},
-                    active_agents=list(self.agents),
-                    actions=actions,
-                )
+                shaped_rewards = None
+                _adapter = getattr(self, "reward_adapter", None)
+                if _adapter is not None:
+                    shaped_rewards = _adapter.compute_shaped_rewards(
+                        base_rewards=rewards,
+                        step_events=step_events,
+                        info_ground_truth={"current_ball_owner": current_ball_owner},
+                        active_agents=list(self.agents),
+                        actions=actions,
+                        tick=self._step_count,
+                    )
+                    timeout_penalty = _adapter.check_shot_clock()
+                    if timeout_penalty is not None:
+                        # Shot-clock fired: apply the penalty to every agent
+                        # reward and emit truncated=True (not terminated) so
+                        # GAE bootstraps the value function.
+                        shared_trunc = True
+                        for agent in self.agents:
+                            if agent in shaped_rewards:
+                                shaped_rewards[agent] += timeout_penalty
+                if shaped_rewards is None and _adapter is None:
+                    # Fallback: legacy path when no scenario adapter exists.
+                    shaped_rewards = self.reward_shaper.compute_shaped_rewards(
+                        base_rewards=rewards,
+                        step_events=step_events,
+                        info_ground_truth={"current_ball_owner": current_ball_owner},
+                        active_agents=list(self.agents),
+                        actions=actions,
+                    )
                 # M2: Always apply shaped rewards, including on terminal steps.
                 # The engine's raw reward (e.g. +2.00 goal signal) is already in
                 # `rewards[agent]`; the shaper adds cooperative bonuses on top.
@@ -1495,6 +1591,13 @@ class GMNMultiAgentEnv(ParallelEnv):
                         rewards[agent] = shaped_rewards[agent]
             except Exception as e:
                 logger.debug(f"Reward shaping skipped due to error: {e}")
+
+        # Per-agent terminations/truncations are applied AFTER shaping so the
+        # shot-clock truncation (truncated=True, terminated=False) takes
+        # effect on this same step. GAE bootstraps correctly on truncation.
+        for agent in self.agents:
+            terminations[agent] = shared_term
+            truncations[agent] = shared_trunc
 
         # Phase 2: FORENSIC_ENV_TERMINAL capture
         if getattr(self, "_forensic_debug", False) and (shared_term or shared_trunc):

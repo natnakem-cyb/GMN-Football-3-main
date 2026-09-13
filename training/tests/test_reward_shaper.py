@@ -643,7 +643,7 @@ class TestM5BatchedRewardShaping:
         shaper.pass_chain_length = 1
 
         # Simulate a GOAL_SCORED event after a pass chain.
-        shaped = GMNMultiAgentEnv._apply_shaping_for_env(
+        shaped, timeout_penalty = GMNMultiAgentEnv._apply_shaping_for_env(
             env_state=env_state,
             shared_reward=2.0,
             shared_term=True,
@@ -659,6 +659,7 @@ class TestM5BatchedRewardShaping:
         assert shaped["left_0"] == pytest.approx(2.50)
         assert shaped["left_1"] == pytest.approx(2.50)
         assert shaped["left_2"] == pytest.approx(2.50)
+        assert timeout_penalty is None
         assert shaper.assisted_goal_count == 1
 
     def test_batched_env_state_initialization(self):
