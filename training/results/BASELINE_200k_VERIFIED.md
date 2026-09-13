@@ -1,5 +1,7 @@
 # Baseline Report: 3-Seed 200k Shaperfix Retrain — INDEPENDENTLY VERIFIED
 
+> **Note (post-CCD-fix):** This baseline was trained and evaluated **before** the ball-tunneling CCD fix (`abd8be2`/`d5cf1df`). It reflects an easier version of the game where shots could tunnel through defenders. For the current-HEAD baseline (post-CCD-fix, 4 seeds), see `training/results/BASELINE_200k_POST_CCD_FIX.md`. Do not directly compare numbers across the two — the underlying game changed.
+
 **Supersedes:** `training/results/BASELINE_200k_M1b_report.md` (§2 and §5 of that report contain errors — see "Corrections" below). Do not cite that report's headline numbers going forward; cite this one.
 
 **Verification method:** Fresh full clone of the repo, HEAD confirmed matching remote. Re-ran `training/eval_mappo_comprehensive.py` from scratch against the exact `*_shaperfix.pt` checkpoint files already committed, on a freshly booted live bridge. Independently confirmed checkpoint SHA-256 hashes. Separately drove a live bridge instance by hand (dribble + shot) to confirm the engine's own terminal/goal signaling is correct, independent of any training/eval code.
