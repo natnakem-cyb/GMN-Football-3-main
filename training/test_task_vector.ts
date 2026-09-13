@@ -175,6 +175,46 @@ try {
   console.error('  FAIL regression:', err.message);
 }
 
+// --- Regression: step() observation includes zScenario ---
+console.log('\n[Regression] step() observation includes zScenario...');
+try {
+  const scenario = ACADEMY_SCENARIOS.find(s => s.id === 'academy_3_vs_1_with_keeper')!;
+  const engine = new GameEngine();
+  engine.loadScenario(scenario, 12345);
+  const emptyActions = new Map<string, any>();
+  const res = engine.step(emptyActions, 1 / 60);
+  check(res.observation.rawVector.length === 127, `step() rawVector length is 127 (got ${res.observation.rawVector.length})`);
+  check(res.observation.zScenario !== undefined, 'step() observation.zScenario is present');
+  check(res.observation.zScenario!.length === TASK_VECTOR_DIM, `step() zScenario length is ${TASK_VECTOR_DIM}`);
+} catch (err: any) {
+  console.error('  FAIL step() regression:', err.message);
+}
+
+// --- Dynamic: zScenario changes across steps ---
+console.log('\n[Dynamic] zScenario changes across steps...');
+try {
+  const scenario = ACADEMY_SCENARIOS.find(s => s.id === 'academy_3_vs_1_with_keeper')!;
+  const engine = new GameEngine();
+  engine.loadScenario(scenario, 12345);
+  const emptyActions = new Map<string, any>();
+
+  const res0 = engine.step(emptyActions, 1 / 60);
+  const z0 = res0.observation.zScenario;
+
+  for (let i = 0; i < 5; i++) {
+    engine.step(emptyActions, 1 / 60);
+  }
+  const res5 = engine.step(emptyActions, 1 / 60);
+  const z5 = res5.observation.zScenario;
+
+  check(z0 !== undefined && z5 !== undefined, 'zScenario defined at tick 0 and tick 5+');
+  if (z0 !== undefined && z5 !== undefined) {
+    check(z0[2] > z5[2], 'time_remaining_frac decreases over time');
+  }
+} catch (err: any) {
+  console.error('  FAIL dynamic:', err.message);
+}
+
 console.log('\n====================================================');
 console.log(`Task Vector Validation Summary: ${passedTests}/${totalTests} passed`);
 console.log('====================================================');

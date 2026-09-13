@@ -596,15 +596,7 @@ export class GameEngine {
     }
 
     // Generate RL observation & reward
-    const observation = ObservationEncoder.encode(
-      this.players,
-      this.ball,
-      this.controlledPlayerId,
-      this.score,
-      this.tickCount,
-      this.activeScenario ? this.activeScenario.timeLimitSeconds * 60 : 3600,
-      this.gameMode
-    );
+    const observation = this.getObservation();
 
     const newEventsThisTick = this.currentStepEvents;
     let eventType: string | undefined;
