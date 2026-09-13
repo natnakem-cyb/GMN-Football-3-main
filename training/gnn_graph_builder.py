@@ -1,5 +1,5 @@
 """
-GMN-Football-3 — GNN Graph Builder (Phase 4)
+GMN-Football-3 — GNN Graph Builder (Phase 3)
 
 Builds a schema-valid GNN graph from a single live engine observation.
 
@@ -36,6 +36,10 @@ ROLE_TO_INDEX = {r: i for i, r in enumerate(ROLE_VOCABULARY)}
 
 NEAR_THRESHOLD = 0.065
 LINE_LANE_GAP_THRESHOLD = 0.15
+
+# Goal geometry (source: Rules.ts PITCH)
+GOAL_WIDTH = 0.14
+GOAL_CENTER_Y = 0.0
 
 # ---------------------------------------------------------------------------
 # Embedded scenario data (mirrors src/scenarios/ScenarioRegistry.ts)
@@ -497,6 +501,53 @@ def _compute_team_shape(team_positions: list[dict[str, float]], line_ids: list[i
 
 
 # ---------------------------------------------------------------------------
+# Phase 3 geometry helpers
+# ---------------------------------------------------------------------------
+
+
+def _angle_rad(dx: float, dy: float) -> float:
+    """Bearing from origin to (dx, dy) in radians, measured from +x axis."""
+    return math.atan2(dy, dx)
+
+
+def _shot_angle(distance: float, goal_width: float = GOAL_WIDTH) -> float:
+    """Opening angle to goal mouth in radians."""
+    if distance <= 0:
+        return 0.0
+    return 2.0 * math.atan(goal_width / (2.0 * distance))
+
+
+def _get_formation_positions_for_scenario(scenario_id: str) -> list[dict[str, Any]] | None:
+    """Return FormationNode list for any scenario that has a formation defined,
+    or None if the scenario has no formation data. Uses the embedded FORMATIONS
+    table via _get_formation_slot_positions.
+    """
+    scenario = SCENARIOS.get(scenario_id)
+    if scenario is None:
+        return None
+    formation = scenario.get("formation")
+    if not formation:
+        return None
+    num_left = scenario.get("teamLeftPlayers", 11)
+    num_right = scenario.get("teamRightPlayers", 11)
+    try:
+        left_slots = _get_formation_slot_positions(formation, "left", num_left)
+        right_slots = _get_formation_slot_positions(formation, "right", num_right)
+        result: list[dict[str, Any]] = []
+        for i, slot in enumerate(left_slots):
+            slot["team"] = "left"
+            slot["slot_id"] = f"left_slot{i}"
+            result.append(slot)
+        for i, slot in enumerate(right_slots):
+            slot["team"] = "right"
+            slot["slot_id"] = f"right_slot{i}"
+            result.append(slot)
+        return result
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Observation parsing
 # ---------------------------------------------------------------------------
 
@@ -580,6 +631,7 @@ def _parse_observation(obs_dict: dict[str, Any]) -> dict[str, Any]:
         "active_index": active_index,
         "game_mode": game_mode,
         "viewpoint_role": viewpoint_role,
+        "exact_ball_owner_id": None,
     }
 
 
@@ -981,34 +1033,277 @@ def _build_team_shape_nodes(
 
 
 def _build_formation_slot_nodes(scenario_id: str) -> list[dict[str, Any]]:
-    """Build FORMATION_SLOT nodes for 11_vs_11 only. Empty list otherwise."""
-    if scenario_id != "11_vs_11":
+    """Build FORMATION_SLOT nodes for any scenario with a formation."""
+    slots = _get_formation_positions_for_scenario(scenario_id)
+    if slots is None:
         return []
-
-    scenario = SCENARIOS.get(scenario_id)
-    if scenario is None:
-        return []
-
-    formation = scenario.get("formation", "4-3-3")
-    num_left = scenario["teamLeftPlayers"]
-    num_right = scenario["teamRightPlayers"]
 
     nodes = []
-    for team, num in [("left", num_left), ("right", num_right)]:
-        slots = _get_formation_slot_positions(formation, team, num)
-        for i, slot in enumerate(slots):
-            nodes.append({
-                "node_type": "FORMATION_SLOT",
-                "slot_id": f"{team}_slot{i}",
-                "team": team,
-                "role": slot["role"],
-                "xRatio": slot["xRatio"],
-                "yRatio": slot["yRatio"],
-                "x": slot["x"],
-                "y": slot["y"],
-            })
+    for slot in slots:
+        nodes.append({
+            "node_type": "FORMATION_SLOT",
+            "slot_id": slot["slot_id"],
+            "team": slot["team"],
+            "role": slot["role"],
+            "xRatio": slot["xRatio"],
+            "yRatio": slot["yRatio"],
+            "x": slot["x"],
+            "y": slot["y"],
+        })
 
     return nodes
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 rich edge builders
+# ---------------------------------------------------------------------------
+
+
+def _build_rich_teammate_edges(
+    left_players: list[dict[str, Any]],
+    right_players: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build TEAMMATE edges with continuous relational geometry."""
+    edges: list[dict[str, Any]] = []
+    for team_players in (left_players, right_players):
+        for i in range(len(team_players)):
+            for j in range(i + 1, len(team_players)):
+                src = team_players[i]
+                tgt = team_players[j]
+                dx = tgt["position"]["x"] - src["position"]["x"]
+                dy = tgt["position"]["y"] - src["position"]["y"]
+                dist = _euclidean(src["position"]["x"], src["position"]["y"], tgt["position"]["x"], tgt["position"]["y"])
+                dvx = tgt["velocity"]["vx"] - src["velocity"]["vx"]
+                dvy = tgt["velocity"]["vy"] - src["velocity"]["vy"]
+                angle = _angle_rad(dx, dy)
+                # closing_speed = -d(distance)/dt = -(dx*dvx + dy*dvy) / distance
+                closing_speed = -(dx * dvx + dy * dvy) / dist if dist > 1e-6 else 0.0
+                edges.append({
+                    "edge_type": "TEAMMATE",
+                    "source": src["global_id"],
+                    "target": tgt["global_id"],
+                    "distance": dist,
+                    "relative_x": dx,
+                    "relative_y": dy,
+                    "relative_vx": dvx,
+                    "relative_vy": dvy,
+                    "angle": angle,
+                    "closing_speed": closing_speed,
+                })
+    return edges
+
+
+def _build_rich_opponent_edges(
+    left_players: list[dict[str, Any]],
+    right_players: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build OPPONENT edges with continuous relational geometry + pressure."""
+    edges: list[dict[str, Any]] = []
+    for lp in left_players:
+        for rp in right_players:
+            dx = rp["position"]["x"] - lp["position"]["x"]
+            dy = rp["position"]["y"] - lp["position"]["y"]
+            dist = _euclidean(lp["position"]["x"], lp["position"]["y"], rp["position"]["x"], rp["position"]["y"])
+            dvx = rp["velocity"]["vx"] - lp["velocity"]["vx"]
+            dvy = rp["velocity"]["vy"] - lp["velocity"]["vy"]
+            angle = _angle_rad(dx, dy)
+            closing_speed = -(dx * dvx + dy * dvy) / dist if dist > 1e-6 else 0.0
+            pressure = 1.0 if dist < NEAR_THRESHOLD else 0.0
+            edges.append({
+                "edge_type": "OPPONENT",
+                "source": lp["global_id"],
+                "target": rp["global_id"],
+                "distance": dist,
+                "relative_x": dx,
+                "relative_y": dy,
+                "relative_vx": dvx,
+                "relative_vy": dvy,
+                "angle": angle,
+                "closing_speed": closing_speed,
+                "pressure": pressure,
+            })
+    return edges
+
+
+def _build_player_ball_edges(
+    player_nodes: list[dict[str, Any]],
+    ball_pos: dict[str, float],
+    ball_vel: dict[str, float],
+    exact_owner_id: str | None,
+) -> list[dict[str, Any]]:
+    """Build PLAYER_BALL edges from every present player to the ball."""
+    edges: list[dict[str, Any]] = []
+    for p in player_nodes:
+        if p["position"]["x"] == -1.0 and p["position"]["y"] == -1.0:
+            continue
+        dx = ball_pos["x"] - p["position"]["x"]
+        dy = ball_pos["y"] - p["position"]["y"]
+        dist = _euclidean(p["position"]["x"], p["position"]["y"], ball_pos["x"], ball_pos["y"])
+        dvx = ball_vel["vx"] - p["velocity"]["vx"]
+        dvy = ball_vel["vy"] - p["velocity"]["vy"]
+        angle = _angle_rad(dx, dy)
+        has_possession = (p["global_id"] == exact_owner_id)
+        edges.append({
+            "edge_type": "PLAYER_BALL",
+            "source": p["global_id"],
+            "target": "ball",
+            "distance": dist,
+            "relative_x": dx,
+            "relative_y": dy,
+            "relative_vx": dvx,
+            "relative_vy": dvy,
+            "angle": angle,
+            "has_possession": has_possession,
+        })
+    return edges
+
+
+def _build_player_goal_edges(
+    player_nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build PLAYER_GOAL edges from every present player to both goals."""
+    edges: list[dict[str, Any]] = []
+    goal_centers = {
+        "goal_left": {"x": -1.0, "y": GOAL_CENTER_Y},
+        "goal_right": {"x": 1.0, "y": GOAL_CENTER_Y},
+    }
+    for p in player_nodes:
+        if p["position"]["x"] == -1.0 and p["position"]["y"] == -1.0:
+            continue
+        # Nearest opponent pressure: distance to closest opponent
+        opp_team = "right" if p["team"] == "left" else "left"
+        opp_nodes = [n for n in player_nodes if n["team"] == opp_team and not (n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0)]
+        nearest_opp_pressure = 0.0
+        if opp_nodes:
+            nearest_opp_pressure = min(
+                _euclidean(p["position"]["x"], p["position"]["y"], o["position"]["x"], o["position"]["y"])
+                for o in opp_nodes
+            )
+        for goal_id, goal_pos in goal_centers.items():
+            dx = goal_pos["x"] - p["position"]["x"]
+            dy = goal_pos["y"] - p["position"]["y"]
+            dist = _euclidean(p["position"]["x"], p["position"]["y"], goal_pos["x"], goal_pos["y"])
+            angle = _angle_rad(dx, dy)
+            shot_angle = _shot_angle(dist)
+            edges.append({
+                "edge_type": "PLAYER_GOAL",
+                "source": p["global_id"],
+                "target": goal_id,
+                "distance": dist,
+                "relative_x": dx,
+                "relative_y": dy,
+                "angle": angle,
+                "shot_angle": shot_angle,
+                "nearest_opponent_pressure": nearest_opp_pressure,
+            })
+    return edges
+
+
+def _build_ball_goal_edges(
+    ball_pos: dict[str, float],
+) -> list[dict[str, Any]]:
+    """Build BALL_GOAL edges from ball to both goals."""
+    edges: list[dict[str, Any]] = []
+    goal_centers = {
+        "goal_left": {"x": -1.0, "y": GOAL_CENTER_Y},
+        "goal_right": {"x": 1.0, "y": GOAL_CENTER_Y},
+    }
+    for goal_id, goal_pos in goal_centers.items():
+        dx = goal_pos["x"] - ball_pos["x"]
+        dy = goal_pos["y"] - ball_pos["y"]
+        dist = _euclidean(ball_pos["x"], ball_pos["y"], goal_pos["x"], goal_pos["y"])
+        angle = _angle_rad(dx, dy)
+        shot_angle = _shot_angle(dist)
+        edges.append({
+            "edge_type": "BALL_GOAL",
+            "source": "ball",
+            "target": goal_id,
+            "distance": dist,
+            "relative_x": dx,
+            "relative_y": dy,
+            "angle": angle,
+            "shot_angle": shot_angle,
+        })
+    return edges
+
+
+def _build_assigned_to_edges(
+    player_nodes: list[dict[str, Any]],
+    formation_slot_nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build ASSIGNED_TO edges from players to their nearest formation slot."""
+    edges: list[dict[str, Any]] = []
+    if not formation_slot_nodes:
+        return edges
+
+    slots_by_team: dict[str, list[dict[str, Any]]] = {"left": [], "right": []}
+    for slot in formation_slot_nodes:
+        slots_by_team[slot["team"]].append(slot)
+
+    for p in player_nodes:
+        if p["position"]["x"] == -1.0 and p["position"]["y"] == -1.0:
+            continue
+        team_slots = slots_by_team.get(p["team"], [])
+        if not team_slots:
+            continue
+        # Find nearest slot by Euclidean distance
+        best_slot = min(
+            team_slots,
+            key=lambda s: _euclidean(p["position"]["x"], p["position"]["y"], s["x"], s["y"]),
+        )
+        dx = p["position"]["x"] - best_slot["x"]
+        dy = p["position"]["y"] - best_slot["y"]
+        edges.append({
+            "edge_type": "ASSIGNED_TO",
+            "source": p["global_id"],
+            "target": best_slot["slot_id"],
+            "role": best_slot["role"],
+            "nominal_x": best_slot["x"],
+            "nominal_y": best_slot["y"],
+            "deviation_x": dx,
+            "deviation_y": dy,
+            "deviation_distance": _euclidean(p["position"]["x"], p["position"]["y"], best_slot["x"], best_slot["y"]),
+        })
+
+    return edges
+
+
+def _build_belongs_to_shape_edges(
+    player_nodes: list[dict[str, Any]],
+    team_shape_nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build BELONGS_TO_SHAPE edges from players to their team shape node."""
+    edges: list[dict[str, Any]] = []
+    shape_by_team = {n["team"]: n for n in team_shape_nodes}
+    for p in player_nodes:
+        if p["position"]["x"] == -1.0 and p["position"]["y"] == -1.0:
+            continue
+        shape = shape_by_team.get(p["team"])
+        if shape is None:
+            continue
+        edges.append({
+            "edge_type": "BELONGS_TO_SHAPE",
+            "source": p["global_id"],
+            "target": f"team_shape_{p['team']}",
+            "team": p["team"],
+        })
+    return edges
+
+
+def _build_scenario_context_edges(
+    player_nodes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build SCENARIO_CONTEXT edges from each present player to the scenario node."""
+    edges: list[dict[str, Any]] = []
+    for p in player_nodes:
+        if p["position"]["x"] == -1.0 and p["position"]["y"] == -1.0:
+            continue
+        edges.append({
+            "edge_type": "SCENARIO_CONTEXT",
+            "source": p["global_id"],
+            "target": "scenario",
+        })
+    return edges
 
 
 # ---------------------------------------------------------------------------
@@ -1020,48 +1315,66 @@ def _build_edges(
     player_nodes: list[dict[str, Any]],
     ball_node_id: str,
     scenario_id: str,
+    parsed: dict[str, Any],
+    formation_slot_nodes: list[dict[str, Any]],
+    team_shape_nodes: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Build all edges for the graph."""
     edges: list[dict[str, Any]] = []
 
-    # Index by team
     left_players = [n for n in player_nodes if n["team"] == "left"]
     right_players = [n for n in player_nodes if n["team"] == "right"]
 
-    # Helper to add edges with deterministic ordering
-    def _add_edge(edge: dict[str, Any]) -> None:
-        edges.append(edge)
+    # Rich TEAMMATE edges
+    edges.extend(_build_rich_teammate_edges(left_players, right_players))
 
-    # TEAMMATE edges (within each team)
-    for team_players in (left_players, right_players):
-        for i in range(len(team_players)):
-            for j in range(i + 1, len(team_players)):
-                _add_edge({
-                    "edge_type": "TEAMMATE",
-                    "source": team_players[i]["global_id"],
-                    "target": team_players[j]["global_id"],
-                })
+    # Rich OPPONENT edges
+    edges.extend(_build_rich_opponent_edges(left_players, right_players))
 
-    # OPPONENT edges (cross-team)
-    for lp in left_players:
-        for rp in right_players:
-            _add_edge({
-                "edge_type": "OPPONENT",
-                "source": lp["global_id"],
-                "target": rp["global_id"],
-            })
+    # PLAYER_BALL edges (all players to ball)
+    ball_pos = parsed["ball_pos"]
+    ball_vel = parsed["ball_vel"]
+    exact_owner_id = parsed.get("exact_ball_owner_id")
+    edges.extend(_build_player_ball_edges(player_nodes, ball_pos, ball_vel, exact_owner_id))
 
-    # NEAR edges (distance < 0.065)
+    # PLAYER_GOAL edges (all players to both goals)
+    edges.extend(_build_player_goal_edges(player_nodes))
+
+    # BALL_GOAL edges (ball to both goals)
+    edges.extend(_build_ball_goal_edges(ball_pos))
+
+    # ASSIGNED_TO edges (player -> formation slot)
+    edges.extend(_build_assigned_to_edges(player_nodes, formation_slot_nodes))
+
+    # BELONGS_TO_SHAPE edges (player -> team shape)
+    edges.extend(_build_belongs_to_shape_edges(player_nodes, team_shape_nodes))
+
+    # SCENARIO_CONTEXT edges (player -> scenario)
+    edges.extend(_build_scenario_context_edges(player_nodes))
+
+    # Formation edges (FORMATION_ADJACENCY, FORMATION_LINE, FORMATION_LANE)
+    formation_edges = _build_formation_edges(formation_slot_nodes)
+    edges.extend(formation_edges)
+
+    # POSSESSES edge using exact owner identity from observation
+    if exact_owner_id is not None:
+        edges.append({
+            "edge_type": "POSSESSES",
+            "source": exact_owner_id,
+            "target": ball_node_id,
+        })
+
+    # NEAR edges (cross-team distance < NEAR_THRESHOLD)
     all_players = left_players + right_players
     for i in range(len(all_players)):
         for j in range(i + 1, len(all_players)):
             if all_players[i]["team"] == all_players[j]["team"]:
-                continue  # NEAR is cross-team only (same-team proximity is TEAMMATE)
+                continue
             pi = all_players[i]["position"]
             pj = all_players[j]["position"]
             dist = _euclidean(pi["x"], pi["y"], pj["x"], pj["y"])
             if dist < NEAR_THRESHOLD:
-                _add_edge({
+                edges.append({
                     "edge_type": "NEAR",
                     "source": all_players[i]["global_id"],
                     "target": all_players[j]["global_id"],
@@ -1069,24 +1382,7 @@ def _build_edges(
                     "threshold": NEAR_THRESHOLD,
                 })
 
-    # POSSESSES edges
-    ball_ownership = None
-    for n in player_nodes:
-        # We need ball ownership from the parsed observation, but it's not
-        # directly on the player node. We'll set it from the observation
-        # parsing step. For now, this is handled in build_graph.
-        pass
-
-    # Note: POSSESSES edges are added in build_graph after we know ownership.
-
-    # Formation edges (11_vs_11 only)
-    if scenario_id == "11_vs_11":
-        formation_slots = [n for n in player_nodes if n.get("node_type") == "FORMATION_SLOT"]
-        # Wait, formation slots are separate nodes, not in player_nodes.
-        # We'll handle this in build_graph.
-        pass
-
-    # Sort edges deterministically
+    # Deterministic sort
     edges.sort(key=lambda e: (e["edge_type"], e["source"], e.get("target", "")))
 
     return edges
@@ -1195,7 +1491,7 @@ def _build_formation_edges(
 # ---------------------------------------------------------------------------
 
 
-def build_graph(observation: dict[str, Any], info: dict[str, Any], scenario_id: str) -> dict[str, Any]:
+def build_graph(observation: dict[str, Any], info: dict[str, Any], scenario_id: str, z_scenario: list[float] | None = None) -> dict[str, Any]:
     """Build a GNN graph from a live engine observation.
 
     Args:
@@ -1203,6 +1499,7 @@ def build_graph(observation: dict[str, Any], info: dict[str, Any], scenario_id: 
             "observation" (np.ndarray[127]) and "action_mask".
         info: per-agent info dict from env.step() / env.reset().
         scenario_id: scenario identifier string.
+        z_scenario: optional task context vector from the engine.
 
     Returns:
         dict matching gnn_graph_schema.json v3.
@@ -1215,6 +1512,27 @@ def build_graph(observation: dict[str, Any], info: dict[str, Any], scenario_id: 
 
     # Build PLAYER nodes
     player_nodes, player_map = _build_player_nodes(parsed, scenario_id)
+
+    # Resolve exact ball owner global_id from observation
+    exact_owner_id = None
+    ball_ownership = parsed.get("ball_ownership", "none")
+    if ball_ownership in ("left", "right"):
+        owner_team = ball_ownership
+        team_nodes = [n for n in player_nodes if n["team"] == owner_team]
+        ball_x = parsed["ball_pos"]["x"]
+        ball_y = parsed["ball_pos"]["y"]
+        closest = None
+        closest_dist = float("inf")
+        for n in team_nodes:
+            if n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0:
+                continue
+            d = _euclidean(ball_x, ball_y, n["position"]["x"], n["position"]["y"])
+            if d < closest_dist:
+                closest_dist = d
+                closest = n
+        if closest is not None:
+            exact_owner_id = closest["global_id"]
+    parsed["exact_ball_owner_id"] = exact_owner_id
 
     # Build BALL node
     ball_node = _build_ball_node(parsed)
@@ -1231,96 +1549,37 @@ def build_graph(observation: dict[str, Any], info: dict[str, Any], scenario_id: 
     right_players = [n for n in player_nodes if n["team"] == "right"]
     team_shape_nodes = _build_team_shape_nodes(left_players, right_players)
 
-    # Build FORMATION_SLOT nodes (11_vs_11 only)
+    # Build FORMATION_SLOT nodes for all scenarios with formation data
     formation_slot_nodes = _build_formation_slot_nodes(scenario_id)
 
     # Assemble all nodes in deterministic order
-    # Order: PLAYER (left_0..left_10, right_0..right_10), BALL, GOAL (left, right),
-    #        TEAM_SHAPE (left, right), FORMATION_SLOT (left, right)
-    # NOTE: SCENARIO node goes in the top-level "scenario" field, NOT in "nodes".
     all_nodes: list[dict[str, Any]] = []
     all_nodes.extend(player_nodes)
     all_nodes.append(ball_node)
     all_nodes.extend(goal_nodes)
-    # scenario_node is NOT added to all_nodes — it lives at graph["scenario"]
+    # SCENARIO node lives at graph["scenario"], not in all_nodes (schema v3)
     all_nodes.extend(team_shape_nodes)
     all_nodes.extend(formation_slot_nodes)
 
     # Build edges
-    edges: list[dict[str, Any]] = []
+    edges = _build_edges(
+        player_nodes=player_nodes,
+        ball_node_id=ball_node_id,
+        scenario_id=scenario_id,
+        parsed=parsed,
+        formation_slot_nodes=formation_slot_nodes,
+        team_shape_nodes=team_shape_nodes,
+    )
 
-    # TEAMMATE, OPPONENT, NEAR edges from player nodes
-    all_player_nodes = player_nodes
-    left_p = [n for n in all_player_nodes if n["team"] == "left"]
-    right_p = [n for n in all_player_nodes if n["team"] == "right"]
-
-    for team_players in (left_p, right_p):
-        for i in range(len(team_players)):
-            for j in range(i + 1, len(team_players)):
-                edges.append({
-                    "edge_type": "TEAMMATE",
-                    "source": team_players[i]["global_id"],
-                    "target": team_players[j]["global_id"],
-                })
-
-    for lp in left_p:
-        for rp in right_p:
-            edges.append({
-                "edge_type": "OPPONENT",
-                "source": lp["global_id"],
-                "target": rp["global_id"],
-            })
-
-    for i in range(len(all_player_nodes)):
-        for j in range(i + 1, len(all_player_nodes)):
-            if all_player_nodes[i]["team"] == all_player_nodes[j]["team"]:
-                continue
-            pi = all_player_nodes[i]["position"]
-            pj = all_player_nodes[j]["position"]
-            dist = _euclidean(pi["x"], pi["y"], pj["x"], pj["y"])
-            if dist < NEAR_THRESHOLD:
-                edges.append({
-                    "edge_type": "NEAR",
-                    "source": all_player_nodes[i]["global_id"],
-                    "target": all_player_nodes[j]["global_id"],
-                    "distance": dist,
-                    "threshold": NEAR_THRESHOLD,
-                })
-
-    # POSSESSES edges: connect ball to closest player of owning team
-    if parsed["ball_ownership"] in ("left", "right"):
-        owner_team = parsed["ball_ownership"]
-        team_nodes = [n for n in all_player_nodes if n["team"] == owner_team]
-        ball_x = parsed["ball_pos"]["x"]
-        ball_y = parsed["ball_pos"]["y"]
-        closest = None
-        closest_dist = float("inf")
-        for n in team_nodes:
-            if n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0:
-                continue
-            d = _euclidean(ball_x, ball_y, n["position"]["x"], n["position"]["y"])
-            if d < closest_dist:
-                closest_dist = d
-                closest = n
-        if closest is not None:
-            edges.append({
-                "edge_type": "POSSESSES",
-                "source": closest["global_id"],
-                "target": ball_node_id,
-            })
-
-    # Formation edges (11_vs_11)
-    formation_edges = _build_formation_edges(formation_slot_nodes)
-    edges.extend(formation_edges)
-
-    # Deterministic sort
-    edges.sort(key=lambda e: (e["edge_type"], e["source"], e.get("target", "")))
-
-    graph = {
+    graph: dict[str, Any] = {
         "scenario": scenario_node,
         "nodes": all_nodes,
         "edges": edges,
     }
+
+    # Attach optional z_scenario task context vector
+    if z_scenario is not None:
+        graph["z_scenario"] = list(z_scenario)
 
     # Schema validation
     jsonschema.validate(graph, _SCHEMA)

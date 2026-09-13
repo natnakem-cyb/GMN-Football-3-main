@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gnn_graph_schema_v1.json",
+  "$id": "gnn_graph_schema_v3.json",
   "title": "GNN Graph Schema v3",
-  "description": "v3 extends v2 with SCENARIO node objective_vocabulary multi-hot, reward_scoring, reward_completion, and required rewards. Machine-readable schema for GMN-Football-3 GNN graph representations.",
+  "description": "v3 extends v2 with SCENARIO node objective_vocabulary multi-hot, reward_scoring, reward_completion, required rewards, rich player-player geometry, player-ball/goal edges, formation-slot assignment, team-shape connectivity, and scenario-context edges. Machine-readable schema for GMN-Football-3 GNN graph representations.",
   "type": "object",
   "required": [
     "scenario",
@@ -50,6 +50,24 @@
           },
           {
             "$ref": "#/$defs/possesses_edge"
+          },
+          {
+            "$ref": "#/$defs/player_ball_edge"
+          },
+          {
+            "$ref": "#/$defs/player_goal_edge"
+          },
+          {
+            "$ref": "#/$defs/ball_goal_edge"
+          },
+          {
+            "$ref": "#/$defs/assigned_to_edge"
+          },
+          {
+            "$ref": "#/$defs/belongs_to_shape_edge"
+          },
+          {
+            "$ref": "#/$defs/scenario_context_edge"
           },
           {
             "$ref": "#/$defs/formation_adjacency_edge"
@@ -433,7 +451,7 @@
         "objective_vocabulary": {
           "type": "array",
           "items": {
-            "type": "integer",
+            "type": "number",
             "minimum": 0,
             "maximum": 1
           },
@@ -481,7 +499,14 @@
       "required": [
         "edge_type",
         "source",
-        "target"
+        "target",
+        "distance",
+        "relative_x",
+        "relative_y",
+        "relative_vx",
+        "relative_vy",
+        "angle",
+        "closing_speed"
       ],
       "properties": {
         "edge_type": {
@@ -494,6 +519,35 @@
         "target": {
           "type": "string",
           "description": "Target player global_id."
+        },
+        "distance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Euclidean distance between the two players."
+        },
+        "relative_x": {
+          "type": "number",
+          "description": "target.x - source.x."
+        },
+        "relative_y": {
+          "type": "number",
+          "description": "target.y - source.y."
+        },
+        "relative_vx": {
+          "type": "number",
+          "description": "target.velocity.vx - source.velocity.vx."
+        },
+        "relative_vy": {
+          "type": "number",
+          "description": "target.velocity.vy - source.velocity.vy."
+        },
+        "angle": {
+          "type": "number",
+          "description": "Bearing from source to target in radians, measured from +x axis."
+        },
+        "closing_speed": {
+          "type": "number",
+          "description": "Rate of change of distance. Negative means players are approaching each other."
         }
       }
     },
@@ -502,7 +556,15 @@
       "required": [
         "edge_type",
         "source",
-        "target"
+        "target",
+        "distance",
+        "relative_x",
+        "relative_y",
+        "relative_vx",
+        "relative_vy",
+        "angle",
+        "closing_speed",
+        "pressure"
       ],
       "properties": {
         "edge_type": {
@@ -515,6 +577,40 @@
         "target": {
           "type": "string",
           "description": "Target player global_id."
+        },
+        "distance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Euclidean distance between the two players."
+        },
+        "relative_x": {
+          "type": "number",
+          "description": "target.x - source.x."
+        },
+        "relative_y": {
+          "type": "number",
+          "description": "target.y - source.y."
+        },
+        "relative_vx": {
+          "type": "number",
+          "description": "target.velocity.vx - source.velocity.vx."
+        },
+        "relative_vy": {
+          "type": "number",
+          "description": "target.velocity.vy - source.velocity.vy."
+        },
+        "angle": {
+          "type": "number",
+          "description": "Bearing from source to target in radians, measured from +x axis."
+        },
+        "closing_speed": {
+          "type": "number",
+          "description": "Rate of change of distance. Negative means players are approaching each other."
+        },
+        "pressure": {
+          "type": "number",
+          "minimum": 0,
+          "description": "1.0 if distance < NEAR_THRESHOLD (0.065), else 0.0. Derived from NEAR threshold."
         }
       }
     },
@@ -563,11 +659,344 @@
         },
         "source": {
           "type": "string",
-          "description": "Player global_id who possesses the ball."
+          "description": "Player global_id who possesses the ball. Source: exact ball.ownerId from engine state, exposed via observation ballOwnedPlayer / info ground_truth.current_ball_owner.agent_id."
         },
         "target": {
           "const": "ball",
           "description": "Fixed target node ID for the ball."
+        }
+      }
+    },
+    "player_ball_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "distance",
+        "relative_x",
+        "relative_y",
+        "relative_vx",
+        "relative_vy",
+        "angle",
+        "has_possession"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "PLAYER_BALL"
+        },
+        "source": {
+          "type": "string",
+          "description": "Player global_id."
+        },
+        "target": {
+          "const": "ball",
+          "description": "Fixed target node ID for the ball."
+        },
+        "distance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Euclidean distance from player to ball."
+        },
+        "relative_x": {
+          "type": "number",
+          "description": "ball.x - player.x."
+        },
+        "relative_y": {
+          "type": "number",
+          "description": "ball.y - player.y."
+        },
+        "relative_vx": {
+          "type": "number",
+          "description": "ball.velocity.vx - player.velocity.vx."
+        },
+        "relative_vy": {
+          "type": "number",
+          "description": "ball.velocity.vy - player.velocity.vy."
+        },
+        "angle": {
+          "type": "number",
+          "description": "Bearing from player to ball in radians, measured from +x axis."
+        },
+        "has_possession": {
+          "type": "boolean",
+          "description": "True if this player is the exact current ball owner (ball.ownerId). Source: GameEngine.ts ball.ownerId."
+        }
+      }
+    },
+    "player_goal_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "distance",
+        "relative_x",
+        "relative_y",
+        "angle",
+        "shot_angle",
+        "nearest_opponent_pressure"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "PLAYER_GOAL"
+        },
+        "source": {
+          "type": "string",
+          "description": "Player global_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Goal node_id (goal_left or goal_right)."
+        },
+        "distance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Euclidean distance from player to goal center."
+        },
+        "relative_x": {
+          "type": "number",
+          "description": "goal.x - player.x."
+        },
+        "relative_y": {
+          "type": "number",
+          "description": "goal.y - player.y."
+        },
+        "angle": {
+          "type": "number",
+          "description": "Bearing from player to goal in radians, measured from +x axis."
+        },
+        "shot_angle": {
+          "type": "number",
+          "description": "Opening angle to goal mouth in radians. Computed as 2 * atan(goalWidth / (2 * distance_to_goal_center)). 0 when distance is 0."
+        },
+        "nearest_opponent_pressure": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Distance to the nearest opponent player. 0 if no opponents present."
+        }
+      }
+    },
+    "ball_goal_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "distance",
+        "relative_x",
+        "relative_y",
+        "angle",
+        "shot_angle"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "BALL_GOAL"
+        },
+        "source": {
+          "const": "ball",
+          "description": "Fixed source node ID for the ball."
+        },
+        "target": {
+          "type": "string",
+          "description": "Goal node_id (goal_left or goal_right)."
+        },
+        "distance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Euclidean distance from ball to goal center."
+        },
+        "relative_x": {
+          "type": "number",
+          "description": "goal.x - ball.x."
+        },
+        "relative_y": {
+          "type": "number",
+          "description": "goal.y - ball.y."
+        },
+        "angle": {
+          "type": "number",
+          "description": "Bearing from ball to goal in radians, measured from +x axis."
+        },
+        "shot_angle": {
+          "type": "number",
+          "description": "Opening angle to goal mouth in radians. Computed as 2 * atan(goalWidth / (2 * distance_to_goal_center)). 0 when distance is 0."
+        }
+      }
+    },
+    "assigned_to_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "role",
+        "nominal_x",
+        "nominal_y",
+        "deviation_x",
+        "deviation_y",
+        "deviation_distance"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "ASSIGNED_TO"
+        },
+        "source": {
+          "type": "string",
+          "description": "Player global_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "FORMATION_SLOT slot_id."
+        },
+        "role": {
+          "type": "string",
+          "description": "Tactical role of the formation slot. Source: Rules.ts FormationNode.role."
+        },
+        "nominal_x": {
+          "type": "number",
+          "description": "Nominal formation slot x position. Source: Rules.ts getFormationPositions()."
+        },
+        "nominal_y": {
+          "type": "number",
+          "description": "Nominal formation slot y position. Source: Rules.ts getFormationPositions()."
+        },
+        "deviation_x": {
+          "type": "number",
+          "description": "Actual player.x - nominal_x."
+        },
+        "deviation_y": {
+          "type": "number",
+          "description": "Actual player.y - nominal_y."
+        },
+        "deviation_distance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Euclidean distance between actual player position and nominal formation slot position."
+        }
+      }
+    },
+    "belongs_to_shape_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "team"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "BELONGS_TO_SHAPE"
+        },
+        "source": {
+          "type": "string",
+          "description": "Player global_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "TEAM_SHAPE node_id (e.g. team_shape_left)."
+        },
+        "team": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "description": "Team side this player belongs to."
+        }
+      }
+    },
+    "scenario_context_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "SCENARIO_CONTEXT"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source node global_id or node_id. For player-to-scenario edges, this is the player global_id. For graph-level context, this is 'graph'."
+        },
+        "target": {
+          "const": "scenario",
+          "description": "Fixed target node_id for the SCENARIO node."
+        }
+      }
+    },
+    "formation_adjacency_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "FORMATION_ADJACENCY"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source FORMATION_SLOT slot_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target FORMATION_SLOT slot_id."
+        }
+      }
+    },
+    "formation_line_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "line_id"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "FORMATION_LINE"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source FORMATION_SLOT slot_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target FORMATION_SLOT slot_id."
+        },
+        "line_id": {
+          "type": "integer",
+          "description": "Line identifier: 0=GK, 1=Defense, 2=Midfield, 3=Attack. Derived from xRatio bands (Phase 2 section 2.4)."
+        }
+      }
+    },
+    "formation_lane_edge": {
+      "type": "object",
+      "required": [
+        "edge_type",
+        "source",
+        "target",
+        "lane_id"
+      ],
+      "properties": {
+        "edge_type": {
+          "const": "FORMATION_LANE"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source FORMATION_SLOT slot_id."
+        },
+        "target": {
+          "type": "string",
+          "description": "Target FORMATION_SLOT slot_id."
+        },
+        "lane_id": {
+          "type": "integer",
+          "description": "Lane identifier: 0=Left, 1=Center, 2=Right. Derived from yRatio bands (Phase 2 section 2.5)."
         }
       }
     },
@@ -686,79 +1115,6 @@
         "y": {
           "type": "number",
           "description": "Absolute pitch y computed by getFormationPositions. Source: Rules.ts:141-168."
-        }
-      }
-    },
-    "formation_adjacency_edge": {
-      "type": "object",
-      "required": [
-        "edge_type",
-        "source",
-        "target"
-      ],
-      "properties": {
-        "edge_type": {
-          "const": "FORMATION_ADJACENCY"
-        },
-        "source": {
-          "type": "string",
-          "description": "Source FORMATION_SLOT slot_id."
-        },
-        "target": {
-          "type": "string",
-          "description": "Target FORMATION_SLOT slot_id."
-        }
-      }
-    },
-    "formation_line_edge": {
-      "type": "object",
-      "required": [
-        "edge_type",
-        "source",
-        "target",
-        "line_id"
-      ],
-      "properties": {
-        "edge_type": {
-          "const": "FORMATION_LINE"
-        },
-        "source": {
-          "type": "string",
-          "description": "Source FORMATION_SLOT slot_id."
-        },
-        "target": {
-          "type": "string",
-          "description": "Target FORMATION_SLOT slot_id."
-        },
-        "line_id": {
-          "type": "integer",
-          "description": "Line identifier: 0=GK, 1=Defense, 2=Midfield, 3=Attack. Derived from xRatio bands (Phase 2 section 2.4)."
-        }
-      }
-    },
-    "formation_lane_edge": {
-      "type": "object",
-      "required": [
-        "edge_type",
-        "source",
-        "target",
-        "lane_id"
-      ],
-      "properties": {
-        "edge_type": {
-          "const": "FORMATION_LANE"
-        },
-        "source": {
-          "type": "string",
-          "description": "Source FORMATION_SLOT slot_id."
-        },
-        "target": {
-          "type": "string",
-          "description": "Target FORMATION_SLOT slot_id."
-        },
-        "lane_id": {
-          "type": "integer",
-          "description": "Lane identifier: 0=Left, 1=Center, 2=Right. Derived from yRatio bands (Phase 2 section 2.5)."
         }
       }
     }

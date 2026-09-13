@@ -472,3 +472,193 @@ class TestGNNGraphBuilder:
                     assert "receiver_availability" in node["features"]
         finally:
             env.close()
+
+    def test_rich_teammate_edges_have_geometry(self):
+        """Phase 3: TEAMMATE edges carry continuous relational geometry."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            teammates = [e for e in graph["edges"] if e["edge_type"] == "TEAMMATE"]
+            assert teammates, "Expected TEAMMATE edges"
+            required_keys = {"distance", "relative_x", "relative_y", "relative_vx", "relative_vy", "angle", "closing_speed"}
+            for e in teammates:
+                assert required_keys.issubset(e.keys()), f"TEAMMATE edge missing keys: {e}"
+                assert e["distance"] >= 0.0
+        finally:
+            env.close()
+
+    def test_rich_opponent_edges_have_geometry_and_pressure(self):
+        """Phase 3: OPPONENT edges carry continuous geometry + pressure."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            opponents = [e for e in graph["edges"] if e["edge_type"] == "OPPONENT"]
+            assert opponents, "Expected OPPONENT edges"
+            required_keys = {"distance", "relative_x", "relative_y", "relative_vx", "relative_vy", "angle", "closing_speed", "pressure"}
+            for e in opponents:
+                assert required_keys.issubset(e.keys()), f"OPPONENT edge missing keys: {e}"
+                assert e["pressure"] in (0.0, 1.0)
+        finally:
+            env.close()
+
+    def test_player_ball_edges_exist_and_have_geometry(self):
+        """Phase 3: PLAYER_BALL edges from every present player to ball."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            player_nodes = [n for n in graph["nodes"] if n["node_type"] == "PLAYER"]
+            present_players = [n for n in player_nodes if not (n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0)]
+            pb_edges = [e for e in graph["edges"] if e["edge_type"] == "PLAYER_BALL"]
+            assert len(pb_edges) == len(present_players), f"Expected {len(present_players)} PLAYER_BALL edges, got {len(pb_edges)}"
+
+            required_keys = {"distance", "relative_x", "relative_y", "relative_vx", "relative_vy", "angle", "has_possession"}
+            for e in pb_edges:
+                assert required_keys.issubset(e.keys()), f"PLAYER_BALL edge missing keys: {e}"
+                assert e["target"] == "ball"
+        finally:
+            env.close()
+
+    def test_player_goal_edges_exist_and_have_geometry(self):
+        """Phase 3: PLAYER_GOAL edges from every present player to both goals."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            player_nodes = [n for n in graph["nodes"] if n["node_type"] == "PLAYER"]
+            present_players = [n for n in player_nodes if not (n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0)]
+            pg_edges = [e for e in graph["edges"] if e["edge_type"] == "PLAYER_GOAL"]
+            expected = len(present_players) * 2  # each player to goal_left + goal_right
+            assert len(pg_edges) == expected, f"Expected {expected} PLAYER_GOAL edges, got {len(pg_edges)}"
+
+            required_keys = {"distance", "relative_x", "relative_y", "angle", "shot_angle", "nearest_opponent_pressure"}
+            for e in pg_edges:
+                assert required_keys.issubset(e.keys()), f"PLAYER_GOAL edge missing keys: {e}"
+                assert e["target"] in ("goal_left", "goal_right")
+                assert e["shot_angle"] >= 0.0
+        finally:
+            env.close()
+
+    def test_ball_goal_edges_exist(self):
+        """Phase 3: BALL_GOAL edges from ball to both goals."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            bg_edges = [e for e in graph["edges"] if e["edge_type"] == "BALL_GOAL"]
+            assert len(bg_edges) == 2, f"Expected 2 BALL_GOAL edges, got {len(bg_edges)}"
+            targets = {e["target"] for e in bg_edges}
+            assert targets == {"goal_left", "goal_right"}
+            for e in bg_edges:
+                assert e["source"] == "ball"
+                assert e["shot_angle"] >= 0.0
+        finally:
+            env.close()
+
+    def test_formation_slot_connectivity_all_scenarios(self):
+        """Phase 3: ASSIGNED_TO edges exist for any scenario with a formation."""
+        for scenario_id in SCENARIOS:
+            env = _make_env(scenario_id)
+            try:
+                obs, info = _get_first_agent_obs_info(env)
+                graph = build_graph(obs, info, scenario_id)
+                _validate_schema(graph)
+
+                formation_slots = [n for n in graph["nodes"] if n["node_type"] == "FORMATION_SLOT"]
+                assigned_edges = [e for e in graph["edges"] if e["edge_type"] == "ASSIGNED_TO"]
+
+                if formation_slots:
+                    player_nodes = [n for n in graph["nodes"] if n["node_type"] == "PLAYER" and not (n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0)]
+                    assert len(assigned_edges) == len(player_nodes), (
+                        f"{scenario_id}: expected {len(player_nodes)} ASSIGNED_TO edges, got {len(assigned_edges)}"
+                    )
+                    for e in assigned_edges:
+                        assert e["target"] in {s["slot_id"] for s in formation_slots}
+                        assert "deviation_distance" in e
+                        assert e["deviation_distance"] >= 0.0
+                else:
+                    assert len(assigned_edges) == 0, f"{scenario_id}: unexpected ASSIGNED_TO edges without formation slots"
+            finally:
+                env.close()
+
+    def test_belongs_to_shape_edges_exist(self):
+        """Phase 3: BELONGS_TO_SHAPE edges connect players to team shape."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            player_nodes = [n for n in graph["nodes"] if n["node_type"] == "PLAYER" and not (n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0)]
+            shape_edges = [e for e in graph["edges"] if e["edge_type"] == "BELONGS_TO_SHAPE"]
+            assert len(shape_edges) == len(player_nodes), f"Expected {len(player_nodes)} BELONGS_TO_SHAPE edges, got {len(shape_edges)}"
+
+            team_shapes = [n for n in graph["nodes"] if n["node_type"] == "TEAM_SHAPE"]
+            for e in shape_edges:
+                assert e["target"] in {f"team_shape_{n['team']}" for n in team_shapes}
+        finally:
+            env.close()
+
+    def test_scenario_context_edges_exist(self):
+        """Phase 3: SCENARIO_CONTEXT edges connect players to scenario node."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            player_nodes = [n for n in graph["nodes"] if n["node_type"] == "PLAYER" and not (n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0)]
+            ctx_edges = [e for e in graph["edges"] if e["edge_type"] == "SCENARIO_CONTEXT"]
+            assert len(ctx_edges) == len(player_nodes), f"Expected {len(player_nodes)} SCENARIO_CONTEXT edges, got {len(ctx_edges)}"
+            for e in ctx_edges:
+                assert e["target"] == "scenario"
+        finally:
+            env.close()
+
+    def test_z_scenario_support(self):
+        """Phase 2/3: zScenario is attached to graph when provided."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            z = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3", z_scenario=z)
+            _validate_schema(graph)
+            assert "z_scenario" in graph
+            assert graph["z_scenario"] == z
+        finally:
+            env.close()
+
+    def test_possesses_edge_matches_ownership(self):
+        """Phase 3: POSSESSES edge source belongs to owning team."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            ball_node = next(n for n in graph["nodes"] if n["node_type"] == "BALL")
+            ownership = ball_node["ownership"]
+            possesses_edges = [e for e in graph["edges"] if e["edge_type"] == "POSSESSES"]
+
+            if ownership == "none":
+                assert len(possesses_edges) == 0
+            else:
+                assert len(possesses_edges) == 1
+                owner_id = possesses_edges[0]["source"]
+                owner_node = next(n for n in graph["nodes"] if n["global_id"] == owner_id)
+                assert owner_node["team"] == ownership
+                assert possesses_edges[0]["target"] == "ball"
+        finally:
+            env.close()
