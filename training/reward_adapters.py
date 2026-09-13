@@ -362,21 +362,36 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         return shaped
 
 
+# Finishing-drill scenarios, derived from the real registry
+# (src/scenarios/ScenarioRegistry.ts). These drills score a goal within a
+# short window and are the intended target of AttackingDrillRewardAdapter
+# (progress stripped, shot incentives, step cost, shot-clock).
+# Full-match scenarios (5_vs_5, 11_vs_11) and the rondo drill
+# (academy_rondo_4v1) are intentionally NOT in this set: neither reward
+# adapter is designed for them, and dispatch raises loudly rather than
+# silently applying the wrong reward model.
 FINISHING_SCENARIOS = frozenset((
-    "academy_3_vs_1_with_keeper",
-    "academy_3_vs_1_keeper_aggressive",
     "academy_empty_goal",
     "academy_run_to_score",
-    "academy_3_vs_1",
-    "academy_2_vs_1",
-    "5_vs_5",
-    "11_vs_11",
+    "academy_pass_and_shoot_with_keeper",
+    "academy_3_vs_1_with_keeper",
+    "academy_3_vs_1_defender_2",
+    "academy_3_vs_1_defender_3",
+    "academy_3_vs_1_keeper_aggressive",
+    "academy_3_vs_1_shifted",
+    "academy_3_vs_1_randomized",
 ))
 
 
 def get_reward_adapter(scenario: str, **kw) -> BaseScenarioRewardAdapter:
     if scenario == "academy_rondo_4v1":
         return RondoRewardAdapter(**kw)
-    return AttackingDrillRewardAdapter(**kw)
+    if scenario in FINISHING_SCENARIOS:
+        return AttackingDrillRewardAdapter(**kw)
+    raise ValueError(
+        f"No reward adapter defined for scenario {scenario!r}. "
+        f"Add it to FINISHING_SCENARIOS or RondoRewardAdapter's "
+        f"dispatch, or add a new adapter for it explicitly."
+    )
 
 

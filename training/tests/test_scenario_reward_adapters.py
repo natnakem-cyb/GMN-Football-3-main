@@ -8,6 +8,7 @@ progress-checkpoint stripping, step cost, shot incentives, shot-clock.
 import pytest
 
 from training.reward_adapters import (
+    FINISHING_SCENARIOS,
     AttackingDrillRewardAdapter,
     RondoRewardAdapter,
     get_reward_adapter,
@@ -22,6 +23,37 @@ def test_factory_selects_adapter_by_scenario():
     assert isinstance(
         get_reward_adapter("academy_3_vs_1_with_keeper"), AttackingDrillRewardAdapter
     )
+
+
+def test_factory_covers_every_finishing_scenario():
+    """Every id actually in FINISHING_SCENARIOS must resolve to the
+    AttackingDrillRewardAdapter. Loops over the set rather than one
+    hardcoded example so a future set edit cannot silently leave a
+    scenario un-dispatched."""
+    for sid in FINISHING_SCENARIOS:
+        assert isinstance(get_reward_adapter(sid), AttackingDrillRewardAdapter), (
+            f"{sid} is in FINISHING_SCENARIOS but did not dispatch to "
+            f"AttackingDrillRewardAdapter"
+        )
+
+
+def test_factory_raises_for_full_match_scenarios():
+    """5_vs_5 and 11_vs_11 are full matches with win_match/
+    control_possession/clean_sheet objectives. Neither existing adapter is
+    designed for them: dispatch must fail loudly, never silently apply the
+    attacking-drill reward model to a match."""
+    for sid in ("5_vs_5", "11_vs_11"):
+        with pytest.raises(ValueError) as excinfo:
+            get_reward_adapter(sid)
+        assert sid in str(excinfo.value)
+
+
+def test_factory_uses_loud_error_message_for_unknown_scenario():
+    with pytest.raises(ValueError) as excinfo:
+        get_reward_adapter("some_future_scenario_x")
+    msg = str(excinfo.value)
+    assert "No reward adapter defined" in msg
+    assert "some_future_scenario_x" in msg
 
 
 def test_attacking_strips_progress_on_quiet_steps():
