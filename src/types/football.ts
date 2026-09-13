@@ -155,6 +155,8 @@ export interface MatchStats {
   completedPasses: { left: number; right: number };
   tackles: { left: number; right: number };
   interceptions: { left: number; right: number };
+  shotsSaved: { left: number; right: number };
+  shotsBlocked: { left: number; right: number };
   fouls: { left: number; right: number };
   yellowCards: { left: number; right: number };
   redCards: { left: number; right: number };

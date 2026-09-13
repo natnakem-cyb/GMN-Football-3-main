@@ -1345,6 +1345,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                 "attempted_passes_left": episode_stats.get("attempted_passes_left"),
                 "shots_on_target_left": episode_stats.get("shots_on_target_left"),
                 "total_shots_left": episode_stats.get("total_shots_left"),
+                "shots_saved_left": episode_stats.get("shots_saved_left"),
+                "shots_blocked_left": episode_stats.get("shots_blocked_left"),
                 "pass_accuracy": (
                     episode_stats.get("completed_passes_left", 0) / episode_stats.get("attempted_passes_left", 1)
                     if episode_stats.get("attempted_passes_left", 0) > 0

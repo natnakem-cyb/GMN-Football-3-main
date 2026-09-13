@@ -368,6 +368,8 @@ export class GMNBridgeService {
             attempted_passes_left: engine.stats.passes.left,
             shots_on_target_left: engine.stats.shotsOnTarget.left,
             total_shots_left: engine.stats.shots.left,
+            shots_saved_left: engine.stats.shotsSaved.left,
+            shots_blocked_left: engine.stats.shotsBlocked.left,
             current_ball_owner: engine.ball.ownerId != null
               ? (() => {
                   const owner = engine.players.find((p) => p.id === engine.ball.ownerId);
@@ -510,6 +512,8 @@ export class GMNBridgeService {
           attempted_passes_left: this.engine.stats.passes.left,
           shots_on_target_left: this.engine.stats.shotsOnTarget.left,
           total_shots_left: this.engine.stats.shots.left,
+          shots_saved_left: this.engine.stats.shotsSaved.left,
+          shots_blocked_left: this.engine.stats.shotsBlocked.left,
           current_ball_owner: this.engine.ball.ownerId != null
             ? (() => {
                 const owner = this.engine.players.find((p) => p.id === this.engine.ball.ownerId);
@@ -611,6 +615,8 @@ export class GMNBridgeService {
           attempted_passes_left: this.engine.stats.passes.left,
           shots_on_target_left: this.engine.stats.shotsOnTarget.left,
           total_shots_left: this.engine.stats.shots.left,
+          shots_saved_left: this.engine.stats.shotsSaved.left,
+          shots_blocked_left: this.engine.stats.shotsBlocked.left,
           current_ball_owner: this.engine.ball.ownerId != null
             ? (() => {
                 const owner = this.engine.players.find((p) => p.id === this.engine.ball.ownerId);

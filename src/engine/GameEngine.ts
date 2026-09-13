@@ -55,6 +55,8 @@ export class GameEngine {
       completedPasses: { left: 0, right: 0 },
       tackles: { left: 0, right: 0 },
       interceptions: { left: 0, right: 0 },
+      shotsSaved: { left: 0, right: 0 },
+      shotsBlocked: { left: 0, right: 0 },
       fouls: { left: 0, right: 0 },
       yellowCards: { left: 0, right: 0 },
       redCards: { left: 0, right: 0 },
@@ -978,6 +980,7 @@ export class GameEngine {
               player.position,
               player.team
             );
+            this.stats.shotsSaved[player.team]++;
             break; // matches existing loop pattern — this player touched the ball this tick
           }
           // else: save succeeds, fall through to the existing possession-assignment
@@ -999,6 +1002,7 @@ export class GameEngine {
             player.position,
             player.team
           );
+          this.stats.shotsBlocked[player.team]++;
           break;
         }
 
