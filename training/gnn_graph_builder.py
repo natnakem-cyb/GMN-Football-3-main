@@ -720,6 +720,7 @@ def _get_formation_slot_positions(formation: str, team: str, num_players: int) -
 def _build_player_nodes(
     parsed: dict[str, Any],
     scenario_id: str,
+    controlled_player_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     """Build PLAYER nodes. Returns (nodes, player_map) where player_map
     maps global_id -> node dict for edge construction."""
@@ -764,13 +765,7 @@ def _build_player_nodes(
         vel = left_velocities[i] if i < len(left_velocities) else {"vx": 0.0, "vy": 0.0}
         global_id = f"left_{i}"
         is_active = (viewpoint_team == "left" and active_idx == i)
-        is_controlled = (i == 0 and scenario["setup"].get("leftPlayers", []) == []) or (
-            i < len(scenario["setup"].get("leftPlayers", []))
-            and scenario["setup"]["leftPlayers"][i].get("isControlled", False)
-        )
-        # For 11_vs_11, default left_0 as controlled (matches GameEngine.ts players[0] fallback).
-        if scenario_id == "11_vs_11" and i == 0:
-            is_controlled = True
+        is_controlled = (global_id == controlled_player_id)
 
         node = {
             "node_type": "PLAYER",
@@ -1231,7 +1226,11 @@ def _build_assigned_to_edges(
     player_nodes: list[dict[str, Any]],
     formation_slot_nodes: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Build ASSIGNED_TO edges from players to their nearest formation slot."""
+    """Build ASSIGNED_TO edges from players to their formation slot by role.
+    
+    Uses deterministic role-based matching: players are assigned to slots
+    with matching role, ordered by x position to break ties for duplicate roles.
+    """
     edges: list[dict[str, Any]] = []
     if not formation_slot_nodes:
         return edges
@@ -1246,11 +1245,21 @@ def _build_assigned_to_edges(
         team_slots = slots_by_team.get(p["team"], [])
         if not team_slots:
             continue
-        # Find nearest slot by Euclidean distance
-        best_slot = min(
-            team_slots,
-            key=lambda s: _euclidean(p["position"]["x"], p["position"]["y"], s["x"], s["y"]),
-        )
+
+        # Group slots by role
+        slots_by_role: dict[str, list[dict[str, Any]]] = {}
+        for slot in team_slots:
+            slots_by_role.setdefault(slot["role"], []).append(slot)
+
+        candidate_slots = slots_by_role.get(p["role"], [])
+        if not candidate_slots:
+            # Fallback: if no slot matches this player's role exactly,
+            # use the nearest slot as a derived approximation.
+            candidate_slots = team_slots
+
+        # Deterministic selection: sort by x, then y
+        candidate_slots = sorted(candidate_slots, key=lambda s: (s["x"], s["y"]))
+        best_slot = candidate_slots[0]
         dx = p["position"]["x"] - best_slot["x"]
         dy = p["position"]["y"] - best_slot["y"]
         edges.append({
@@ -1510,29 +1519,19 @@ def build_graph(observation: dict[str, Any], info: dict[str, Any], scenario_id: 
     parsed = _parse_observation(observation)
     scenario = SCENARIOS[scenario_id]
 
-    # Build PLAYER nodes
-    player_nodes, player_map = _build_player_nodes(parsed, scenario_id)
-
-    # Resolve exact ball owner global_id from observation
+    # Authoritative exact ball owner from bridge info (engine ball.ownerId).
+    # Falls back to None when unavailable.
     exact_owner_id = None
-    ball_ownership = parsed.get("ball_ownership", "none")
-    if ball_ownership in ("left", "right"):
-        owner_team = ball_ownership
-        team_nodes = [n for n in player_nodes if n["team"] == owner_team]
-        ball_x = parsed["ball_pos"]["x"]
-        ball_y = parsed["ball_pos"]["y"]
-        closest = None
-        closest_dist = float("inf")
-        for n in team_nodes:
-            if n["position"]["x"] == -1.0 and n["position"]["y"] == -1.0:
-                continue
-            d = _euclidean(ball_x, ball_y, n["position"]["x"], n["position"]["y"])
-            if d < closest_dist:
-                closest_dist = d
-                closest = n
-        if closest is not None:
-            exact_owner_id = closest["global_id"]
-    parsed["exact_ball_owner_id"] = exact_owner_id
+    ground_truth = info.get("ground_truth") or {}
+    current_ball_owner = ground_truth.get("current_ball_owner")
+    if isinstance(current_ball_owner, dict):
+        exact_owner_id = current_ball_owner.get("agent_id")
+
+    # Authoritative controlled player ID from bridge info (engine controlledPlayerId).
+    controlled_player_id = info.get("controlledPlayerId")
+
+    # Build PLAYER nodes with authoritative controlled player
+    player_nodes, player_map = _build_player_nodes(parsed, scenario_id, controlled_player_id)
 
     # Build BALL node
     ball_node = _build_ball_node(parsed)

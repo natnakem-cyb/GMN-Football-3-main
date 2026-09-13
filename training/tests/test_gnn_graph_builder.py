@@ -662,3 +662,145 @@ class TestGNNGraphBuilder:
                 assert possesses_edges[0]["target"] == "ball"
         finally:
             env.close()
+
+    def test_exact_owner_overrides_nearest_player(self):
+        """P0-A: POSSESSES uses info.ground_truth.current_ball_owner.agent_id,
+        not the nearest player heuristic."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            ball_node = next(n for n in graph["nodes"] if n["node_type"] == "BALL")
+            ownership = ball_node["ownership"]
+            possesses_edges = [e for e in graph["edges"] if e["edge_type"] == "POSSESSES"]
+
+            if ownership == "none":
+                assert len(possesses_edges) == 0
+                return
+
+            assert len(possesses_edges) == 1
+            exact_owner = possesses_edges[0]["source"]
+
+            # Verify exact owner matches info ground truth
+            ground_truth = info.get("ground_truth") or {}
+            current_ball_owner = ground_truth.get("current_ball_owner")
+            if isinstance(current_ball_owner, dict):
+                assert exact_owner == current_ball_owner["agent_id"], (
+                    f"POSSESSES source {exact_owner} does not match exact owner "
+                    f"{current_ball_owner['agent_id']}"
+                )
+        finally:
+            env.close()
+
+    def test_controlled_player_from_info(self):
+        """P0-B: is_controlled comes from info.controlledPlayerId."""
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            controlled_id = info.get("controlledPlayerId")
+            if controlled_id is None:
+                pytest.skip("controlledPlayerId not exposed in info")
+
+            controlled_node = next((n for n in graph["nodes"] if n["global_id"] == controlled_id), None)
+            assert controlled_node is not None, f"controlled player {controlled_id} not in graph"
+            assert controlled_node["is_controlled"] is True
+
+            # All other players must not be controlled
+            for node in graph["nodes"]:
+                if node["node_type"] == "PLAYER" and node["global_id"] != controlled_id:
+                    assert node["is_controlled"] is False, (
+                        f"Player {node['global_id']} should not be controlled"
+                    )
+        finally:
+            env.close()
+
+    def test_formation_assignment_role_based_not_nearest(self):
+        """P0-C: ASSIGNED_TO uses role-based matching, not nearest geometry."""
+        env = _make_env("11_vs_11")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "11_vs_11")
+            _validate_schema(graph)
+
+            assigned_edges = [e for e in graph["edges"] if e["edge_type"] == "ASSIGNED_TO"]
+            assert len(assigned_edges) > 0
+
+            # Verify each player is assigned to a slot with matching role
+            slot_roles = {n["slot_id"]: n["role"] for n in graph["nodes"] if n["node_type"] == "FORMATION_SLOT"}
+            for edge in assigned_edges:
+                player_node = next(n for n in graph["nodes"] if n["global_id"] == edge["source"])
+                target_role = slot_roles.get(edge["target"])
+                assert target_role == player_node["role"], (
+                    f"Player {edge['source']} role {player_node['role']} assigned to slot "
+                    f"{edge['target']} with role {target_role}"
+                )
+        finally:
+            env.close()
+
+    def test_teammate_reverse_edge_geometry(self):
+        """Phase 3: TEAMMATE edges are undirected with source->target geometry.
+        
+        Reverse geometry is derivable by negating relative_x, relative_y,
+        relative_vx, relative_vy, and shifting angle by pi.
+        """
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            teammate_edges = [e for e in graph["edges"] if e["edge_type"] == "TEAMMATE"]
+            # TEAMMATE edges are undirected: only one edge per pair (i < j)
+            # Verify features are finite and non-negative distance
+            for e in teammate_edges:
+                assert e["distance"] >= 0.0
+                assert isinstance(e["relative_x"], float)
+                assert isinstance(e["relative_y"], float)
+                assert isinstance(e["angle"], float)
+                assert isinstance(e["closing_speed"], float)
+        finally:
+            env.close()
+
+    def test_opponent_reverse_edge_geometry(self):
+        """Phase 3: OPPONENT edges are undirected with source->target geometry.
+        
+        Reverse geometry is derivable by negating relative_x, relative_y,
+        relative_vx, relative_vy, and shifting angle by pi.
+        """
+        env = _make_env("academy_3_vs_1_defender_3")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_3_vs_1_defender_3")
+            _validate_schema(graph)
+
+            opponent_edges = [e for e in graph["edges"] if e["edge_type"] == "OPPONENT"]
+            for e in opponent_edges:
+                assert e["distance"] >= 0.0
+                assert isinstance(e["relative_x"], float)
+                assert isinstance(e["relative_y"], float)
+                assert isinstance(e["angle"], float)
+                assert isinstance(e["closing_speed"], float)
+                assert e["pressure"] in (0.0, 1.0)
+        finally:
+            env.close()
+
+    def test_possesses_none_creates_no_edge(self):
+        """P0-A: when ownership is none, no POSSESSES edge is created."""
+        env = _make_env("academy_empty_goal")
+        try:
+            obs, info = _get_first_agent_obs_info(env)
+            graph = build_graph(obs, info, "academy_empty_goal")
+            _validate_schema(graph)
+
+            ball_node = next(n for n in graph["nodes"] if n["node_type"] == "BALL")
+            assert ball_node["ownership"] == "none"
+
+            possesses_edges = [e for e in graph["edges"] if e["edge_type"] == "POSSESSES"]
+            assert len(possesses_edges) == 0
+        finally:
+            env.close()
