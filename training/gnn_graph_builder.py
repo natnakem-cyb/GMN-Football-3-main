@@ -518,10 +518,18 @@ def _shot_angle(distance: float, goal_width: float = GOAL_WIDTH) -> float:
 
 
 def _get_formation_positions_for_scenario(scenario_id: str) -> list[dict[str, Any]] | None:
-    """Return FormationNode list for any scenario that has a formation defined,
-    or None if the scenario has no formation data. Uses the embedded FORMATIONS
-    table via _get_formation_slot_positions.
+    """Return FormationNode list for 11_vs_11 only.
+
+    Formation identity has no ground truth outside 11_vs_11; every academy
+    scenario bypasses the engine's formation system entirely via hardcoded
+    spawn positions (Phase 0, re-confirmed through Phase 2 Track A/B).
+
+    Keying off the scenario id directly — not scenario.get("formation")
+    truthiness — prevents fabrication if a formation field is incorrectly
+    added to a non-11-vs-11 scenario (which has happened).
     """
+    if scenario_id != "11_vs_11":
+        return None
     scenario = SCENARIOS.get(scenario_id)
     if scenario is None:
         return None
@@ -689,8 +697,19 @@ def _role_one_hot(role: str) -> list[float]:
 
 
 def _get_formation_slot_positions(formation: str, team: str, num_players: int) -> list[dict[str, Any]]:
-    """Mirror of Rules.ts getFormationPositions."""
+    """Mirror of Rules.ts getFormationPositions.
+
+    Raises ValueError if the real player count does not match the template's
+    assumed count — silent truncation of a template fabricates role-mismatched
+    slot data, which is the failure mode this guard prevents.
+    """
     template = FORMATIONS.get(formation, FORMATIONS["4-3-3"])
+    if num_players != len(template):
+        raise ValueError(
+            f"Formation '{formation}' template has {len(template)} slots but "
+            f"team '{team}' has {num_players} players. "
+            f"Template truncation/extension would fabricate data."
+        )
     nodes = template[:num_players]
     result = []
     for node in nodes:
@@ -1253,9 +1272,15 @@ def _build_assigned_to_edges(
 
         candidate_slots = slots_by_role.get(p["role"], [])
         if not candidate_slots:
-            # Fallback: if no slot matches this player's role exactly,
-            # use the nearest slot as a derived approximation.
-            candidate_slots = team_slots
+            # No silent fallback: assigning a player to a slot with a
+            # mismatched role fabricates a nominal position that has nothing
+            # to do with the player's real role. Fail loudly instead.
+            available_roles = sorted(set(s["role"] for s in team_slots))
+            raise ValueError(
+                f"Player {p['global_id']} (role '{p['role']}', team '{p['team']}') "
+                f"has no matching formation slot. Available slot roles: "
+                f"{available_roles}. Silent role-mismatched fallback disabled."
+            )
 
         # Deterministic selection: sort by x, then y
         candidate_slots = sorted(candidate_slots, key=lambda s: (s["x"], s["y"]))

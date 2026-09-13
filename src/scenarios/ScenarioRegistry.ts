@@ -133,7 +133,6 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
     ],
     taskSpec: {
       taskType: 'academy_drill',
-      formation: '4-3-3',
       targetPassesCount: 2,
       targetGoalsCount: 1,
       terminateOnTurnover: true,
@@ -354,7 +353,6 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
     ],
     taskSpec: {
       taskType: 'keep_ball',
-      formation: '4-3-3',
       terminateOnTurnover: false,
       spatialBounds: { shape: 'rectangle', width: 0.7, height: 0.7 },
     },
