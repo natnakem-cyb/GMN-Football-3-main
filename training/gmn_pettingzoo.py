@@ -399,6 +399,8 @@ class GMNMultiAgentEnv(ParallelEnv):
         batch_size: int = 1,
         debug_rewards: bool = False,
         training_mode: bool = False,
+        shot_clock_truncates: bool = True,
+        shot_clock_t_max: Optional[int] = None,
     ):
         super().__init__()
         self.scenario = scenario
@@ -421,6 +423,18 @@ class GMNMultiAgentEnv(ParallelEnv):
         # the ball. Highest-impact fix for the policy paralysis. Eval must
         # NOT enable this (strict termination = fair scoring).
         self.training_mode = training_mode
+        # Shot-clock policy (finishing-drill adapter). check_shot_clock() emits a
+        # one-off timeout penalty when no shot has been taken within t_max ticks.
+        # Whether that penalty ALSO ends the episode is an env-level decision:
+        #   shot_clock_truncates=True  (default) - penalty + truncate. Preserves
+        #       the pre-existing eval semantics and the committed baselines.
+        #   shot_clock_truncates=False (training) - penalty only, episode lives on.
+        #       Truncating near t_max caps every episode at ~51 ticks, which
+        #       starves the learner: it never sees the long-horizon objective it
+        #       is being asked to learn and pays a constant -0.5 per episode.
+        # shot_clock_t_max overrides the adapter's own t_max (None = keep default).
+        self.shot_clock_truncates = bool(shot_clock_truncates)
+        self.shot_clock_t_max = shot_clock_t_max
         self.reward_components: List[Dict[str, Any]] = []
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
@@ -621,8 +635,16 @@ class GMNMultiAgentEnv(ParallelEnv):
             return None
         if previous is not None and type(previous) is type(candidate):
             previous.reset()
-            return previous
-        return candidate
+            chosen = previous
+        else:
+            chosen = candidate
+        # Training-time shot-clock override (None = keep the adapter's default).
+        # Re-applied on every construction and reuse so a scenario switch or a
+        # curriculum promotion keeps the same clock policy.
+        t_max_override = getattr(self, "shot_clock_t_max", None)
+        if t_max_override is not None and hasattr(chosen, "t_max"):
+            chosen.t_max = int(t_max_override)
+        return chosen
 
     def _init_batch_envs(self, batch_results: List[Dict[str, Any]]) -> None:
         """Initialize per-env rollout state from a batch reset response.
@@ -913,17 +935,20 @@ class GMNMultiAgentEnv(ParallelEnv):
                 dist_goal=float(dist_goal),
             )
             if timeout_penalty is not None:
-                # Shot-clock fired for this sub-env: apply the penalty on top
-                # of the shaped rewards and mark the episode truncated (not
-                # terminated) so GAE bootstraps the value function. Applied
-                # AFTER shaped_rewards overwrite so the -0.5 is not lost.
+                # Shot-clock fired for this sub-env: apply the penalty on top of
+                # the shaped rewards so the -0.5 is not lost. Truncation is
+                # opt-in (shot_clock_truncates): when False the episode stays
+                # alive and only the penalty lands, so long-horizon training is
+                # not capped at ~t_max ticks. When True, mark the episode
+                # truncated (not terminated) so GAE bootstraps the value function.
                 for agent in terminal_agents:
                     if agent in env_rewards and agent in shaped_rewards:
                         env_rewards[agent] = shaped_rewards[agent] + timeout_penalty
-                shared_trunc = True
-                shared_info["episode_length_steps"] = env_state.get("ep_len", 0)
-                shared_info["episode_physics_ticks"] = env_state.get("ep_len", 0)
-                env_state["agents"] = []
+                if getattr(self, "shot_clock_truncates", True):
+                    shared_trunc = True
+                    shared_info["episode_length_steps"] = env_state.get("ep_len", 0)
+                    shared_info["episode_physics_ticks"] = env_state.get("ep_len", 0)
+                    env_state["agents"] = []
             if shaped_rewards and timeout_penalty is None:
                 for agent in terminal_agents:
                     if agent in shaped_rewards:
@@ -1733,12 +1758,16 @@ class GMNMultiAgentEnv(ParallelEnv):
                     timeout_penalty = _adapter.check_shot_clock()
                     if timeout_penalty is not None:
                         # Shot-clock fired: apply the penalty to every agent
-                        # reward and emit truncated=True (not terminated) so
-                        # GAE bootstraps the value function.
-                        shared_trunc = True
+                        # reward. Truncation is opt-in (shot_clock_truncates):
+                        # when False (training) only the penalty lands and the
+                        # episode keeps running, instead of ending at ~t_max
+                        # ticks. When True (default/eval), emit truncated=True
+                        # (not terminated) so GAE bootstraps the value fn.
                         for agent in self.agents:
                             if agent in shaped_rewards:
                                 shaped_rewards[agent] += timeout_penalty
+                        if getattr(self, "shot_clock_truncates", True):
+                            shared_trunc = True
                 if shaped_rewards is None and _adapter is None:
                     # Fallback: legacy path when no scenario adapter exists.
                     shaped_rewards = self.reward_shaper.compute_shaped_rewards(

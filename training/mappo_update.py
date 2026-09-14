@@ -4,7 +4,7 @@ Computes clipped surrogate policy loss, centralized value loss, and entropy regu
 Performs mini-batch gradient descent for shared actor and centralized critic.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import numpy as np
 import torch
 import torch.nn as nn
@@ -29,6 +29,12 @@ def ppo_update(
 ) -> Dict[str, float]:
     """
     Performs PPO policy and value updates for MAPPO.
+
+    Applies the same action-legality masks the policy sampled under during
+    rollout (buffer["action_masks"], shape (T, num_agents, action_dim)) when
+    re-evaluating the policy, so the stored log-probs stay a valid importance
+    ratio. If the buffer has no masks (older rollouts), the update falls back
+    to unmasked evaluation.
 
     Args:
         actor: Shared policy network
@@ -55,6 +61,14 @@ def ppo_update(
     flat_obs = buffer["local_obs"].reshape(T * num_agents, obs_dim)
     flat_actions = buffer["actions"].reshape(T * num_agents)
     flat_old_logprobs = buffer["logprobs"].reshape(T * num_agents)
+
+    # Flatten legality masks in the same agent-major order (None = unmasked).
+    flat_masks_t: Optional[torch.Tensor] = None
+    if buffer.get("action_masks") is not None:
+        mask_buffer = np.asarray(buffer["action_masks"])
+        if mask_buffer.shape[:2] == (T, num_agents):
+            flat_masks = mask_buffer.reshape(T * num_agents, -1)
+            flat_masks_t = torch.from_numpy(flat_masks).bool()
 
     # Support both shared (T,) and per-agent (T, num_agents) advantage/return shapes.
     if advantages.ndim == 2:
@@ -90,7 +104,10 @@ def ppo_update(
         for start in range(0, n_samples, batch_size):
             batch_idx = indices[start : start + batch_size]
 
-            dist = actor(obs_t[batch_idx])
+            batch_masks = (
+                flat_masks_t[batch_idx] if flat_masks_t is not None else None
+            )
+            dist = actor(obs_t[batch_idx], batch_masks)
             new_logprobs = dist.log_prob(actions_t[batch_idx])
             entropy = dist.entropy().mean()
 

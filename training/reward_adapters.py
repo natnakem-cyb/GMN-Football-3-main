@@ -459,6 +459,20 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
             for a in shaped:
                 shaped[a] = 0.0
 
+    @staticmethod
+    def _is_left_shot_event(event: Dict[str, Any]) -> bool:
+        """Left-team gate for the attempt bonus.
+
+        Trusts the explicit team field when the engine provides it; falls back
+        to the agent_id prefix only when team is absent. Never pays for a
+        known right-team shot.
+        """
+        team = event.get("team")
+        if team is not None:
+            return team == "left"
+        aid = event.get("agent_id")
+        return aid is None or str(aid).startswith("left")
+
     def _clear_shot_clock(self) -> None:
         self.seen_shot = True
         self.ticks_no_shot = 0
@@ -520,7 +534,15 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
     def _pay_shot_rewards(self, shaped, step_events, active_agents) -> None:
         """Pay shot incentives and clear the shot-clock on any shot event.
 
-        Flat attempt bonus (r_shot) REMOVED for SHOT_TAKEN/SHOT_BLOCKED/SHOT_MISSED.
+        SHOT_TAKEN/SHOT_BLOCKED pay the flat attempt bonus (r_shot, default
+        0.25), RESTORED deliberately (policy-paralysis remediation): this is
+        the term that historically produced shooting on this drill (Sept 7
+        runs: 20 shots/ep at 50k, 2.17/ep selective at 401k, 20-60% goal
+        rate). The PBRS-only design left no path to discovering the shot
+        action at all. Spam pressure is handled by the step cost, the
+        shot-clock timeout and the fact that every shot releases the ball
+        (turnover -> possible conceded goal), not by silencing the attempt
+        signal. Paid left-team gated so the defender cannot farm it.
         r_on_target for SHOT_SAVED KEPT: it's gated on a rare, high-information
         event (keeper actively intervened = shot was on target), not "any attempt".
         """
@@ -532,10 +554,13 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
             if etype in SHOT_EVENT_TYPES:
                 self._clear_shot_clock()
                 if etype in ("SHOT_TAKEN", "SHOT_BLOCKED"):
-                    if aid is not None:
-                        self.shot_taken_count += 1
-                    # Flat attempt bonus REMOVED: replaced by PBRS potential term.
-                    # No reward for "any attempt" — only genuine progress matters.
+                    # shot_taken_count is incremented in _handle_shot; do NOT
+                    # count again here (the event passes through both methods).
+                    if self._is_left_shot_event(event):
+                        targets = ([aid] if aid in shaped
+                                   else [a for a in active_agents if a in shaped])
+                        for t in targets:
+                            shaped[t] += self.r_shot
                 elif etype == "SHOT_SAVED":
                     self.shot_on_target_count += 1
                     targets = ([aid] if aid in shaped
@@ -628,10 +653,9 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
             self._visit_counts[cell] = prior_count + 1
 
 
-        # Dense reward shaping: possession and ball proximity PBRS.
-        # These create reward variance even when no goal is scored, breaking the
-        # policy paralysis where advantages collapse to ~0. All gated on left
-        # possession so they can't be farmed by the defender or loose ball.
+        # Dense reward shaping: possession (owning phase) + ball proximity PBRS
+        # (both phases). These create reward variance even when no goal is
+        # scored, breaking the policy paralysis where advantages collapse to ~0.
         # On goal-scoring ticks the dense terms are skipped so the goal-step
         # base reward is preserved whole (same exemption as the step cost).
         # Only possession + proximity are added here: the base PBRS block above
@@ -641,24 +665,39 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         left_owns = isinstance(current_owner, dict) and current_owner.get("team") == "left"
         if left_owns and not has_goal:
             # 1. Possession reward: small per-tick bonus for having the ball.
+            #    Left-possession-gated by design: it is an incentive to HOLD the
+            #    ball, so it must not pay the defending phase.
             for a in shaped:
                 shaped[a] += AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
 
-            # 2. Ball proximity PBRS: reward the nearest left agent getting closer
-            #    to the ball. Uses gamma=1.0 (telescoping) so oscillation can't farm it.
-            prox_dist = info_ground_truth.get("nearest_left_agent_ball_distance")
-            if prox_dist is not None and self._prev_prox_dist is not None:
-                # Phi(d) = -d / D_PROX_MAX, range [-1, 0]. Clamp to [0, MAX].
-                phi_new = -min(max(prox_dist, 0.0), AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST) / AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST
-                phi_old = -min(max(self._prev_prox_dist, 0.0), AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST) / AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST
-                prox_delta = phi_new - phi_old  # gamma_shaping=1.0
-                if abs(prox_delta) > 1e-9:
-                    shaped_bonus = AttackingDrillRewardAdapter.DENSE_PROXIMITY_REWARD * prox_delta
-                    for a in shaped:
-                        shaped[a] += shaped_bonus
+        # 2. Ball proximity PBRS: reward the nearest left agent getting closer to
+        #    the ball. Deliberately NOT possession-gated: it is the ONLY term that
+        #    can teach "close the ball down and win it back". Every other shaping
+        #    term here and above (PBRS-to-goal, exploration bonus, possession
+        #    reward) requires left possession, so while the opponent has the ball
+        #    they all pay nothing and the episode degenerates into a constant
+        #    step-cost stream -- advantages collapse and the policy has no path to
+        #    the ball. In a long-horizon (training-mode) episode that flat phase
+        #    can be the entire episode.
+        #    gamma=1.0 keeps it telescoping (oscillation pays ~0 net) and the
+        #    potential is maintained every tick, including through possession
+        #    changes, so it stays continuous -- a discontinuous potential would
+        #    break telescoping and leak reward.
+        prox_dist = info_ground_truth.get("nearest_left_agent_ball_distance")
+        if prox_dist is not None and self._prev_prox_dist is not None and not has_goal:
+            # Phi(d) = -d / D_PROX_MAX, range [-1, 0]. Clamp to [0, MAX].
+            phi_new = -min(max(float(prox_dist), 0.0), AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST) / AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST
+            phi_old = -min(max(float(self._prev_prox_dist), 0.0), AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST) / AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST
+            prox_delta = phi_new - phi_old  # gamma_shaping=1.0
+            if abs(prox_delta) > 1e-9:
+                shaped_bonus = AttackingDrillRewardAdapter.DENSE_PROXIMITY_REWARD * prox_delta
+                for a in shaped:
+                    shaped[a] += shaped_bonus
 
-        # Update dense-reward state for next tick.
-        self._prev_prox_dist = info_ground_truth.get("nearest_left_agent_ball_distance") if left_owns else None
+        # Update dense-reward state for next tick. The proximity potential is
+        # tracked unconditionally (not only during left possession) so it remains
+        # continuous across possession changes and keeps telescoping.
+        self._prev_prox_dist = prox_dist if prox_dist is not None else None
 
         if not has_goal:
             for a in shaped:

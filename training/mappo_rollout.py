@@ -39,6 +39,41 @@ def unwrap_obs(obs_dict: Dict[str, Any]) -> Dict[str, np.ndarray]:
     return unwrapped
 
 
+def unwrap_masks(obs_dict: Dict[str, Any]) -> Dict[str, Optional[np.ndarray]]:
+    """Extract per-agent action masks from the PettingZoo envelope format.
+
+    The engine computes real legality masks (SHOT/PASS only with the ball,
+    TACKLE only without — src/engine/ObservationEncoder.ts) and the bridge
+    transmits them per agent. Returns None per agent when the envelope does
+    not carry a mask (e.g. legacy envs), so callers can fall back to unmasked
+    sampling. Idempotent on already-unwrapped raw arrays.
+    """
+    masks: Dict[str, Optional[np.ndarray]] = {}
+    for agent_id, obs_val in obs_dict.items():
+        if isinstance(obs_val, dict) and obs_val.get("action_mask") is not None:
+            masks[agent_id] = np.asarray(obs_val["action_mask"], dtype=np.int8)
+        else:
+            masks[agent_id] = None
+    return masks
+
+
+# Engine action-space size (src/engine/ActionMapping.ts). Used only for the
+# all-ones fallback when an env does not provide masks.
+_ACTION_DIM = 19
+
+
+def _mask_matrix(
+    masks: Optional[Dict[str, Optional[np.ndarray]]],
+    agent_order: List[str],
+) -> np.ndarray:
+    """Stack per-agent masks into (num_agents, _ACTION_DIM); ones if absent."""
+    rows = []
+    for a in agent_order:
+        m = masks.get(a) if masks else None
+        rows.append(m if m is not None else np.ones(_ACTION_DIM, dtype=np.int8))
+    return np.stack(rows, axis=0).astype(np.int8)
+
+
 def collect_rollout(
     env: Any,
     actor: SharedActor,
@@ -67,6 +102,7 @@ def collect_rollout(
         "global_state": [],   # shape (num_steps, obs_dim * num_agents)
         "actions": [],        # shape (num_steps, num_agents)
         "logprobs": [],       # shape (num_steps, num_agents)
+        "action_masks": [],   # shape (num_steps, num_agents, action_dim) — masks USED at sampling time
         "values": [],         # shape (num_steps,) — one shared value per step
         "rewards": [],        # shape (num_steps,) — shared team reward (sum of per-agent rewards)
         "per_agent_rewards": [],  # shape (num_steps, num_agents) — individual agent rewards
@@ -78,13 +114,16 @@ def collect_rollout(
 
     # Retrieve or initialize persistent rollout state on env
     if not hasattr(env, "_mappo_obs") or env._mappo_obs is None:
-        obs_dict, _ = env.reset()
-        obs_dict = unwrap_obs(obs_dict)
+        raw_obs_dict, _ = env.reset()
+        env._mappo_masks = unwrap_masks(raw_obs_dict)
+        obs_dict = unwrap_obs(raw_obs_dict)
         env._mappo_obs = obs_dict
         env._mappo_ep_rew = 0.0
         env._mappo_ep_len = 0
     else:
         obs_dict = unwrap_obs(env._mappo_obs)
+        if not hasattr(env, "_mappo_masks") or env._mappo_masks is None:
+            env._mappo_masks = unwrap_masks(env._mappo_obs)
 
     agent_order = list(env.agents if env.agents else env.possible_agents)
     num_agents = len(agent_order)
@@ -105,9 +144,15 @@ def collect_rollout(
                 f"Global state slice [{start}:{end}] does not match local_obs[{idx}] for agent {agent}"
             )
 
+        # Sample from the policy under the engine's legality mask (all-ones
+        # matrix when this env does not provide masks).
+        mask_matrix = _mask_matrix(getattr(env, "_mappo_masks", None), current_agents)
         with torch.no_grad():
             local_obs_t = torch.tensor(local_obs, dtype=torch.float32)
-            dist = actor(local_obs_t)
+            dist = actor(
+                local_obs_t,
+                torch.tensor(mask_matrix, dtype=torch.bool),
+            )
             actions = dist.sample()
             logprobs = dist.log_prob(actions)
             # Pass 3D tensor (1, num_agents, obs_dim) to CentralizedCritic (Deep Sets pooling)
@@ -121,7 +166,9 @@ def collect_rollout(
         obs_dict, rewards, terminations, truncations, infos = env.step(action_dict)
         # G2 fix: step returns the envelope format ({agent: {"observation": ...,
         # "action_mask": ...}}); unwrap immediately so the next loop iteration's
-        # np.stack sees raw arrays instead of dicts.
+        # np.stack sees raw arrays instead of dicts. Capture the fresh masks
+        # from the raw envelope BEFORE unwrapping.
+        env._mappo_masks = unwrap_masks(obs_dict)
         obs_dict = unwrap_obs(obs_dict)
 
         terminated = any(terminations.values())
@@ -153,6 +200,7 @@ def collect_rollout(
         buffer["global_state"].append(global_state)
         buffer["actions"].append(actions.cpu().numpy())
         buffer["logprobs"].append(logprobs.cpu().numpy())
+        buffer["action_masks"].append(mask_matrix)
         buffer["values"].append(float(value.item()))
         buffer["rewards"].append(shared_reward)
         buffer["per_agent_rewards"].append(per_agent_rewards)
@@ -212,8 +260,9 @@ def collect_rollout(
             })
             env._mappo_ep_rew = 0.0
             env._mappo_ep_len = 0
-            obs_dict, _ = env.reset()
-            obs_dict = unwrap_obs(obs_dict)
+            raw_reset, _ = env.reset()
+            env._mappo_masks = unwrap_masks(raw_reset)
+            obs_dict = unwrap_obs(raw_reset)
 
     env._mappo_obs = obs_dict
 
@@ -223,6 +272,7 @@ def collect_rollout(
         "global_state": np.array(buffer["global_state"], dtype=np.float32),
         "actions": np.array(buffer["actions"], dtype=np.int64),
         "logprobs": np.array(buffer["logprobs"], dtype=np.float32),
+        "action_masks": np.array(buffer["action_masks"], dtype=np.int8),
         "values": np.array(buffer["values"], dtype=np.float32),
         "rewards": np.array(buffer["rewards"], dtype=np.float32),
         "per_agent_rewards": np.array(buffer["per_agent_rewards"], dtype=np.float32),
@@ -246,6 +296,9 @@ def collect_rollout(
     )
     assert res_buffer["logprobs"].shape == (num_steps, num_agents), (
         f"logprobs shape mismatch: expected {(num_steps, num_agents)}, got {res_buffer['logprobs'].shape}"
+    )
+    assert res_buffer["action_masks"].shape == (num_steps, num_agents, _ACTION_DIM), (
+        f"action_masks shape mismatch: expected {(num_steps, num_agents, _ACTION_DIM)}, got {res_buffer['action_masks'].shape}"
     )
     assert res_buffer["values"].shape == (num_steps,), (
         f"values shape mismatch: expected {(num_steps,)}, got {res_buffer['values'].shape}"
@@ -569,6 +622,7 @@ def collect_rollout_batched(
         "global_state": [],
         "actions": [],
         "logprobs": [],
+        "action_masks": [],
         "values": [],
         "rewards": [],
         "per_agent_rewards": [],
@@ -594,9 +648,11 @@ def collect_rollout_batched(
 
     for env_idx in range(batch_size):
         obs_dict, info = batch_init[env_idx]
+        state_masks = unwrap_masks(obs_dict)
         obs_dict = unwrap_obs(obs_dict)
         env_states.append({
             "obs_dict": obs_dict,
+            "masks": state_masks,
             "agents": list(obs_dict.keys()),
             "agent_order": agent_order,
             "obs_dim": obs_dim,
@@ -618,14 +674,19 @@ def collect_rollout_batched(
             if not current_agents:
                 # Defensive: should be unreachable with reset-on-terminal.
                 fresh_obs, fresh_info = env.reset_one(env_idx, seed=1000 + env_idx)
+                state["masks"] = unwrap_masks(fresh_obs)
                 state["obs_dict"] = unwrap_obs(fresh_obs)
                 state["agents"] = list(state["obs_dict"].keys())
                 state["info"] = fresh_info
                 current_agents = state["agents"]
             local_obs = np.stack([state["obs_dict"][a] for a in current_agents], axis=0).astype(np.float32)
             local_obs_stack.append(local_obs)
+            mask_matrix = _mask_matrix(state.get("masks"), current_agents)
             with torch.no_grad():
-                dist = actor(torch.tensor(local_obs, dtype=torch.float32))
+                dist = actor(
+                    torch.tensor(local_obs, dtype=torch.float32),
+                    torch.tensor(mask_matrix, dtype=torch.bool),
+                )
                 actions_t = dist.sample()
                 logprobs_t = dist.log_prob(actions_t)
                 value_t = critic(torch.tensor(local_obs.flatten(), dtype=torch.float32).unsqueeze(0))
@@ -633,6 +694,7 @@ def collect_rollout_batched(
             action_sets.append(action_dict)
             state["_last_actions"] = actions_t.cpu().numpy().astype(np.int64)
             state["_last_logprobs"] = logprobs_t.cpu().numpy()
+            state["_last_mask_matrix"] = mask_matrix
             state["_last_value"] = float(value_t.item())
 
         # One batched step across all sub-environments.
@@ -668,6 +730,7 @@ def collect_rollout_batched(
             buffers["global_state"].append(global_state)
             buffers["actions"].append(state["_last_actions"])
             buffers["logprobs"].append(state["_last_logprobs"])
+            buffers["action_masks"].append(state["_last_mask_matrix"])
             buffers["values"].append(state["_last_value"])
             buffers["rewards"].append(shared_reward)
             buffers["per_agent_rewards"].append(per_agent_rewards)
@@ -675,6 +738,7 @@ def collect_rollout_batched(
             buffers["terminated"].append(shared_term)
             buffers["truncated"].append(shared_trunc)
 
+            state["masks"] = unwrap_masks(observations)
             state["obs_dict"] = unwrap_obs(observations)
             state["ep_rew"] += shared_reward
             state["ep_len"] += 1
@@ -774,6 +838,7 @@ def collect_rollout_batched(
                 # terminal. The sub-env re-enters the rollout on the next tick
                 # instead of idling on dead state until the whole batch dies.
                 fresh_obs, fresh_info = env.reset_one(env_idx, seed=1000 + env_idx)
+                state["masks"] = unwrap_masks(fresh_obs)
                 state["obs_dict"] = unwrap_obs(fresh_obs)
                 state["agents"] = list(state["obs_dict"].keys())
                 state["info"] = fresh_info
@@ -786,6 +851,7 @@ def collect_rollout_batched(
     res_buffer["global_state"] = np.stack(buffers["global_state"], axis=0).astype(np.float32)
     res_buffer["actions"] = np.stack(buffers["actions"], axis=0).astype(np.int64)
     res_buffer["logprobs"] = np.stack(buffers["logprobs"], axis=0).astype(np.float32)
+    res_buffer["action_masks"] = np.stack(buffers["action_masks"], axis=0).astype(np.int8)
     res_buffer["values"] = np.array(buffers["values"], dtype=np.float32)
     res_buffer["rewards"] = np.array(buffers["rewards"], dtype=np.float32)
     res_buffer["per_agent_rewards"] = np.stack(buffers["per_agent_rewards"], axis=0).astype(np.float32)

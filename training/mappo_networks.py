@@ -11,6 +11,7 @@ Deliberately matches SB3's default net_arch=[64, 64] with Tanh activations for d
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
+from typing import Optional
 
 
 class SharedActor(nn.Module):
@@ -26,8 +27,29 @@ class SharedActor(nn.Module):
             nn.Linear(hidden, action_dim),
         )
 
-    def forward(self, obs: torch.Tensor) -> Categorical:
+    def forward(
+        self, obs: torch.Tensor, action_mask: Optional[torch.Tensor] = None
+    ) -> Categorical:
+        """Categorical policy over (optionally masked) action logits.
+
+        action_mask: bool/int tensor of shape (..., action_dim); True/1 = legal.
+        Illegal actions get -inf logits so they are never sampled and get zero
+        probability (fixes the "tackle-as-default" pathology: without masking,
+        PPO wrote log-probs for SHOT/PASS attempts that the engine silently
+        no-ops because the acting player did not have the ball). Backward
+        compatible: action_mask=None reproduces the previous unmasked behavior.
+        """
         logits = self.net(obs)
+        if action_mask is not None:
+            mask_t = torch.as_tensor(action_mask, dtype=torch.bool, device=logits.device)
+            if mask_t.shape != logits.shape:
+                mask_t = mask_t.reshape(logits.shape)
+            # Guard: if every action is masked off for a row (should not happen
+            # with the engine's masks — IDLE/MOVE are always legal), leave that
+            # row unmasked instead of producing a NaN distribution.
+            any_legal = mask_t.any(dim=-1, keepdim=True)
+            mask_t = torch.where(any_legal, mask_t, torch.ones_like(mask_t))
+            logits = logits.masked_fill(~mask_t, float("-inf"))
         return Categorical(logits=logits)
 
 

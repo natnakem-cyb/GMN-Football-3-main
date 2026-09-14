@@ -176,6 +176,14 @@ def run_mappo_training(
             opponent_difficulty=opponent_difficulty,
             opponent_pool=opponent_pool,
             training_mode=True,
+            # Shot clock: keep the one-off penalty but do NOT end the episode.
+            # Truncating at the adapter default (t_max=50 ticks = 0.83 s) caps
+            # every training episode at ~51 ticks, so the policy never sees the
+            # 30 s drill it is asked to solve and eats a constant -0.5 per
+            # episode. 600 ticks (10 s) keeps the time pressure meaningful while
+            # leaving the long-horizon objective reachable.
+            shot_clock_truncates=False,
+            shot_clock_t_max=600,
         )
         envs = [env]
     else:
@@ -189,9 +197,21 @@ def run_mappo_training(
                     opponent_difficulty=opponent_difficulty,
                     opponent_pool=opponent_pool,
                     training_mode=True,
+                    # See the batched branch above: penalty without truncation,
+                    # with the clock widened from 50 to 600 ticks.
+                    shot_clock_truncates=False,
+                    shot_clock_t_max=600,
                 )
             )
         env = envs[0]
+
+    # Shot-clock contract, echo the env's actual values instead of assuming them
+    # so a mis-wired run is visible in the training log.
+    print(
+        f"   Shot clock: truncates={env.shot_clock_truncates} "
+        f"t_max={env.shot_clock_t_max} (episodes are not capped by the clock)",
+        flush=True,
+    )
 
     # Continuous forensic logging: per-episode JSONL trace for the entire run.
     _forensic_run_id = time.strftime("%Y%m%dT%H%M%S")

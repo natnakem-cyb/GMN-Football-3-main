@@ -46,7 +46,7 @@ NO_ADAPTER_SCENARIO = "5_vs_5"
 VISITED_CELL = AttackingDrillRewardAdapter._cell_for_position(0.05, 0.05)
 
 
-def _make_env(monkeypatch, scenario=SCENARIO, batch_size=2, enable_reward_shaping=True):
+def _make_env(monkeypatch, scenario=SCENARIO, batch_size=2, enable_reward_shaping=True, **kwargs):
     """Build a fully offline env: no bridge subprocess, HTTP, or WebSocket."""
     monkeypatch.setattr(GMNMultiAgentEnv, "_ensure_bridge_running", lambda self: None)
     env = GMNMultiAgentEnv(
@@ -54,6 +54,7 @@ def _make_env(monkeypatch, scenario=SCENARIO, batch_size=2, enable_reward_shapin
         auto_start_bridge=False,
         enable_reward_shaping=enable_reward_shaping,
         batch_size=batch_size,
+        **kwargs,
     )
     # Adapter lifecycle is under test, not frame decoding, so the reset
     # response decoder is stubbed to a minimal per-env state envelope.
@@ -238,3 +239,34 @@ def test_exploration_bonus_not_paid_on_goal_tick():
 
     # Visitation is still recorded on the goal tick.
     assert adapter._visit_counts[VISITED_CELL] == 2
+
+
+def test_shot_clock_policy_is_wired_to_the_adapter(monkeypatch):
+    """P2: shot_clock_truncates / shot_clock_t_max reach the adapter, and the
+    defaults preserve the pre-existing eval semantics exactly.
+
+    Regression guard for the training landmine: with the adapter default
+    (t_max=50) the env truncated every episode at ~51 ticks, so a retrain never
+    saw the 30 s drill. Training now passes shot_clock_truncates=False and a
+    wider clock.
+    """
+    # Defaults: truncation ON (eval/committed-baseline semantics), no t_max
+    # override, so the adapter keeps its own default of 50 ticks.
+    env_default = _make_env(monkeypatch, batch_size=1)
+    assert env_default.shot_clock_truncates is True
+    assert env_default.shot_clock_t_max is None
+    assert env_default.reward_adapter.t_max == 50
+
+    # Training wiring: penalty only, episode not capped by the clock.
+    env_train = _make_env(
+        monkeypatch, batch_size=1, shot_clock_truncates=False, shot_clock_t_max=600
+    )
+    assert env_train.shot_clock_truncates is False
+    assert env_train.reward_adapter.t_max == 600
+
+    # The override must survive adapter reuse (reset_batch / scenario switch).
+    env_train._init_batch_envs([{}, {}])
+    assert env_train._batch_envs[0]["reward_adapter"].t_max == 600
+    env_train.scenario = SAME_FAMILY_SCENARIO
+    env_train._init_batch_envs([{}, {}])
+    assert env_train._batch_envs[0]["reward_adapter"].t_max == 600

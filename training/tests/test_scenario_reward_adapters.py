@@ -76,12 +76,13 @@ def test_attacking_preserves_goal_step_base():
 
 
 def test_attacking_pays_shot_taken_bonus():
-    """SHOT_TAKEN no longer gets flat r_shot bonus (PBRS replaces it).
+    """SHOT_TAKEN pays the restored flat attempt bonus (r_shot, 0.25).
 
-    Step cost (-0.005) plus the dense possession reward (+0.01) apply when
-    left owns the ball; the flat attempt bonus is removed.
-    PBRS potential term requires previous distance state, which is None
-    on the first call, so no potential term is added here.
+    Restored deliberately: the PBRS-only design removed the only term that
+    historically produced shooting (Sept 7: 2.17 shots/ep, 20-60% goals).
+    Step cost (-0.005) and dense possession (+0.01) also apply on this tick;
+    PBRS potential requires previous distance state, which is None on the
+    first call, so no potential term is added here.
     """
     ad = AttackingDrillRewardAdapter()
     ad.reset()
@@ -90,9 +91,30 @@ def test_attacking_pays_shot_taken_bonus():
     out = ad.compute_shaped_rewards(
         base, evs, GT_L0, ["left_0"], actions={"left_0": 12}
     )
-    # No flat r_shot bonus; step cost + dense possession reward apply.
-    assert out["left_0"] == pytest.approx(-0.005 + 0.01)
+    # r_shot + step cost + dense possession reward.
+    assert out["left_0"] == pytest.approx(0.25 - 0.005 + 0.01)
     assert ad.solitary_shot_count == 0
+    assert ad.shot_taken_count == 1
+
+
+def test_shot_taken_bonus_is_left_gated():
+    """A right-team shot pays no attempt bonus (and no dense possession).
+
+    The gate trusts the engine's team field; the defender must not be able
+    to farm +0.25 per shot.
+    """
+    ad = AttackingDrillRewardAdapter()
+    ad.reset()
+    out = ad.compute_shaped_rewards(
+        {"left_0": 0.0},
+        [{"type": "SHOT_TAKEN", "team": "right", "agent_id": "right_0"}],
+        GT_NONE,
+        ["left_0"],
+    )
+    assert out["left_0"] == pytest.approx(-0.005)
+    # _handle_events skips non-left events entirely, so the count tracks
+    # LEFT attempts only — a right-team shot is neither counted nor paid.
+    assert ad.shot_taken_count == 0
 
 
 def test_attacking_no_action_cost_on_shot_or_pass():
@@ -210,8 +232,8 @@ def test_rondo_keeps_pass_and_turnover_signals():
 def test_adapters_differ_on_identical_shot_event():
     """Attacking and Rondo adapters must still produce different rewards.
 
-    After PBRS: Attacking no longer gives flat r_shot for SHOT_TAKEN, but
-    still differs from Rondo (which gives -0.30 solitary penalty + action cost).
+    Attacking pays the restored r_shot attempt bonus (+0.25) for SHOT_TAKEN;
+    Rondo gives the legacy solitary penalty (-0.30) + action cost.
     """
     evs = [{"type": "SHOT_TAKEN", "team": "left", "agent_id": "left_0"}]
     ad = AttackingDrillRewardAdapter()
@@ -223,9 +245,9 @@ def test_adapters_differ_on_identical_shot_event():
         {"left_0": 0.0}, evs, GT_L0, ["left_0"], actions={"left_0": 5}
     )
     assert a["left_0"] != pytest.approx(r["left_0"])
-    # Attacking: step cost + dense possession (+0.01 - 0.005) on first call
+    # Attacking: attempt bonus + step cost + dense possession on first call
     # (no prev dist for PBRS). Rondo: solitary penalty + action cost.
-    assert a["left_0"] > r["left_0"]  # 0.005 > -0.31
+    assert a["left_0"] > r["left_0"]  # 0.255 > -0.31
     assert r["left_0"] <= 0.0
 
 
@@ -958,3 +980,86 @@ def test_rondo_turnover_penalties_are_not_spam_protected():
     ]
     ad._handle_events(shaped, evs, ["left_0"], None)
     assert shaped["left_0"] == pytest.approx(2 * ad.p_turnover, abs=1e-9)
+def test_dense_proximity_paid_while_defending():
+    """P1: the proximity potential must stay live while the OPPONENT has the ball.
+
+    Every other shaping term (PBRS-to-goal, exploration bonus, possession
+    reward) requires left possession, so when the right team owns the ball they
+    all pay nothing and the episode degenerates into a constant step-cost
+    stream. Proximity is the only term that can teach "close the ball down and
+    win it back", so it must not be possession-gated.
+    """
+    ad = _dense_adapter()
+    defending = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    # Tick 1 establishes the potential: no delta yet, no possession bonus.
+    out1 = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [],
+        {**defending, "nearest_left_agent_ball_distance": 0.9}, ["left_0"],
+    )
+    assert out1["left_0"] == pytest.approx(-0.005, abs=1e-9)
+    # Tick 2: close 0.9 -> 0.4 => phi -0.9 -> -0.4, delta = +0.5.
+    out2 = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [],
+        {**defending, "nearest_left_agent_ball_distance": 0.4}, ["left_0"],
+    )
+    expected = -0.005 + AttackingDrillRewardAdapter.DENSE_PROXIMITY_REWARD * 0.5
+    assert out2["left_0"] == pytest.approx(expected, abs=1e-9)
+
+
+def test_dense_possession_reward_still_gated_on_left_possession():
+    """P1 must ungate proximity only — the possession bonus stays left-gated."""
+    ad = _dense_adapter()
+    defending = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    total = 0.0
+    for _ in range(5):
+        out = ad.compute_shaped_rewards(
+            {"left_0": 0.0}, [],
+            {**defending, "nearest_left_agent_ball_distance": 0.6}, ["left_0"],
+        )
+        total += out["left_0"]
+    # 5 ticks, constant distance (proximity delta 0), no possession bonus.
+    assert total == pytest.approx(5 * -0.005, abs=1e-9)
+
+
+def test_dense_proximity_stationary_defence_is_zero():
+    """Standing still while defending pays nothing (no farm by holding shape)."""
+    ad = _dense_adapter()
+    defending = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    total = 0.0
+    for _ in range(50):
+        out = ad.compute_shaped_rewards(
+            {"left_0": 0.0}, [],
+            {**defending, "nearest_left_agent_ball_distance": 0.6}, ["left_0"],
+        )
+        total += out["left_0"] - (-0.005)
+    assert abs(total) < 1e-9, f"stationary defence leaked {total}"
+
+
+def test_dense_proximity_telescopes_across_possession_change():
+    """The proximity potential must stay CONTINUOUS through a possession change.
+
+    Regression: the old code set ``_prev_prox_dist = None`` on every
+    non-left-possession tick, so backing off while defending was free and the
+    next approach was paid again — a real leak. Tracked unconditionally, the
+    round trip telescopes to zero.
+    """
+    ad = _dense_adapter()
+    left = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+    right = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    # Approach, lose the ball, back off, regain, approach, return to start.
+    seq = [
+        (left, 0.9), (left, 0.6), (left, 0.3),
+        (right, 0.3), (right, 0.6), (right, 0.9),
+        (left, 0.9), (left, 0.3), (left, 0.9),
+    ]
+    total = 0.0
+    for owner, dist in seq:
+        out = ad.compute_shaped_rewards(
+            {"left_0": 0.0}, [], {**owner, "nearest_left_agent_ball_distance": dist}, ["left_0"],
+        )
+        possession_bonus = (
+            AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+            if owner["current_ball_owner"]["team"] == "left" else 0.0
+        )
+        total += out["left_0"] - (-0.005) - possession_bonus
+    assert abs(total) < 1e-9, f"possession-change round trip leaked {total}"
