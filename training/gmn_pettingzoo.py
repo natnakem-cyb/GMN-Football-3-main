@@ -764,6 +764,18 @@ class GMNMultiAgentEnv(ParallelEnv):
             }
             env_state["obs_dict"] = batched_obs
             env_state["action_masks"] = action_masks
+            # Extract absolute ball position from the first agent's observation
+            # for the exploration bonus (obs indices 88, 89 per
+            # src/engine/ObservationEncoder.ts). Shared by all agents.
+            _ball_x: Optional[float] = None
+            _ball_y: Optional[float] = None
+            if terminal_agents:
+                _first_obs = observations.get(terminal_agents[0], {}).get("observation")
+                if _first_obs is not None and len(_first_obs) > 89:
+                    _ball_x = float(_first_obs[88])
+                    _ball_y = float(_first_obs[89])
+            env_state["_ball_x"] = _ball_x
+            env_state["_ball_y"] = _ball_y
             env_state["ep_rew"] += shared_reward
             env_state["ep_len"] += 1
             if shared_term or shared_trunc:
@@ -1267,6 +1279,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                     info_ground_truth={
                         "current_ball_owner": current_ball_owner,
                         "ball_distance_to_goal": float(dist_goal),
+                        "ball_x": env_state.get("_ball_x"),
+                        "ball_y": env_state.get("_ball_y"),
                     },
                     active_agents=list(agents),
                     actions=actions,
@@ -1280,6 +1294,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                 info_ground_truth={
                     "current_ball_owner": current_ball_owner,
                     "ball_distance_to_goal": float(dist_goal),
+                    "ball_x": env_state.get("_ball_x"),
+                    "ball_y": env_state.get("_ball_y"),
                 },
                 active_agents=list(agents),
                 actions=actions,
@@ -1533,6 +1549,18 @@ class GMNMultiAgentEnv(ParallelEnv):
             if step_events:
                 infos[agent]["step_events"] = step_events
 
+            # Extract absolute ball position from the first agent's observation
+            # for the exploration bonus. Per src/engine/ObservationEncoder.ts the
+            # ball (x, y) is at obs indices 88, 89 in the 127-dim vector; all
+            # agents share the same absolute ball position, so any agent works.
+            _ball_x: Optional[float] = None
+            _ball_y: Optional[float] = None
+            if self.agents:
+                _first_obs = observations.get(self.agents[0], {}).get("observation")
+                if _first_obs is not None and len(_first_obs) > 89:
+                    _ball_x = float(_first_obs[88])
+                    _ball_y = float(_first_obs[89])
+
         # Collect debug reward components if enabled
         if self.debug_rewards and reward_components is not None:
             self.reward_components.append({
@@ -1567,6 +1595,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                         info_ground_truth={
                             "current_ball_owner": current_ball_owner,
                             "ball_distance_to_goal": float(dist_goal),
+                            "ball_x": _ball_x,
+                            "ball_y": _ball_y,
                         },
                         active_agents=list(self.agents),
                         actions=actions,
@@ -1589,6 +1619,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                         info_ground_truth={
                             "current_ball_owner": current_ball_owner,
                             "ball_distance_to_goal": float(dist_goal),
+                            "ball_x": _ball_x,
+                            "ball_y": _ball_y,
                         },
                         active_agents=list(self.agents),
                         actions=actions,

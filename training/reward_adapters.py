@@ -9,7 +9,8 @@ Preserves all CooperativeRewardShaper instrumentation: M1b attribution,
 _pass counters, terminal emission semantics.
 """
 
-from typing import Any, Dict, List, Optional
+import math
+from typing import Any, Dict, List, Optional, Tuple
 
 
 SHOT_ACTION_ID = 12
@@ -251,6 +252,26 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
     # because letting it drift away from 1.0 reintroduces this exact leak.
     PBRS_GAMMA = 1.0
 
+    # Count-based exploration bonus (motivated by arXiv:2503.13077, applied to
+    # TiZero's football MARL). Rewards reaching under-visited pitch regions to
+    # counteract the early-policy convergence to never approaching the ball.
+    #
+    # Grid resolution: the pitch (src/engine/Rules.ts) spans x in [-1, 1]
+    # (width 2.0) and y in [-0.42, 0.42] (height 0.84). At 0.1 pitch-units per
+    # cell this yields ceil(2.0/0.1) * ceil(0.84/0.1) = 20 * 9 = 180 cells — a
+    # sane number (not thousands), fine enough to distinguish wings from center
+    # and defensive from attacking thirds.
+    EXPLORATION_CELL_SIZE = 0.1
+    EXPLORATION_PITCH_MIN_X = -1.0
+    EXPLORATION_PITCH_MAX_X = 1.0
+    EXPLORATION_PITCH_MIN_Y = -0.42
+    EXPLORATION_PITCH_MAX_Y = 0.42
+    # Bonus scale. The per-tick PBRS term for real progress is O(0.01-0.1); the
+    # terminal goal reward is +2.0. A first-visit bonus of 0.03 is a meaningful
+    # nudge but stays well below either, and it decays as 1/sqrt(1+count) so it
+    # can never dominate the learning signal or be farmed indefinitely.
+    EXPLORATION_BETA = 0.03
+
     def __init__(self, step_cost=-0.005, shot_reward=0.25,
                  on_target_reward=0.40, t_max=50,
                  timeout_penalty=-0.50, gamma=None, **kw):
@@ -262,6 +283,11 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self.timeout_penalty = timeout_penalty
         # PBRS discount factor (defaults to train_mappo.py's gamma=0.99).
         self.gamma = gamma if gamma is not None else self.GAMMA
+        # Exploration bonus state: maps (grid_x, grid_y) -> visit count.
+        # IMPORTANT: this deliberately does NOT reset in reset() (see below) —
+        # counts must persist across episodes for the bonus to distinguish
+        # novel from familiar states over a whole training run.
+        self._visit_counts: Dict[Tuple[int, int], int] = {}
         # Finishing drill: a shot attempt IS the objective. Never penalize
         # a solitary shot, never charge action cost on shot/pass, never
         # penalize a missed attempt beyond the missing on-target bonus.
@@ -283,6 +309,11 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self._left_had_ball = False
         # PBRS: skip potential term on the tick immediately after a turnover.
         self._post_turnover_tick = False
+        # NOTE: self._visit_counts is intentionally NOT reset here. Exploration
+        # bonuses only work if counts accumulate over the whole training run —
+        # resetting every episode would make every cell "novel" at the start of
+        # every episode and defeat the purpose. This deliberately breaks the
+        # pattern used by every other piece of per-episode state in this file.
 
     @property
     def name(self) -> str:
@@ -375,6 +406,30 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         """
         return -min(max(d, 0.0), AttackingDrillRewardAdapter.D_MAX) / AttackingDrillRewardAdapter.D_MAX
 
+    @staticmethod
+    def _cell_for_position(ball_x: float, ball_y: float) -> Optional[Tuple[int, int]]:
+        """Map absolute ball position to a discrete (grid_x, grid_y) cell.
+
+        Returns None if the position is outside the pitch bounds (no cell, no
+        tracking). The grid is anchored at the pitch minima from Rules.ts with
+        EXPLORATION_CELL_SIZE pitch-units per cell; positions on the max boundary
+        are clamped into the last valid cell.
+        """
+        if ball_x is None or ball_y is None:
+            return None
+        cminx = AttackingDrillRewardAdapter.EXPLORATION_PITCH_MIN_X
+        cmaxx = AttackingDrillRewardAdapter.EXPLORATION_PITCH_MAX_X
+        cminy = AttackingDrillRewardAdapter.EXPLORATION_PITCH_MIN_Y
+        cmaxy = AttackingDrillRewardAdapter.EXPLORATION_PITCH_MAX_Y
+        size = AttackingDrillRewardAdapter.EXPLORATION_CELL_SIZE
+        if ball_x < cminx or ball_x > cmaxx or ball_y < cminy or ball_y > cmaxy:
+            return None
+        # Clamp the max boundary into the last cell (avoids an off-by-one index
+        # when the ball sits exactly on cmaxx/cmaxy).
+        gx = int((min(ball_x, cmaxx - 1e-9) - cminx) / size)
+        gy = int((min(ball_y, cmaxy - 1e-9) - cminy) / size)
+        return (gx, gy)
+
     def _pay_shot_rewards(self, shaped, step_events, active_agents) -> None:
         """Pay shot incentives and clear the shot-clock on any shot event.
 
@@ -448,6 +503,31 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
             self._prev_ball_dist = None
         # Reset PBRS state on possession change (turnover detection).
         self._update_turnover_state(info_ground_truth)
+
+        # Exploration bonus: count-based novelty reward over ball position.
+        # Standard count-based form beta / sqrt(1 + count[cell]) where count is
+        # the number of PRIOR visits to the cell. The count tracks TRUE
+        # visitation (incremented regardless of team), but the bonus is only
+        # PAID when left team owns the ball — same possession gate as PBRS. A
+        # flat, non-decaying bonus would be farmable; the 1/sqrt(1+count) decay
+        # is what prevents that.
+        ebeta = AttackingDrillRewardAdapter.EXPLORATION_BETA
+        ball_x = info_ground_truth.get("ball_x")
+        ball_y = info_ground_truth.get("ball_y")
+        cell = AttackingDrillRewardAdapter._cell_for_position(ball_x, ball_y)
+        if cell is not None:
+            current_owner = info_ground_truth.get("current_ball_owner")
+            left_owns = isinstance(current_owner, dict) and current_owner.get("team") == "left"
+            # Compute the bonus from the pre-increment (prior-visit) count, so
+            # the very first visit pays the full beta.
+            prior_count = self._visit_counts.get(cell, 0)
+            if left_owns:
+                bonus = ebeta / math.sqrt(1 + prior_count)
+                for a in shaped:
+                    shaped[a] += bonus
+            # Always record the visitation, even when right team / loose ball —
+            # this is true visitation, independent of who we pay.
+            self._visit_counts[cell] = prior_count + 1
 
         # Do not charge step cost on a goal-scoring tick: time pressure is
         # meant to push toward completion, not tax the successful finish.

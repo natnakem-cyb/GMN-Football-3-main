@@ -513,3 +513,182 @@ def test_pibrs_shape_term_magnitude_sane():
     # After 10 ticks of progress, total should be positive but modest.
     assert realistic_total_pb > 0
     assert realistic_total_pb < 5.0  # Goal is +2.0
+
+
+# ---------------------------------------------------------------------------
+# Part 2 — Count-based exploration bonus (arXiv:2503.13077 motivated).
+#
+# The bonus rewards reaching under-visited pitch regions. It is gated on left
+# team possession (only left is paid) but tracks true visitation regardless of
+# team. Counts persist across reset() — this is intentional and the opposite
+# of every other piece of per-episode state in the adapter.
+# ---------------------------------------------------------------------------
+
+import math
+
+GT_LEFT = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+BETA = AttackingDrillRewardAdapter.EXPLORATION_BETA
+
+
+def _exploration_adapter():
+    """Adapter configured to isolate the exploration bonus.
+
+    max_hold is set huge and p_ball_hogging to 0 so the possession-based
+    ball-hogging penalty never fires — these tests target the exploration
+    bonus specifically, not the hold mechanism. The adapter is reset()ed and
+    ready to use.
+    """
+    ad = AttackingDrillRewardAdapter(max_hold=100000, p_hog=0.0)
+    ad.reset()
+    return ad
+
+
+def _bonus_for(ad, ball_x, ball_y, owner_gt, base_reward=0.0):
+    """Run one shaped-reward tick and return the exploration bonus paid.
+
+    Isolates the exploration component by subtracting the known step cost
+    and the PBRS term (zero here because distance is constant and the first
+    call has no previous distance). The remaining delta is the exploration
+    bonus.
+    """
+    gt = {
+        "current_ball_owner": owner_gt["current_ball_owner"],
+        "ball_x": ball_x,
+        "ball_y": ball_y,
+        "ball_distance_to_goal": 1.0,  # constant => PBRS delta == 0
+    }
+    out = ad.compute_shaped_rewards({"left_0": base_reward}, [], gt, ["left_0"])
+    # step_cost applies every tick; PBRS is 0 (constant dist, no prior).
+    return out["left_0"] - base_reward - ad.step_cost
+
+
+def test_exploration_bonus_decreases_with_repeated_visits():
+    """Req 1: bonus strictly decreases across repeated visits to one cell."""
+    ad = _exploration_adapter()
+    bonuses = []
+    for _ in range(20):
+        bonuses.append(_bonus_for(ad, 0.05, 0.05, GT_LEFT))
+    # Each visit must pay strictly less than the previous.
+    for i in range(1, len(bonuses)):
+        assert bonuses[i] < bonuses[i - 1], (
+            f"bonus[{i}]={bonuses[i]:.6f} not < bonus[{i-1}]={bonuses[i-1]:.6f}"
+        )
+    # First visit pays the full beta.
+    assert bonuses[0] == pytest.approx(BETA, abs=1e-9)
+
+
+def test_exploration_bonus_approaches_zero_after_many_visits():
+    """Req 2: after 1000 visits to one cell, bonus is below a small threshold."""
+    ad = _exploration_adapter()
+    last_bonus = 0.0
+    for _ in range(1000):
+        last_bonus = _bonus_for(ad, 0.3, -0.1, GT_LEFT)
+    # beta / sqrt(1 + 999) ~= 0.03 / 31.6 ~= 0.00095. Threshold 1e-3.
+    assert last_bonus < 1e-3, f"bonus after 1000 visits was {last_bonus:.6f}"
+    assert last_bonus > 0.0  # never goes negative
+
+
+def test_exploration_cycling_does_not_sustain_constant_bonus():
+    """Req 3: cycling between a few cells yields a decreasing per-cycle total.
+
+    This is the exploration-bonus analog of the PBRS oscillation test: a
+    pattern that pays the same or more on repetition is farmable. We cycle
+    between two cells for 60 cycles and assert the per-cycle bonus total
+    strictly decreases over successive cycles.
+    """
+    ad = _exploration_adapter()
+    cell_a, cell_b = (0.05, 0.05), (0.25, -0.15)
+    per_cycle_totals = []
+    for cycle in range(60):
+        b1 = _bonus_for(ad, cell_a[0], cell_a[1], GT_LEFT)
+        b2 = _bonus_for(ad, cell_b[0], cell_b[1], GT_LEFT)
+        per_cycle_totals.append(b1 + b2)
+    # Each cycle's total must be strictly less than the previous cycle's.
+    for i in range(1, len(per_cycle_totals)):
+        assert per_cycle_totals[i] < per_cycle_totals[i - 1], (
+            f"cycle {i} total {per_cycle_totals[i]:.6f} not < "
+            f"cycle {i-1} total {per_cycle_totals[i-1]:.6f}"
+        )
+
+
+def test_exploration_visit_counts_survive_reset():
+    """Req 4: visit counts persist across reset() — intentionally different
+    from every other piece of per-episode state in this file."""
+    ad = _exploration_adapter()
+    # Visit a cell once.
+    _bonus_for(ad, 0.05, 0.05, GT_LEFT)
+    cell = AttackingDrillRewardAdapter._cell_for_position(0.05, 0.05)
+    assert ad._visit_counts[cell] == 1
+    # Reset and visit the same cell again.
+    ad.reset()
+    assert cell in ad._visit_counts, "visit counts were wiped by reset()"
+    assert ad._visit_counts[cell] == 1, "count did not survive reset()"
+    _bonus_for(ad, 0.05, 0.05, GT_LEFT)
+    # The post-reset visit observes the combined count of 2.
+    assert ad._visit_counts[cell] == 2
+
+
+def test_exploration_bonus_magnitude_sane():
+    """Req 5: the bonus stays small relative to PBRS and the terminal goal
+    reward across a representative sequence."""
+    ad = _exploration_adapter()
+    # Representative sequence: 30 ticks of left possession, ball moving
+    # around several cells (realistic exploration), distance held constant so
+    # PBRS == 0 and we isolate the exploration component.
+    positions = [(0.05, 0.05), (0.25, -0.15), (-0.35, 0.25), (0.65, -0.05)]
+    total_bonus = 0.0
+    for i in range(30):
+        bx, by = positions[i % len(positions)]
+        total_bonus += _bonus_for(ad, bx, by, GT_LEFT)
+    # Total exploration bonus over 30 ticks must stay well below a single
+    # terminal goal reward (+2.0) and below a realistic PBRS progress total.
+    # With 4 cells in rotation the 30-tick sum is ~0.5; assert a firm ceiling
+    # an order of magnitude below the goal reward.
+    assert total_bonus < 1.0, f"total bonus {total_bonus:.4f} too large"
+    assert total_bonus > 0.0
+
+
+def test_exploration_bonus_only_paid_on_left_possession():
+    """The bonus is only PAID when left owns the ball, but counts still
+    increment on right/loose possession (true visitation tracking)."""
+    ad = _exploration_adapter()
+    gt_right = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    # Right possession: no bonus paid, but count increments.
+    out_right = ad.compute_shaped_rewards(
+        {"left_0": 0.0},
+        [],
+        {"current_ball_owner": gt_right["current_ball_owner"],
+         "ball_x": 0.05, "ball_y": 0.05, "ball_distance_to_goal": 1.0},
+        ["left_0"],
+    )
+    # Only step cost applies (no PBRS on first call, no exploration bonus).
+    assert out_right["left_0"] == pytest.approx(-0.005, abs=1e-9)
+    cell = AttackingDrillRewardAdapter._cell_for_position(0.05, 0.05)
+    assert ad._visit_counts[cell] == 1, "count should increment even without left possession"
+    # Loose ball (None owner): same — no bonus, count increments.
+    ad.compute_shaped_rewards(
+        {"left_0": 0.0},
+        [],
+        {"current_ball_owner": None,
+         "ball_x": 0.05, "ball_y": 0.05, "ball_distance_to_goal": 1.0},
+        ["left_0"],
+    )
+    assert ad._visit_counts[cell] == 2
+    # Now left takes possession: bonus paid using prior_count == 2.
+    bonus = _bonus_for(ad, 0.05, 0.05, GT_LEFT)
+    assert bonus == pytest.approx(BETA / math.sqrt(1 + 2), abs=1e-9)
+
+
+def test_exploration_cell_for_position_bounds():
+    """_cell_for_position maps in-bounds positions to cells and rejects
+    out-of-bounds positions (no tracking, no crash)."""
+    # In-bounds center.
+    assert AttackingDrillRewardAdapter._cell_for_position(0.0, 0.0) is not None
+    # In-bounds corners (clamped into last cell, not rejected).
+    assert AttackingDrillRewardAdapter._cell_for_position(1.0, 0.42) is not None
+    assert AttackingDrillRewardAdapter._cell_for_position(-1.0, -0.42) is not None
+    # Out-of-bounds: rejected.
+    assert AttackingDrillRewardAdapter._cell_for_position(1.5, 0.0) is None
+    assert AttackingDrillRewardAdapter._cell_for_position(0.0, 0.5) is None
+    # None inputs: rejected.
+    assert AttackingDrillRewardAdapter._cell_for_position(None, 0.0) is None
