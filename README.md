@@ -1,34 +1,46 @@
-⚽ GMN-Football-3
-=================
+<div align="center">
 
-A Browser-Native Football Simulation & Reinforcement-Learning Research Platform.
+# ⚽ GMN-Football-3
+
+### A Browser-Native Football Simulation & Reinforcement-Learning Research Platform
+
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Language: TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Frontend: React 18](https://img.shields.io/badge/Frontend-React%2018-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![Build: Vite](https://img.shields.io/badge/Build-Vite-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![RL: Gymnasium](https://img.shields.io/badge/RL-Gymnasium%20%2B%20PettingZoo-FFB41A)](https://gymnasium.farama.org/)
+[![RL Algorithms: SB3 PPO](https://img.shields.io/badge/Algorithms-SB3%20PPO%2C%20IPPO%2C%20MAPPO-3776AB?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![ONNX Runtime Web](https://img.shields.io/badge/Inference-ONNX%20Runtime%20Web-00B57F?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
+[![Status: RL-Ready](https://img.shields.io/badge/Status-RL%20Ready%20Platform-orange)](https://github.com/natnakem-cyb/GMN-Football-3-main)
+
+</div>
 
 One authoritative TypeScript game engine drives both an interactive browser match and a headless Python RL training pipeline (Gymnasium / PettingZoo → Stable-Baselines3 / custom PPO, IPPO, MAPPO), so an agent is always trained against the exact same physics and rules a human plays against.
 
-**License:** Apache-2.0 · **Language:** TypeScript · **Frontend:** React 18 · **Build:** Vite · **RL:** Gymnasium + PettingZoo · **RL algorithms:** SB3 PPO / custom IPPO / custom MAPPO
-
-**Status:** RL-ready simulation and research platform, with a real deployed policy (MAPPO, ONNX) driving in-browser gameplay for one scenario. There is not yet a policy trained to play a full match — see [Current Status](#current-status) for exactly what has and hasn't been trained so far.
+> **Status:** RL-ready simulation and research platform, with a real deployed policy (MAPPO, ONNX) driving in-browser gameplay for one scenario. There is not yet a policy trained to play a full match — see [Current Status](#current-status) for exactly what has and hasn't been trained so far.
 
 
-Table of Contents
------------------
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Environment Contract](#environment-contract)
-- [Technology Stack](#technology-stack)
-- [Repository Structure](#repository-structure)
-- [Quick Start (Browser App)](#quick-start-browser-app)
-- [Running the RL Training Pipeline](#running-the-rl-training-pipeline)
-- [Scenarios](#scenarios)
-- [Testing & Validation](#testing--validation)
-- [Current Status](#current-status)
-- [Known Limitations](#known-limitations)
-- [Corrections vs. Prior Documentation](#corrections-vs-prior-documentation)
-- [Contributing](#contributing)
-- [License](#license)
+## Table of Contents
 
-Overview
---------
+- [📖 Overview](#overview)
+- [🏗️ Architecture](#architecture)
+- [📋 Environment Contract](#environment-contract)
+- [🛠️ Technology Stack](#technology-stack)
+- [📁 Repository Structure](#repository-structure)
+- [🚀 Quick Start (Browser App)](#quick-start-browser-app)
+- [🏋️ Running the RL Training Pipeline](#running-the-rl-training-pipeline)
+- [🎯 Scenarios](#scenarios)
+- [🧪 Testing & Validation](#testing--validation)
+- [📊 Current Status](#current-status)
+- [⚠️ Known Limitations](#known-limitations)
+- [📝 Corrections vs. Prior Documentation](#corrections-vs-prior-documentation)
+- [🤝 Contributing](#contributing)
+- [📄 License](#license)
+
+
+---
+
+## 📖 Overview
 GMN-Football-3 is built around a single design decision: the browser game and the RL environment do not maintain separate simulators. The TypeScript `GameEngine` in `src/engine/` is authoritative. The browser renders and controls it interactively; a headless Node.js bridge exposes the same engine to Python training code over HTTP or a binary WebSocket protocol.
 
 ```
@@ -48,10 +60,42 @@ GMN-Football-3 is built around a single design decision: the browser game and th
                                         PyTorch
 ```
 
+
+---
+
+### Architecture Diagram
+
+```
+                    TypeScript GameEngine (authoritative)
+                                     │
+         ┌───────────────────────────┼───────────────────────────┐
+         │                           │                           │
+         ▼                           ▼                           ▼
+  Browser / React             Headless Node bridge         Scripts (tests,
+  (src/App.tsx)               (training/bridge_server.ts)  benchmarks, audits)
+        │                           │
+        │                ┌───────────┴───────────┐
+        │                │                       │
+        │         ┌─────┴──────┐         ┌──────┴────────┐
+        │         │            │         │               │
+        │    HTTP bridge   Binary WebSocket
+        │         │               │
+        │         └──────┬───────┘
+        │                ▼
+        │   Python: Gymnasium env (gmn_gym.py)
+        │
+        ▼
+    Stable-Baselines3 PPO,
+    custom IPPO / MAPPO
+         │
+         ▼
+     PyTorch
+```
+
+## 🏗️ Architecture
+
 This means: no separate "training physics" that quietly diverges from what a human sees, and no re-implementation risk between the game and the research environment. The same design also means a trained policy can be exported and loaded straight into the browser — see [Technology Stack](#technology-stack).
 
-Architecture
-------------
 ```
                       TypeScript GameEngine (authoritative)
                                     │
@@ -92,8 +136,9 @@ GameEngine
 └── Contract.ts            — versioned observation/action schema (single source of truth on the TS side)
 ```
 
-Environment Contract
----------------------
+---
+
+## 📋 Environment Contract
 Defined in `src/engine/Contract.ts` — treat this file as authoritative if anything below drifts out of date:
 
 | Constant | Value |
@@ -112,8 +157,9 @@ The 19 discrete actions cover 8-directional movement, idle, short/long/high pass
 
 Python and TypeScript each declare their own copies of these constants (`gmn_gym.py`, `gmn_pettingzoo.py`, `Contract.ts`); the bridge's `/health` endpoint cross-checks `observation_dim`/`action_space_size` at connection time and raises if they disagree. `scripts/sync_contracts.ts` generates the Python copies from `Contract.ts` as the source of truth.
 
-Technology Stack
------------------
+---
+
+## 🛠️ Technology Stack
 | Layer | Technology |
 |---|---|
 | Simulation & game logic | TypeScript |
@@ -132,8 +178,9 @@ Technology Stack
 | Reward Shaping | **Potential-Based Reward Shaping (PBRS)** — `AttackingDrillRewardAdapter` now uses Φ(d) = -clip(d, 0, D_MAX) / D_MAX with gamma=0.99, gated on left-team possession. Replaces flat shot attempt bonus. See commit `15d6775`. |
 | License | Apache-2.0 |
 
-Repository Structure
----------------------
+---
+
+## 📁 Repository Structure
 ```
 GMN-Football-3/
 ├── src/
@@ -199,8 +246,9 @@ GMN-Football-3/
 └── CONTRIBUTING.md            # project-specific contribution guidelines (setup, style, PRs)
 ```
 
-Quick Start (Browser App)
---------------------------
+---
+
+## 🚀 Quick Start (Browser App)
 Requires Node.js 18+.
 
 ```
@@ -216,8 +264,9 @@ npm run lint         # tsc --noEmit
 npm run preview      # serve the production build
 ```
 
-Running the RL Training Pipeline
-----------------------------------
+---
+
+## 🏋️ Running the RL Training Pipeline
 Requires Python 3.10+ and Node.js (the bridge server runs via `npx tsx`).
 
 ```
@@ -258,8 +307,9 @@ python3 training/generate_comparison_table.py   # regenerates training/results/c
 
 Additional evaluation scripts also exist in `package.json` beyond the ones above — `eval:baselines`, `eval:generalization`, `eval:opponents`, `eval:ablations`, `test:browser-parity`, `validate:policy` — check `package.json`'s `scripts` block directly for the current full set.
 
-Scenarios
----------
+---
+
+## 🎯 Scenarios
 Defined in `src/scenarios/ScenarioRegistry.ts`. Currently registered (11 total):
 
 | ID | Description |
@@ -276,8 +326,9 @@ Defined in `src/scenarios/ScenarioRegistry.ts`. Currently registered (11 total):
 
 Only the `academy_3_vs_1_with_keeper` and `academy_empty_goal` drills currently have completed (non-smoke) training checkpoints — see [Current Status](#current-status). `5_vs_5` has early experimental checkpoints but has not yet produced a converged policy.
 
-Testing & Validation
-----------------------
+---
+
+## 🧪 Testing & Validation
 ```
 npm test                  # test_scenarios.ts + test_determinism.ts
 npm run test:scenarios
@@ -295,8 +346,9 @@ npm run test:validation   # rl_validation_suite.py
 
 `npm run lint` (`tsc --noEmit`) and `npm run build` type-check both `src/` and `training/`, per `tsconfig.json`.
 
-Current Status
---------------
+---
+
+## 📊 Current Status
 **Neural Policy Checkpoint Status:**
 - The MAPPO checkpoint the browser actually loads (via `public/models/mappo_policy.onnx`, exported from `training/models/mappo_academy_3_vs_1_with_keeper_seed44_best.pt` — see the pinned SHA in `src/agents/mappo_weights.ts`) is trained on `academy_3_vs_1_with_keeper` under the 127-dim role-aware contract.
 - This is the checkpoint actively used by the in-browser "Neural" controller (`TrainedPolicyAgent`) — it is **not** a fallback to `RuleBasedAgent`.
@@ -338,14 +390,16 @@ Current Status
 
 GMN-Football-3 should currently be described as an RL-ready football simulation and research platform with one real deployed browser policy for one drill scenario, plus additional non-browser-trained checkpoints for other scenarios — not as a system that already plays professional-level football.
 
-Known Limitations
--------------------
+---
+
+## ⚠️ Known Limitations
 - `NeuralHeuristicAgent` and `HumanAgent` previously used `Math.random()` for some decisions; both now use the seeded `SeededRNG`. Determinism for these agents is improved but not yet asserted by a dedicated regression test — treat as fixed-but-not-locked-down until such a test exists.
 - Contract constants are single-sourced from `src/engine/Contract.ts`; `npm run check:contracts` (part of CI and `npm run lint`) fails when `scripts/sync_contracts.ts` would change the generated Python blocks. Run `npm run sync-contracts` to regenerate.
 - `training/` contains substantially more scripts (duplicate `.ts`/`.py` pairs for several eval and validation tasks, a `modular_encoder`/`modular_networks` pair, stage-2 audit/validation scripts) than are documented in this README's Repository Structure section — treat that section as a guide to the most important files, not an exhaustive list.
 
-Corrections vs. Prior Documentation
---------------------------------------
+---
+
+## 📝 Corrections vs. Prior Documentation
 Earlier project documentation (including a previous version of this README and two independent technical-analysis documents) stated the following, which this version corrects after direct verification against the current code:
 
 | Prior claim | Verified current state |
@@ -359,10 +413,12 @@ Earlier project documentation (including a previous version of this README and t
 
 If you're extending this project's documentation further, verify claims like these against the actual code rather than carrying them forward — this codebase has previously accumulated stale claims about its own capabilities across multiple documents.
 
-Contributing
-------------
+---
+
+## 🤝 Contributing
 See `CONTRIBUTING.md` for pull request and code review process. That file currently carries generic boilerplate (referencing an unrelated TensorFlow/Tensor2Tensor project's CLA and process) and needs a project-specific rewrite.
 
-License
--------
+---
+
+## 📄 License
 Apache License 2.0 — see `LICENSE`.
