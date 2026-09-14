@@ -227,8 +227,12 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
     possible distance from the attacking goal at (1.0, 0) when the ball is at
     the far end of the pitch at x=-1.0.
 
-    Shaping term: gamma * phi(new_dist) - phi(prev_dist), gated on left-team
-    possession. Uses gamma=0.99 matching the PPO/GAE config in train_mappo.py.
+    Shaping term: PBRS_GAMMA * phi(new_dist) - phi(prev_dist), gated on left-team
+    possession. Uses PBRS_GAMMA = 1.0 (fixed) to ensure the telescoping property
+    holds exactly — a round trip sums to zero, and a stationary ball earns zero
+    per tick. This is decoupled from the configurable gamma parameter (which
+    defaults to 0.99 to match train_mappo.py's PPO/GAE discount) used for any
+    other future purpose but NOT for PBRS shaping.
     """
 
     # D_MAX grounded in actual PITCH geometry (src/engine/Rules.ts:6-12).
@@ -236,8 +240,16 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
     # (1.0, 0), so the farthest possible distance is when the ball is at
     # (-1.0, 0), giving distance = 2.0.
     D_MAX = 2.0
-    # gamma matches the PPO/GAE discount in train_mappo.py:11.
+    # Default gamma for any future use (matches PPO/GAE discount in train_mappo.py:11).
+    # This is NOT used for PBRS shaping — see PBRS_GAMMA below.
     GAMMA = 0.99
+    # PBRS shaping discount: MUST be 1.0 to ensure the potential-based shaping
+    # term telescopes correctly. With gamma < 1.0 and a negative potential function
+    # Phi(d) = -clip(d, 0, D_MAX)/D_MAX, a stationary ball (s' = s) would earn
+    # (gamma - 1) * Phi(s) > 0 every tick — a discounting leak that rewards
+    # doing nothing. PBRS_GAMMA = 1.0 is a fixed design constant, not configurable,
+    # because letting it drift away from 1.0 reintroduces this exact leak.
+    PBRS_GAMMA = 1.0
 
     def __init__(self, step_cost=-0.005, shot_reward=0.25,
                  on_target_reward=0.40, t_max=50,
@@ -410,9 +422,9 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
 
         # PBRS: potential-based reward shaping over ball distance to goal.
         # Phi(d) = -clip(d, 0, D_MAX) / D_MAX ranges [-1, 0].
-        # Add gamma * phi(new_dist) - phi(prev_dist), gated on left possession.
-        # This term cannot be exploited by oscillating distance (telescoping
-        # property: round-trip sums to ~0).
+        # Add PBRS_GAMMA * phi(new_dist) - phi(prev_dist), gated on left possession.
+        # PBRS_GAMMA = 1.0 ensures exact telescoping: round trips sum to zero,
+        # and stationary balls earn zero per tick (no discounting leak).
         ball_dist = info_ground_truth.get("ball_distance_to_goal", None)
         if ball_dist is not None and self._prev_ball_dist is not None:
             # Only apply PBRS when left team owns the ball (same gate as
@@ -424,7 +436,7 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
                 if not self._post_turnover_tick:
                     prev_phi = self._phi(self._prev_ball_dist)
                     new_phi = self._phi(float(ball_dist))
-                    delta = self.gamma * new_phi - prev_phi
+                    delta = AttackingDrillRewardAdapter.PBRS_GAMMA * new_phi - prev_phi
                     # Distribute potential change to all active left agents.
                     for a in shaped:
                         shaped[a] += delta

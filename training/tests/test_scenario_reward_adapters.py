@@ -229,18 +229,21 @@ def test_adapters_differ_on_identical_shot_event():
 
 
 def test_pibrs_boundedness_telescoping():
-    """PBRS potential term is bounded and doesn't diverge over round trips.
+    """PBRS potential term telescopes to exactly zero over round trips.
 
-    Move ball toward goal for N ticks, then back to starting distance.
-    Verify the total potential-term contribution is bounded (not exploited
-    by oscillating distance back and forth).
+    With PBRS_GAMMA = 1.0, the shaping term gamma*phi(new) - phi(prev) is a
+    proper potential-based reward shaping term: over any trajectory that returns
+    to the starting state, the sum telescopes to exactly phi(final) - phi(initial).
+    When final == initial (round trip), this is exactly zero.
 
-    Note: With gamma=0.99, the sum of (gamma*phi(new) - phi(prev)) over
-    a trajectory doesn't telescope to exactly 0, but it's bounded. The
-    key PBRS property is policy invariance, not that round trips sum to 0.
-    What matters is that the potential change is finite and bounded.
+    This test verifies the strong property: a round trip from distance 2.0 back
+    to distance 2.0 yields total PBRS contribution of exactly 0 (within float
+    epsilon), not just "bounded."
+
+    Note: We use max_hold=1000 to avoid ball hogging penalty during the
+    test, since the default 15 would trigger after 15 ticks.
     """
-    ad = AttackingDrillRewardAdapter()
+    ad = AttackingDrillRewardAdapter(max_hold=1000)
     ad.reset()
 
     # Start at distance 2.0 (far from goal), move toward goal, then back.
@@ -259,20 +262,109 @@ def test_pibrs_boundedness_telescoping():
         potential_delta = out["left_0"] - step_cost
         total_potential += potential_delta
 
-    # The total potential contribution should be bounded.
-    # After the round trip, phi returns to phi(2.0) = -1.0.
-    # The cumulative PBRS is bounded by the D_MAX range.
-    # Key property: total_potential should NOT be large positive (no exploit).
-    assert -2.0 < total_potential < 2.0, (
-        f"PBRS total {total_potential} is unbounded - possible exploit!"
+    # With PBRS_GAMMA = 1.0, the round trip telescopes to exactly zero.
+    # phi(2.0) = -1.0, and we started and ended at distance 2.0.
+    # Sum of (phi(s_{t+1}) - phi(s_t)) = phi(s_final) - phi(s_initial) = 0.
+    EPSILON = 1e-9
+    assert abs(total_potential) < EPSILON, (
+        f"PBRS round trip should telescope to exactly 0, got {total_potential}"
     )
 
-    # Additional check: phi is bounded in [-1, 0], so any single-step
-    # delta = gamma*phi(new) - phi(prev) is bounded by:
-    # max: gamma*0 - (-1) = 1.0
-    # min: gamma*(-1) - 0 = -0.99
-    assert -1.0 <= total_potential <= 1.0 * len(distances), (
-        f"PBRS total {total_potential} exceeds theoretical bounds"
+
+def test_pibrs_stationary_hold_yields_zero():
+    """Stationary ball yields exactly zero PBRS per tick (no discounting leak).
+
+    This is the critical test that catches the discounting leak bug:
+    with gamma < 1.0 (e.g., 0.99), a stationary ball at any distance d
+    would earn (gamma - 1) * phi(d) > 0 every tick because phi(d) < 0.
+    With PBRS_GAMMA = 1.0, this leak is eliminated: phi(s) - phi(s) = 0.
+
+    Test: hold ball at constant distance for 50+ ticks, verify total PBRS = 0.
+
+    Note: We use max_hold=1000 to avoid ball hogging penalty during the
+    test, since the default 15 would trigger after 15 ticks.
+    """
+    ad = AttackingDrillRewardAdapter(max_hold=1000)
+    ad.reset()
+
+    # Hold ball at distance 1.0 (phi = -0.5) for 50 ticks.
+    # With the bug (gamma=0.99), each tick would earn:
+    #   (0.99 - 1) * (-0.5) = +0.005 per tick, totaling +0.25 over 50 ticks.
+    # With the fix (PBRS_GAMMA=1.0), each tick earns 0.
+    distance = 1.0
+    num_ticks = 50
+    total_potential = 0.0
+
+    for _ in range(num_ticks):
+        gt = {
+            "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+            "ball_distance_to_goal": distance,
+        }
+        base = {"left_0": 0.0}
+        evs = []
+        out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
+        step_cost = -0.005
+        potential_delta = out["left_0"] - step_cost
+        total_potential += potential_delta
+
+    EPSILON = 1e-9
+    assert abs(total_potential) < EPSILON, (
+        f"Stationary ball at distance {distance} for {num_ticks} ticks "
+        f"should yield zero PBRS, got {total_potential}"
+    )
+
+
+def test_pibrs_many_cycle_oscillation_bounded_near_zero():
+    """Many-cycle oscillation stays bounded near zero (telescoping property).
+
+    This test directly supersedes the informal manual check in the bug report:
+    oscillating between two distances for 50+ cycles (100+ ticks) should yield
+    total PBRS near zero, not a growing linear accumulation.
+
+    With the bug (gamma=0.99), 50 cycles of oscillation between d=0.8 and d=1.5
+    would accumulate approximately +0.794 — a significant exploit.
+    With the fix (PBRS_GAMMA=1.0), the sum telescopes to near-zero.
+
+    Note: We use max_hold=1000 to avoid ball hogging penalty during the
+    test, since the default 15 would trigger after 15 ticks.
+    """
+    ad = AttackingDrillRewardAdapter(max_hold=1000)
+    ad.reset()
+
+    # Oscillate between distance 0.8 and 1.5.
+    # Each cycle: 0.8 -> 1.5 -> 0.8 (2 ticks per cycle).
+    d1, d2 = 0.8, 1.5
+    num_cycles = 50
+    distances = []
+    for _ in range(num_cycles):
+        distances.append(d1)
+        distances.append(d2)
+
+    total_potential = 0.0
+
+    for i, dist in enumerate(distances):
+        gt = {
+            "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+            "ball_distance_to_goal": dist,
+        }
+        base = {"left_0": 0.0}
+        evs = []
+        out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
+        step_cost = -0.005
+        potential_delta = out["left_0"] - step_cost
+        total_potential += potential_delta
+
+    # With PBRS_GAMMA = 1.0, the sum telescopes:
+    # Sum of (phi(s_{t+1}) - phi(s_t)) = phi(s_final) - phi(s_initial_for_PBRS)
+    # First tick has no PBRS (prev_dist is None), so PBRS starts from tick 2.
+    # After tick 1, prev_dist = d1.
+    # The sum from tick 2 onwards telescopes to: phi(last_dist) - phi(d1)
+    #   = phi(d2) - phi(d1) = -0.75 - (-0.4) = -0.35
+    EPSILON = 1e-6  # Slightly larger epsilon for float accumulation over 100 ticks
+    expected = ad._phi(distances[-1]) - ad._phi(distances[0])
+    assert abs(total_potential - expected) < EPSILON, (
+        f"Oscillation over {num_cycles} cycles should telescope to ~{expected}, "
+        f"got {total_potential}"
     )
 
 
@@ -324,13 +416,15 @@ def test_pibrs_positive_for_progress():
 
     # Expected: first tick no PBRS (prev=None), then 3 ticks of progress.
     # phi(2.0) = -1.0, phi(1.5) = -0.75, phi(1.0) = -0.5, phi(0.5) = -0.25
-    # Tick 2: gamma*phi(1.5) - phi(2.0) = 0.99*(-0.75) - (-1.0) = 0.2575
-    # Tick 3: gamma*phi(1.0) - phi(1.5) = 0.99*(-0.5) - (-0.75) = 0.255
-    # Tick 4: gamma*phi(0.5) - phi(1.0) = 0.99*(-0.25) - (-0.5) = 0.2525
+    # With PBRS_GAMMA = 1.0:
+    # Tick 2: 1.0*phi(1.5) - phi(2.0) = -0.75 - (-1.0) = 0.25
+    # Tick 3: 1.0*phi(1.0) - phi(1.5) = -0.5 - (-0.75) = 0.25
+    # Tick 4: 1.0*phi(0.5) - phi(1.0) = -0.25 - (-0.5) = 0.25
+    PBRS_GAMMA = AttackingDrillRewardAdapter.PBRS_GAMMA
     expected_potential = (
-        ad.gamma * ad._phi(1.5) - ad._phi(2.0) +
-        ad.gamma * ad._phi(1.0) - ad._phi(1.5) +
-        ad.gamma * ad._phi(0.5) - ad._phi(1.0)
+        PBRS_GAMMA * ad._phi(1.5) - ad._phi(2.0) +
+        PBRS_GAMMA * ad._phi(1.0) - ad._phi(1.5) +
+        PBRS_GAMMA * ad._phi(0.5) - ad._phi(1.0)
     )
     expected_total = 4 * (-0.005) + expected_potential
     assert total_reward == pytest.approx(expected_total, abs=1e-6)
@@ -359,7 +453,10 @@ def test_pibrs_with_shot_saved_still_gets_on_target_bonus():
     )
 
     # Should get: step_cost + PBRS_delta + r_on_target
-    pb_delta = ad.gamma * ad._phi(0.5) - ad._phi(2.0)
+    # With PBRS_GAMMA = 1.0:
+    # delta = 1.0 * phi(0.5) - phi(2.0) = -0.25 - (-1.0) = 0.75
+    PBRS_GAMMA = AttackingDrillRewardAdapter.PBRS_GAMMA
+    pb_delta = PBRS_GAMMA * ad._phi(0.5) - ad._phi(2.0)
     expected = -0.005 + pb_delta + 0.40
     assert out["left_0"] == pytest.approx(expected, abs=1e-6)
 
@@ -399,8 +496,9 @@ def test_pibrs_shape_term_magnitude_sane():
     ad = AttackingDrillRewardAdapter()
 
     # Max possible single-tick PBRS: ball moves from max distance to goal.
-    # delta = gamma * phi(0.0) - phi(2.0) = 0.99 * 0 - (-1.0) = 1.0
-    max_delta = ad.gamma * ad._phi(0.0) - ad._phi(2.0)
+    # With PBRS_GAMMA = 1.0: delta = 1.0 * phi(0.0) - phi(2.0) = 0 - (-1.0) = 1.0
+    PBRS_GAMMA = AttackingDrillRewardAdapter.PBRS_GAMMA
+    max_delta = PBRS_GAMMA * ad._phi(0.0) - ad._phi(2.0)
     assert abs(max_delta) <= 1.0  # Bounded by D_MAX range
 
     # Terminal goal reward is +2.0. PBRS should be a shaping nudge.
@@ -408,7 +506,7 @@ def test_pibrs_shape_term_magnitude_sane():
     prev_dist = 2.0
     for _ in range(10):
         new_dist = prev_dist - 0.2
-        delta = ad.gamma * ad._phi(new_dist) - ad._phi(prev_dist)
+        delta = PBRS_GAMMA * ad._phi(new_dist) - ad._phi(prev_dist)
         realistic_total_pb += delta
         prev_dist = new_dist
 
