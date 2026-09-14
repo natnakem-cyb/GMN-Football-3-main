@@ -44,20 +44,23 @@ One authoritative TypeScript game engine drives both an interactive browser matc
 GMN-Football-3 is built around a single design decision: the browser game and the RL environment do not maintain separate simulators. The TypeScript `GameEngine` in `src/engine/` is authoritative. The browser renders and controls it interactively; a headless Node.js bridge exposes the same engine to Python training code over HTTP or a binary WebSocket protocol.
 
 ```
-                    GMN FOOTBALL WORLD
-                           │
-            ┌──────────────┴──────────────┐
-            │                              │
-         HUMAN                            AI
-            │                              │
-       Browser UI                    RL Environment
-            │                              │
-       React / Canvas          Gymnasium / PettingZoo
-                                            │
-                              Stable-Baselines3 PPO,
-                              custom IPPO / MAPPO
-                                            │
-                                        PyTorch
+                     GMN FOOTBALL WORLD
+                            │
+             ┌──────────────┴──────────────┐
+             │                              │
+          HUMAN                            AI
+             │                              │
+        Browser UI                    RL Training
+             │                              │
+        React / Canvas          Gymnasium / PettingZoo
+             │                              │
+        TypeScript                 Stable-Baselines3 PPO,
+     GameEngine (auth.)          custom IPPO / MAPPO
+             │                              │
+     Headless Node bridge              PyTorch
+    (training/bridge_server.ts)
+             │
+     HTTP / binary WebSocket
 ```
 
 
@@ -66,30 +69,31 @@ GMN-Football-3 is built around a single design decision: the browser game and th
 ### Architecture Diagram
 
 ```
-                    TypeScript GameEngine (authoritative)
+                       TypeScript GameEngine (authoritative)
                                      │
          ┌───────────────────────────┼───────────────────────────┐
          │                           │                           │
          ▼                           ▼                           ▼
-  Browser / React             Headless Node bridge         Scripts (tests,
-  (src/App.tsx)               (training/bridge_server.ts)  benchmarks, audits)
-        │                           │
-        │                ┌───────────┴───────────┐
-        │                │                       │
-        │         ┌─────┴──────┐         ┌──────┴────────┐
-        │         │            │         │               │
-        │    HTTP bridge   Binary WebSocket
-        │         │               │
-        │         └──────┬───────┘
-        │                ▼
-        │   Python: Gymnasium env (gmn_gym.py)
-        │
-        ▼
-    Stable-Baselines3 PPO,
-    custom IPPO / MAPPO
-         │
-         ▼
-     PyTorch
+   Browser / React             Headless Node bridge         Scripts (tests,
+   (src/App.tsx)               (training/bridge_server.ts)  benchmarks, audits)
+         │                           │
+         │                ┌──────────┴──────────┐
+         │                │                     │
+         │         HTTP (REST)          Binary WebSocket (`ws`)
+         │                │                     │
+         │                └──────────┬──────────┘
+         │                           ▼
+         │             Python: Gymnasium env (gmn_gym.py)
+         │             Python: PettingZoo env (gmn_pettingzoo.py)
+         │                           │
+         │             Stable-Baselines3 PPO / custom IPPO / custom MAPPO
+         │                           │
+         │                        PyTorch
+         │                           │
+         │                    export_onnx.py
+         ▼                           ▼
+   TrainedPolicyAgent.ts ◄─── public/models/mappo_policy.onnx
+   (onnxruntime-web / embedded weights)
 ```
 
 ## 🏗️ Architecture
@@ -97,31 +101,31 @@ GMN-Football-3 is built around a single design decision: the browser game and th
 This means: no separate "training physics" that quietly diverges from what a human sees, and no re-implementation risk between the game and the research environment. The same design also means a trained policy can be exported and loaded straight into the browser — see [Technology Stack](#technology-stack).
 
 ```
-                      TypeScript GameEngine (authoritative)
-                                    │
-        ┌───────────────────────────┼───────────────────────────┐
-        │                           │                           │
-        ▼                           ▼                           ▼
-  Browser / React             Headless Node bridge         Scripts (tests,
-  (src/App.tsx)               (training/bridge_server.ts)  benchmarks, audits)
-        │                           │
-        │                ┌───────────┴───────────┐
-        │                │                       │
-        │            HTTP bridge            Binary WebSocket
-        │                │                       │
-        │                └───────────┬───────────┘
-        │                            ▼
-        │             Python: Gymnasium env (gmn_gym.py)
-        │             Python: PettingZoo env (gmn_pettingzoo.py)
-        │                            │
-        │             Stable-Baselines3 PPO / custom IPPO / custom MAPPO
-        │                            │
-        │                         PyTorch
-        │                            │
-        │                    export_onnx.py
-        ▼                            ▼
-  TrainedPolicyAgent.ts ◄─── public/models/mappo_policy.onnx
-  (onnxruntime-web)
+                       TypeScript GameEngine (authoritative)
+                                     │
+         ┌───────────────────────────┼───────────────────────────┐
+         │                           │                           │
+         ▼                           ▼                           ▼
+   Browser / React             Headless Node bridge         Scripts (tests,
+   (src/App.tsx)               (training/bridge_server.ts)  benchmarks, audits)
+         │                           │
+         │                ┌──────────┴──────────┐
+         │                │                     │
+         │         HTTP (REST)          Binary WebSocket (`ws`)
+         │                │                     │
+         │                └──────────┬──────────┘
+         │                           ▼
+         │             Python: Gymnasium env (gmn_gym.py)
+         │             Python: PettingZoo env (gmn_pettingzoo.py)
+         │                           │
+         │             Stable-Baselines3 PPO / custom IPPO / custom MAPPO
+         │                           │
+         │                        PyTorch
+         │                           │
+         │                    export_onnx.py
+         ▼                           ▼
+   TrainedPolicyAgent.ts ◄─── public/models/mappo_policy.onnx
+   (onnxruntime-web / embedded weights)
 ```
 
 Inside the engine itself:
@@ -133,7 +137,15 @@ GameEngine
 ├── Rules.ts               — pitch geometry, formations, offside line
 ├── SeededRNG.ts            — Mulberry32 deterministic PRNG
 ├── ObservationEncoder.ts  — RL observation vector + reward shaping
-└── Contract.ts            — versioned observation/action schema (single source of truth on the TS side)
+├── Contract.ts            — versioned observation/action schema (single source of truth on the TS side)
+├── EventEncoder.ts        — match event encoding for bridge telemetry
+├── ActionMapping.ts       — canonical discrete action mapping (source of truth)
+├── FootballMetrics.ts     — shot-location / possession / heatmap analytics
+├── TaskEncoder.ts         — z_scenario canonical task representation
+├── TrainingTelemetryService.ts — live training telemetry bridge
+└── scenarios/
+    ├── ScenarioHandler.ts    — base scenario lifecycle
+    └── RondoScenarioHandler.ts — academy_rondo_4v1 keep-ball logic
 ```
 
 ---
@@ -153,9 +165,9 @@ Defined in `src/engine/Contract.ts` — treat this file as authoritative if anyt
 
 The 127-float observation layout (see `ObservationEncoder.ts` for the exact offsets): left-team positions (22) → left-team velocities (22) → right-team positions (22) → right-team velocities (22) → ball position (3) → ball velocity (3) → ball ownership one-hot (3) → active-player one-hot (11) → game-mode one-hot (7) → agent role one-hot (12).
 
-The 19 discrete actions cover 8-directional movement, idle, short/long/high pass, shot, sprint (+release), dribble (+release), release-direction, and slide tackle — see `training/action_mapping.ts` for the canonical mapping.
+The 19 discrete actions cover 8-directional movement, idle, short/long/high pass, shot, sprint (+release), dribble (+release), release-direction, and slide tackle — see `src/engine/ActionMapping.ts` for the canonical mapping. `training/action_mapping.ts` re-exports the same mapping for training code.
 
-Python and TypeScript each declare their own copies of these constants (`gmn_gym.py`, `gmn_pettingzoo.py`, `Contract.ts`); the bridge's `/health` endpoint cross-checks `observation_dim`/`action_space_size` at connection time and raises if they disagree. `scripts/sync_contracts.ts` generates the Python copies from `Contract.ts` as the source of truth.
+Python and TypeScript each declare their own copies of these constants (`gmn_gym.py`, `gmn_pettingzoo.py`, `Contract.ts`); the Python environment wrappers cross-check their local constants against the bridge's `/health` response at connection time and raise if they disagree. `scripts/sync_contracts.ts` generates the Python copies from `Contract.ts` as the source of truth.
 
 ---
 
@@ -169,10 +181,10 @@ Python and TypeScript each declare their own copies of these constants (`gmn_gym
 | Node bridge runtime | Node.js via `tsx` |
 | Transport | HTTP (REST) and binary WebSocket (`ws`) |
 | RL API (single-agent) | Gymnasium |
-| RL API (multi-agent) | PettingZoo, with **SuperSuit vectorization wired up for IPPO training** (`train_ippo.py` builds a real multi-sub-environment `SuperSuit` vec-env) and **batched single-bridge stepping for PPO/MAPPO** via `--n-envs N` (`bridge_server.ts` `stepBatch` with pooled engines; not the default) |
+| RL API (multi-agent) | PettingZoo, with **SuperSuit vectorization wired up for IPPO training** (`train_ippo.py` builds a real multi-sub-environment `SuperSuit` vec-env). **PPO** supports optional parallel stepping via `--n-envs N` using `DummyVecEnv` with per-env bridge instances on distinct ports (5050..5050+N-1). **MAPPO** supports optional parallel stepping via `--n-envs N` using a single batched bridge with pooled engines (`bridge_server.ts` `stepBatch` with `collect_rollout_batched`; not the default). |
 | RL algorithms | Stable-Baselines3 PPO; custom IPPO and MAPPO implementations |
 | ML backend | PyTorch |
-| Browser inference | **`onnxruntime-web`, loading `public/models/mappo_policy.onnx`.** `src/agents/TrainedPolicyAgent.ts` runs real ONNX inference for the in-browser "Neural" controller. The older hand-rolled MLP path (`src/agents/mappo_weights.ts`) is explicitly `@deprecated` in the file itself and retained only for offline reference / test parity, not used in the live decision path. The `RLGymnasiumPanel` supports hot-swapping `.onnx` models at runtime without restarting the app. |
+| Browser inference | **`onnxruntime-web`, loading `public/models/mappo_policy.onnx`.** `src/agents/TrainedPolicyAgent.ts` runs ONNX inference for the in-browser "Neural" controller, with an embedded-weight fallback path via `src/agents/mappo_weights.ts` for environments where ONNX Runtime Web is unavailable or when `number[]` observations are used. `App.tsx` triggers runtime hot-swaps via `TrainedPolicyAgent.switchModel()`; `RLGymnasiumPanel` provides the file-picker UI. |
 | Graph Neural Network | **Phase 4 GNN encoder complete** — graph builder (`training/gnn_graph_builder.py`), tensor conversion (`training/gnn_graph_to_tensor.py`), diagnostics (`training/gnn_diagnostics.py`), and encoders (`training/gnn_encoders.py`). Validated with correctness suite (`test_gnn_phase4.py`, `test_gnn_graph_builder.py`). Graph schema frozen at v3 with formation identity, edge features, and task semantics. |
 | Deterministic RNG | Mulberry32 (`SeededRNG.ts`) |
 | Reward Shaping | **Potential-Based Reward Shaping (PBRS)** — `AttackingDrillRewardAdapter` now uses Φ(d) = -clip(d, 0, D_MAX) / D_MAX with gamma=0.99, gated on left-team possession. Replaces flat shot attempt bonus. See commit `15d6775`. |
@@ -192,15 +204,22 @@ GMN-Football-3/
 │   │   ├── SeededRNG.ts
 │   │   ├── Contract.ts
 │   │   ├── EventEncoder.ts
-│   │   └── Vector.ts
+│   │   ├── Vector.ts
+│   │   ├── ActionMapping.ts     # canonical discrete action mapping (source of truth)
+│   │   ├── FootballMetrics.ts   # shot-location, possession, heatmap analytics
+│   │   ├── TaskEncoder.ts       # z_scenario canonical task representation
+│   │   ├── TrainingTelemetryService.ts # live training telemetry bridge
+│   │   └── scenarios/
+│   │       ├── ScenarioHandler.ts    # base scenario lifecycle
+│   │       └── RondoScenarioHandler.ts # academy_rondo_4v1 keep-ball logic
 │   ├── agents/            # Decision-making policies
 │   │   ├── BaseAgent.ts
 │   │   ├── HumanAgent.ts
 │   │   ├── RuleBasedAgent.ts
 │   │   ├── NeuralHeuristicAgent.ts
 │   │   ├── ScriptedScenarioAgent.ts
-│   │   ├── TrainedPolicyAgent.ts   # loads the ONNX checkpoint; this is what the "Neural" controller actually runs
-│   │   └── mappo_weights.ts        # @deprecated — offline reference only, not used at runtime
+│   │   ├── TrainedPolicyAgent.ts   # loads ONNX checkpoint; runs inference for the "Neural" controller
+│   │   └── mappo_weights.ts        # embedded MAPPO weights fallback used by TrainedPolicyAgent
 │   ├── scenarios/          # Scenario/curriculum registry
 │   ├── components/          # React UI
 │   ├── types/
@@ -259,8 +278,8 @@ npm run dev        # http://localhost:3000
 Other useful scripts:
 
 ```
-npm run build       # tsc (src/ and training/) + vite build
-npm run lint         # tsc --noEmit
+npm run build       # sync-contracts + tsc (src/ and training/) + vite build
+npm run lint         # tsc --noEmit && npm run check:contracts
 npm run preview      # serve the production build
 ```
 
@@ -295,7 +314,7 @@ python3 training/train_mappo.py
 python3 training/eval_mappo.py
 ```
 
-Both `train_ppo.py` and the custom trainers accept a `--scenario` (or positional step-count) argument — see each script's `argparse` setup for the current options. **PPO and MAPPO now support optional parallel stepping** via `--n-envs N` (spawns N bridge instances on ports 5050..5050+N-1); `n_envs=1` keeps the legacy single-env path. `train_ippo.py` uses SuperSuit vectorization. See [`training/README.md`](training/README.md) for the full script inventory, parallel-stepping and self-play configuration, and sample commands.
+Both `train_ppo.py` and the custom trainers accept a `--scenario` (or positional step-count) argument — see each script's `argparse` setup for the current options. **PPO** supports optional parallel stepping via `--n-envs N` (spawns N bridge instances on ports 5050..5050+N-1 using `DummyVecEnv`). **MAPPO** supports optional parallel stepping via `--n-envs N` using a single batched bridge with pooled engines (`bridge_server.ts` `stepBatch` with `collect_rollout_batched`); `n_envs=1` keeps the legacy single-env path for both. `train_ippo.py` uses SuperSuit vectorization. See [`training/README.md`](training/README.md) for the full script inventory, parallel-stepping and self-play configuration, and sample commands.
 
 **3. Evaluate / inspect:**
 
@@ -344,7 +363,7 @@ npm run test:playability  # scenario playability verification
 npm run test:validation   # rl_validation_suite.py
 ```
 
-`npm run lint` (`tsc --noEmit`) and `npm run build` type-check both `src/` and `training/`, per `tsconfig.json`.
+`npm run lint` (`tsc --noEmit && npm run check:contracts`) and `npm run build` (`npm run sync-contracts && tsc && vite build`) type-check both `src/` and `training/`, per `tsconfig.json`.
 
 ---
 
@@ -363,12 +382,12 @@ npm run test:validation   # rl_validation_suite.py
 - Gymnasium (single-agent) and PettingZoo (multi-agent, left-team-only) environments
 - Stable-Baselines3 PPO integration, plus custom IPPO and MAPPO implementations
 - **Real vectorized rollout collection for IPPO via SuperSuit**
-- **Batched single-bridge stepping** for PPO/MAPPO via `--n-envs N` (`bridge_server.ts` `stepBatch` with pooled engines replaces the old one-process-per-env approach; `train_mappo.py` uses `collect_rollout_batched` when `n_envs > 1`)
+- **PPO** supports optional parallel stepping via `--n-envs N` using `DummyVecEnv` with per-env bridge instances on distinct ports. **MAPPO** supports optional parallel stepping via `--n-envs N` using a single batched bridge with pooled engines (`bridge_server.ts` `stepBatch` with `collect_rollout_batched` when `n_envs > 1`; not the default)
 - **Hard action masking** at the policy level: `ObservationEncoder.getActionMask` zeroes out ball-handling actions (pass/shot/dribble) when the player lacks possession and tackle when they have it, so the policy cannot select illegal actions rather than being penalized after the fact
 - **Self-play / opponent pool** (wired, not yet exercised end-to-end): `bridge_server.ts` runs real learned-policy ONNX inference for the right team via cached per-engine sessions (`runOnnxInference`), and `training/opponent_pool.py` snapshots the training actor for the opponent. Wired into `train_mappo.py` via `--self-play` and sampled every episode via `reset()`, but a full training run with `self_play=True` has not yet been confirmed.
 - **Automatic curriculum scheduler**: `training/curriculum_scheduler.py` implements a real rolling-window promote/demote scheduler wired into `train_mappo.py` via `--curriculum`, with correct per-stage episode gating (not a lifetime counter). Unit and integration-tested (`test_curriculum_integration.py`); a full live multi-stage training run with promotion/demotion has not yet been confirmed.
-- ONNX export and browser-side ONNX inference for the trained MAPPO policy, actively used by the live match UI
-- Runtime ONNX hot-swap in `RLGymnasiumPanel` (file picker loads a new `.onnx` and reloads `TrainedPolicyAgent` without restarting)
+- ONNX export and browser-side ONNX inference for the trained MAPPO policy, actively used by the live match UI. `TrainedPolicyAgent` uses ONNX Runtime Web as the primary inference path and falls back to embedded weights (`mappo_weights.ts`) when the ONNX session is unavailable.
+- Runtime ONNX hot-swap triggered from `App.tsx` via `TrainedPolicyAgent.switchModel()`; `RLGymnasiumPanel` provides the file-picker UI
 - Formation overlay toggle on pitch view (`PitchCanvas.tsx`) showing role labels and offside lines
 - Shot-location scatter plot in `TacticalAnalytics.tsx` rendered from in-engine `shotLocations` telemetry
 - Scenario objective progress bar in `ScenarioSelector.tsx`
@@ -384,7 +403,7 @@ npm run test:validation   # rl_validation_suite.py
 
 **Not yet done — read before assuming a fully "trained agent" exists:**
 - The MAPPO browser policy on `academy_3_vs_1_with_keeper` has been trained to ~200k steps but has not yet reached the task-brief target of `success_rate >= 40%` over 100 eval episodes. IPPO on the same scenario has reached ~68% goal rate.
-- PPO and MAPPO training still default to a single environment instance per process. Parallel stepping via `--n-envs N` exists and uses a single batched bridge with pooled engines (replacing the old one-process-per-env approach), but it is not the default and has seen less production use than the single-env path.
+- PPO and MAPPO training still default to a single environment instance per process. Parallel stepping via `--n-envs N` exists: PPO uses `DummyVecEnv` with per-env bridge instances on distinct ports; MAPPO uses a single batched bridge with pooled engines (`collect_rollout_batched`). Neither path has seen as much production use as the single-env path.
 - No spatial/SMM/CNN observation path — the contract is a flat 127-float vector, despite "SMM"/"CNN" appearing as comparative references in a few files.
 - A known earlier reward-hacking investigation found trained policies exploiting direct-shoot and pass-spam patterns. Several real bugs in the reward-attribution pipeline have since been found and fixed: event-code transmission from engine to Python, terminal-tick reward-shaper gating (shaped rewards were being stripped on the final frame), and interception/turnover victim attribution (the engine reports `ball_owner_agent_idx=255` on interception frames with no passer ID, so a shaper-side `previous_left_ball_carrier` fallback now attributes the penalty). These fixes are verified via a scripted exploit-test suite (`training/tests/test_reward_exploits.py`) and live-bridge smoke tests. This is not overclaimed as "solved" — a fresh 3-seed 200k retrain (seeds 42/123/999) is currently in progress to confirm the trained-policy behavior actually changed.
 
@@ -405,8 +424,8 @@ Earlier project documentation (including a previous version of this README and t
 | Prior claim | Verified current state |
 |---|---|
 | "The browser 'Neural Policy' controller currently falls back to `RuleBasedAgent`" | False. `App.tsx` routes the `neural` controller directly to `TrainedPolicyAgent`, which runs real ONNX inference. |
-| "ONNX export path is currently unused... runs a hand-written forward pass against `mappo_weights.ts`" | False. `TrainedPolicyAgent.create()` loads `public/models/mappo_policy.onnx` via `onnxruntime-web`; `mappo_weights.ts` is explicitly `@deprecated` and used only for offline/test-parity reference. |
-| "Environment stepping is not parallelized... one environment instance per process" (stated as a blanket fact) | Partially false. `train_ippo.py` uses `SuperSuit` to build a real multi-sub-environment vectorized environment. PPO and MAPPO also support parallel stepping via `--n-envs N` using a single batched bridge with pooled engines (`bridge_server.ts` `stepBatch`), though it is not the default. |
+| "ONNX export path is currently unused... runs a hand-written forward pass against `mappo_weights.ts`" | False. `TrainedPolicyAgent.create()` loads `public/models/mappo_policy.onnx` via `onnxruntime-web` as the primary path; `mappo_weights.ts` provides an embedded-weight fallback used by `predictDiscreteAction()` when the ONNX session is unavailable or `number[]` observations are passed. |
+| "Environment stepping is not parallelized... one environment instance per process" (stated as a blanket fact) | Partially false. `train_ippo.py` uses `SuperSuit` to build a real multi-sub-environment vectorized environment. PPO supports parallel stepping via `--n-envs N` using `DummyVecEnv` with per-env bridge instances on distinct ports. MAPPO supports parallel stepping via `--n-envs N` using a single batched bridge with pooled engines (`bridge_server.ts` `stepBatch` with `collect_rollout_batched`), though neither is the default. |
 | "There is no self-play or opponent-checkpoint pool wired into training" | False. `bridge_server.ts` runs real learned-policy ONNX inference for the right team via cached per-engine sessions, and `training/opponent_pool.py` snapshots the training actor — wired into `train_mappo.py` via `--self-play`. Not yet confirmed in a full end-to-end training run. |
 | "No confirmed automatic curriculum scheduler" | False. `training/curriculum_scheduler.py` implements a rolling-window promote/demote scheduler wired into `train_mappo.py` via `--curriculum`, with per-stage episode gating. Unit and integration-tested; not yet confirmed in a full live multi-stage run. |
 | "`NeuralHeuristicAgent` and `HumanAgent` use `Math.random()` directly" | No longer true. Both now use the seeded `SeededRNG`. A dedicated regression test locking this down does not yet exist. |
