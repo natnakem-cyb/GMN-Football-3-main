@@ -427,12 +427,9 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.reward_shaper = CooperativeRewardShaper() if enable_reward_shaping else None
         self.reward_adapter = None
         if enable_reward_shaping:
-            try:
-                from training.reward_adapters import get_reward_adapter
-                self.reward_adapter = get_reward_adapter(scenario)
+            self.reward_adapter = self._scenario_adapter()
+            if self.reward_adapter is not None:
                 print(f"[RewardAdapter] active={type(self.reward_adapter).__name__} scenario={scenario}", flush=True)
-            except Exception:
-                self.reward_adapter = None
         # Backward-compat: existing trainers read env.reward_shaper for
         # diagnostics/attribution. When an adapter is active, delegate those
         # reads to the adapter (which preserves the same method surface).
@@ -532,13 +529,18 @@ class GMNMultiAgentEnv(ParallelEnv):
         """Switch the active scenario and clear rollout state so the next reset uses it."""
         self.scenario = scenario
         if getattr(self, "enable_reward_shaping", False):
-            try:
-                from training.reward_adapters import get_reward_adapter
-                self.reward_adapter = get_reward_adapter(scenario)
+            # Reuse the existing adapter when the new scenario still maps to the
+            # same adapter class (e.g. a curriculum promotion inside the 3v1
+            # finishing family: academy_3_vs_1_defender_2 -> _keeper_aggressive).
+            # reset() clears per-episode state but deliberately keeps the
+            # run-scoped exploration visit counts. A cross-class switch (e.g.
+            # attacking drill -> rondo) builds a fresh adapter instead.
+            self.reward_adapter = self._scenario_adapter(
+                previous=getattr(self, "reward_adapter", None)
+            )
+            if self.reward_adapter is not None:
                 self.reward_shaper = self.reward_adapter
                 print(f"[RewardAdapter] active={type(self.reward_adapter).__name__} scenario={scenario}", flush=True)
-            except Exception:
-                self.reward_adapter = None
         # Clear MAPPO rollout scratch state so collect_rollout() re-initializes
         # from the new scenario rather than replaying stale observations.
         self._mappo_obs = None
@@ -582,22 +584,66 @@ class GMNMultiAgentEnv(ParallelEnv):
             "info": dict(info_data),
         }
 
+    def _scenario_adapter(self, previous: Optional[Any] = None) -> Optional[Any]:
+        """Build the scenario reward adapter, preserving run-scoped state.
+
+        This is the single construction point for scenario reward adapters.
+        ``reset_batch()`` runs at the top of every ``collect_rollout_batched()``
+        iteration and ``reset_one()`` fires on every episode terminal, so
+        building a fresh adapter each time would wipe
+        ``AttackingDrillRewardAdapter._visit_counts`` on every rollout — the
+        count-based exploration bonus is only meaningful if counts accumulate
+        over the training run.
+
+        When ``previous`` is the same adapter class the current scenario
+        requires, it is reused after ``reset()`` (which clears per-episode state
+        but deliberately keeps visit counts). This mirrors the single-env path's
+        ``env.reset() -> self.reward_adapter.reset()``. A scenario change that
+        maps to a different adapter class (e.g. attacking drill -> rondo) builds
+        a brand-new adapter, and ``__init__`` passes no ``previous``.
+
+        Returns None when reward shaping is disabled or when the scenario has no
+        adapter — logging a warning rather than swallowing the factory's loud
+        ValueError, so a silently-degraded reward model is visible in the logs.
+        """
+        if not getattr(self, "enable_reward_shaping", False):
+            return None
+        try:
+            from training.reward_adapters import get_reward_adapter
+            candidate = get_reward_adapter(self.scenario)
+        except Exception as exc:
+            logger.warning(
+                "[RewardAdapter] no adapter for scenario %r (%s); "
+                "falling back to the legacy CooperativeRewardShaper",
+                self.scenario,
+                exc,
+            )
+            return None
+        if previous is not None and type(previous) is type(candidate):
+            previous.reset()
+            return previous
+        return candidate
+
     def _init_batch_envs(self, batch_results: List[Dict[str, Any]]) -> None:
-        """Initialize per-env rollout state from a batch reset response."""
+        """Initialize per-env rollout state from a batch reset response.
+
+        Adapters are REUSED per env index when the scenario's adapter class is
+        unchanged (see ``_scenario_adapter``): ``reset_batch()`` is called at the
+        top of every ``collect_rollout_batched()``, so constructing fresh
+        adapters here would wipe run-scoped exploration visit counts on every
+        rollout instead of every episode.
+        """
+        previous_envs = list(getattr(self, "_batch_envs", None) or [])
         self._batch_envs = []
-        for result in batch_results:
+        for env_idx, result in enumerate(batch_results):
             env_state = self._decode_reset_result(result)
+            prev = previous_envs[env_idx] if env_idx < len(previous_envs) else None
+            prev_adapter = prev.get("reward_adapter") if isinstance(prev, dict) else None
             # M5: Per-env reward-shaping state so the batched path applies the
             # same cooperative curriculum as the single-env path.
             env_state["pending_pass"] = None
             env_state["reward_shaper"] = CooperativeRewardShaper() if self.enable_reward_shaping else None
-            env_state["reward_adapter"] = None
-            if self.enable_reward_shaping:
-                try:
-                    from training.reward_adapters import get_reward_adapter
-                    env_state["reward_adapter"] = get_reward_adapter(self.scenario)
-                except Exception:
-                    env_state["reward_adapter"] = None
+            env_state["reward_adapter"] = self._scenario_adapter(previous=prev_adapter)
             env_state["last_actions"] = {}
             self._batch_envs.append(env_state)
 
@@ -673,15 +719,15 @@ class GMNMultiAgentEnv(ParallelEnv):
         if not isinstance(result, dict):
             raise RuntimeError(f"[GMN-Batch] reset_one({env_idx}) missing result payload")
         state = self._decode_reset_result(result)
+        # Preserve run-scoped adapter state across episode boundaries: reuse this
+        # sub-env's existing adapter (after reset()) when the scenario still maps
+        # to the same adapter class, so the count-based exploration visit counts
+        # survive the reset instead of restarting every episode.
+        prev = self._batch_envs[env_idx] if 0 <= env_idx < len(self._batch_envs) else None
+        prev_adapter = prev.get("reward_adapter") if isinstance(prev, dict) else None
         state["pending_pass"] = None
         state["reward_shaper"] = CooperativeRewardShaper() if self.enable_reward_shaping else None
-        state["reward_adapter"] = None
-        if self.enable_reward_shaping:
-            try:
-                from training.reward_adapters import get_reward_adapter
-                state["reward_adapter"] = get_reward_adapter(self.scenario)
-            except Exception:
-                state["reward_adapter"] = None
+        state["reward_adapter"] = self._scenario_adapter(previous=prev_adapter)
         state["last_actions"] = {}
         self._batch_envs[env_idx] = state
         return (state["obs_dict"], {a: state["info"] for a in state["agents"]})
@@ -827,23 +873,12 @@ class GMNMultiAgentEnv(ParallelEnv):
                 if _first_obs is not None and len(_first_obs) > 89:
                     _ball_x = float(_first_obs[88])
                     _ball_y = float(_first_obs[89])
-                    try:
-                        LEFT_POS_END = 22  # offsets 0..21 = left (x, y) positions
-                        _best = None
-                        for _pi in range(11):
-                            if 2 * _pi + 1 >= LEFT_POS_END:
-                                break
-                            _px = float(_first_obs[2 * _pi])
-                            _py = float(_first_obs[2 * _pi + 1])
-                            if _px == -1.0 and _py == -1.0:
-                                continue  # inactive player slot
-                            _dx = _px - _ball_x
-                            _dy = _py - _ball_y
-                            _d = (_dx * _dx + _dy * _dy) ** 0.5
-                            _best = _d if _best is None else min(_best, _d)
-                        _nearest_left_dist = _best
-                    except Exception:
-                        _nearest_left_dist = None
+                    # Single source of truth for the proximity math, shared with
+                    # the single-env step path. Never raises; returns None when
+                    # the observation is unusable.
+                    _nearest_left_dist = _nearest_left_agent_ball_distance(
+                        _ball_x, _ball_y, _first_obs
+                    )
             env_state["_ball_x"] = _ball_x
             env_state["_ball_y"] = _ball_y
             env_state["_nearest_left_dist"] = _nearest_left_dist
@@ -1645,20 +1680,12 @@ class GMNMultiAgentEnv(ParallelEnv):
             if _first_obs is not None and len(_first_obs) > 89:
                 _ball_x = float(_first_obs[88])
                 _ball_y = float(_first_obs[89])
-                try:
-                    _best = None
-                    for _pi in range(11):
-                        _px = float(_first_obs[2 * _pi])
-                        _py = float(_first_obs[2 * _pi + 1])
-                        if _px == -1.0 and _py == -1.0:
-                            continue  # inactive player slot
-                        _dx = _px - _ball_x
-                        _dy = _py - _ball_y
-                        _d = (_dx * _dx + _dy * _dy) ** 0.5
-                        _best = _d if _best is None else min(_best, _d)
-                    _nearest_left_dist = _best
-                except Exception:
-                    _nearest_left_dist = None
+                # Single source of truth for the proximity math, shared with the
+                # batched step path. Never raises; returns None when the
+                # observation is unusable.
+                _nearest_left_dist = _nearest_left_agent_ball_distance(
+                    _ball_x, _ball_y, _first_obs
+                )
 
         # Collect debug reward components if enabled
         if self.debug_rewards and reward_components is not None:

@@ -53,6 +53,7 @@ def evaluate_mappo(
     save_replay: bool = False,
     save_replay_episodes: int = 1,
     base_seed: int = 500000,
+    enable_reward_shaping: bool = True,
 ):
     print("==================================================")
     print("GMN-FOOTBALL-3 — MAPPO EVALUATION RUNNER")
@@ -78,7 +79,11 @@ def evaluate_mappo(
     actor.load_state_dict(checkpoint["actor"])
     actor.eval()
 
-    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True)
+    env = GMNMultiAgentEnv(
+        scenario=scenario,
+        auto_start_bridge=True,
+        enable_reward_shaping=enable_reward_shaping,
+    )
     controllable_agents = list(env.possible_agents)
 
     rewards_list = []
@@ -265,6 +270,11 @@ def evaluate_mappo(
         "std_reward": std_rew,
         "goal_rate": goal_rate,
         "mean_length": mean_len,
+        # Shaping provenance: mean_reward above is the SHAPED reward when this is
+        # True (PBRS + dense + count-based exploration terms included). It is not
+        # comparable across runs unless this flag matches, and the exploration
+        # term starts from an empty visit-count table at process start.
+        "reward_shaping_enabled": enable_reward_shaping,
         "ground_truth_possession_left_pct": gt_possession,
         "ground_truth_pass_accuracy": gt_pass_accuracy,
         "ground_truth_shot_accuracy": gt_shot_accuracy,
@@ -288,6 +298,16 @@ if __name__ == "__main__":
     parser.add_argument("--save-replay", action="store_true", help="Record JSONL episode traces to training/replays/")
     parser.add_argument("--save-replay-episodes", type=int, default=1, help="Max number of replay episodes to record (default: 1)")
     parser.add_argument("--seed", type=int, default=500000, help="Base environment seed")
+    parser.add_argument(
+        "--no-reward-shaping",
+        action="store_true",
+        help=(
+            "Disable scenario reward shaping for this evaluation. Reported "
+            "mean_reward then reflects the raw engine reward only (no PBRS / "
+            "dense / exploration terms). Default keeps shaping on, so existing "
+            "PBRS/dense runs stay comparable."
+        ),
+    )
     args = parser.parse_args()
 
     evaluate_mappo(
@@ -298,4 +318,5 @@ if __name__ == "__main__":
         save_replay=args.save_replay,
         save_replay_episodes=args.save_replay_episodes,
         base_seed=args.seed,
+        enable_reward_shaping=not args.no_reward_shaping,
     )

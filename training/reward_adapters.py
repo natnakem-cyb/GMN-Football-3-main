@@ -332,7 +332,10 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self.r_on_target = on_target_reward
         self.t_max = t_max
         self.timeout_penalty = timeout_penalty
-        # PBRS discount factor (defaults to train_mappo.py's gamma=0.99).
+        # NOTE: retained for backward compatibility (public constructor arg)
+        # only. This value is NOT used for PBRS shaping — the shaping term uses
+        # the fixed PBRS_GAMMA = 1.0 class constant above (see the
+        # discounting-leak analysis at lines 259-265). No code path reads it.
         self.gamma = gamma if gamma is not None else self.GAMMA
         # Exploration bonus state: maps (grid_x, grid_y) -> visit count.
         # IMPORTANT: this deliberately does NOT reset in reset() (see below) —
@@ -589,13 +592,23 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         # Reset PBRS state on possession change (turnover detection).
         self._update_turnover_state(info_ground_truth)
 
+        # Do not charge step cost on a goal-scoring tick: time pressure is
+        # meant to push toward completion, not tax the successful finish.
+        # Computed here, BEFORE the exploration and dense blocks, so every
+        # non-terminal shaping term shares the same goal-tick exemption and the
+        # goal-step base reward is preserved whole.
+        has_goal = any(isinstance(e, dict) and e.get("type") == "GOAL_SCORED"
+                       for e in step_events)
+
         # Exploration bonus: count-based novelty reward over ball position.
         # Standard count-based form beta / sqrt(1 + count[cell]) where count is
         # the number of PRIOR visits to the cell. The count tracks TRUE
         # visitation (incremented regardless of team), but the bonus is only
         # PAID when left team owns the ball — same possession gate as PBRS. A
         # flat, non-decaying bonus would be farmable; the 1/sqrt(1+count) decay
-        # is what prevents that.
+        # is what prevents that. Goal ticks are exempt exactly like the dense
+        # terms and the step cost (the bonus is capped at beta, so this is a
+        # consistency fix, not an exploit fix).
         ebeta = AttackingDrillRewardAdapter.EXPLORATION_BETA
         ball_x = info_ground_truth.get("ball_x")
         ball_y = info_ground_truth.get("ball_y")
@@ -606,7 +619,7 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
             # Compute the bonus from the pre-increment (prior-visit) count, so
             # the very first visit pays the full beta.
             prior_count = self._visit_counts.get(cell, 0)
-            if left_owns:
+            if left_owns and not has_goal:
                 bonus = ebeta / math.sqrt(1 + prior_count)
                 for a in shaped:
                     shaped[a] += bonus
@@ -614,12 +627,6 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
             # this is true visitation, independent of who we pay.
             self._visit_counts[cell] = prior_count + 1
 
-        # Do not charge step cost on a goal-scoring tick: time pressure is
-        # meant to push toward completion, not tax the successful finish.
-        # Computed BEFORE the dense block so dense terms can share the
-        # same goal-tick exemption (goal-step base reward preserved whole).
-        has_goal = any(isinstance(e, dict) and e.get("type") == "GOAL_SCORED"
-                       for e in step_events)
 
         # Dense reward shaping: possession and ball proximity PBRS.
         # These create reward variance even when no goal is scored, breaking the

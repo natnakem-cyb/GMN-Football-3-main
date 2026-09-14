@@ -47,5 +47,10 @@ jobs:
       - name: GAE bootstrap regression tests
         run: python training/test_gae_bootstrap.py
 
+      - name: Reward adapter unit + persistence tests
+        # Bridge-free suites only: these run the adapter/grid/persistence logic
+        # in-process, with no WebSocket bridge required.
+        run: python -m pytest training/tests/test_scenario_reward_adapters.py training/tests/test_reward_adapter_persistence.py -q
+
       - name: Evaluation cache identity tests
         run: python training/test_eval_cache_identity.py
