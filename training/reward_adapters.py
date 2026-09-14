@@ -219,17 +219,37 @@ class RondoRewardAdapter(BaseScenarioRewardAdapter):
         return shaped
 
 class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
-    """Finishing drill: strip progress, reward shots, step cost, clock."""
+    """Finishing drill: strip progress, reward shots, step cost, clock.
+
+    PBRS (potential-based reward shaping) over ball distance to goal replaces
+    the flat attempt bonus. Phi(d) = -clip(d, 0, D_MAX) / D_MAX ranges over
+    [-1, 0], where D_MAX = PITCH.width (2.0 from Rules.ts:11) is the maximum
+    possible distance from the attacking goal at (1.0, 0) when the ball is at
+    the far end of the pitch at x=-1.0.
+
+    Shaping term: gamma * phi(new_dist) - phi(prev_dist), gated on left-team
+    possession. Uses gamma=0.99 matching the PPO/GAE config in train_mappo.py.
+    """
+
+    # D_MAX grounded in actual PITCH geometry (src/engine/Rules.ts:6-12).
+    # Pitch extends x: -1.0 to 1.0, length = 2.0. The attacking goal is at
+    # (1.0, 0), so the farthest possible distance is when the ball is at
+    # (-1.0, 0), giving distance = 2.0.
+    D_MAX = 2.0
+    # gamma matches the PPO/GAE discount in train_mappo.py:11.
+    GAMMA = 0.99
 
     def __init__(self, step_cost=-0.005, shot_reward=0.25,
                  on_target_reward=0.40, t_max=50,
-                 timeout_penalty=-0.50, **kw):
+                 timeout_penalty=-0.50, gamma=None, **kw):
         super().__init__(**kw)
         self.step_cost = step_cost
         self.r_shot = shot_reward
         self.r_on_target = on_target_reward
         self.t_max = t_max
         self.timeout_penalty = timeout_penalty
+        # PBRS discount factor (defaults to train_mappo.py's gamma=0.99).
+        self.gamma = gamma if gamma is not None else self.GAMMA
         # Finishing drill: a shot attempt IS the objective. Never penalize
         # a solitary shot, never charge action cost on shot/pass, never
         # penalize a missed attempt beyond the missing on-target bonus.
@@ -245,6 +265,12 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self.shot_taken_count = 0
         self.shot_on_target_count = 0
         self.shot_missed_count = 0
+        # PBRS state: distance to goal from previous tick (None = no prev).
+        self._prev_ball_dist = None
+        # PBRS turnover tracking: whether left team had ball on previous tick.
+        self._left_had_ball = False
+        # PBRS: skip potential term on the tick immediately after a turnover.
+        self._post_turnover_tick = False
 
     @property
     def name(self) -> str:
@@ -307,8 +333,43 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self.seen_shot = True
         self.ticks_no_shot = 0
 
+    def _update_turnover_state(self, info_ground_truth: Dict[str, Any]) -> None:
+        """Track possession changes for PBRS gating.
+
+        Detects turnovers and sets a flag to skip PBRS on the tick immediately
+        after a turnover (when the ball changes from left-owned to not-left-owned).
+        This prevents crediting the wrong team on the transition tick.
+        """
+        current_owner = info_ground_truth.get("current_ball_owner")
+        left_has_ball = (
+            isinstance(current_owner, dict) and
+            current_owner.get("team") == "left"
+        )
+
+        # Detect turnover: left had ball, now doesn't.
+        if self._left_had_ball and not left_has_ball:
+            self._post_turnover_tick = True
+        elif left_has_ball:
+            self._post_turnover_tick = False
+
+        self._left_had_ball = left_has_ball
+
+    @staticmethod
+    def _phi(d: float) -> float:
+        """Potential function Phi(d) = -clip(d, 0, D_MAX) / D_MAX.
+
+        Ranges over [-1, 0]: 0 when ball is at goal, -1 at max distance.
+        PBRS property: bounded, telescoping (round-trip sums to ~0).
+        """
+        return -min(max(d, 0.0), AttackingDrillRewardAdapter.D_MAX) / AttackingDrillRewardAdapter.D_MAX
+
     def _pay_shot_rewards(self, shaped, step_events, active_agents) -> None:
-        """Pay shot incentives and clear the shot-clock on any shot event."""
+        """Pay shot incentives and clear the shot-clock on any shot event.
+
+        Flat attempt bonus (r_shot) REMOVED for SHOT_TAKEN/SHOT_BLOCKED/SHOT_MISSED.
+        r_on_target for SHOT_SAVED KEPT: it's gated on a rare, high-information
+        event (keeper actively intervened = shot was on target), not "any attempt".
+        """
         for event in step_events:
             if not isinstance(event, dict):
                 continue
@@ -319,25 +380,21 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
                 if etype in ("SHOT_TAKEN", "SHOT_BLOCKED"):
                     if aid is not None:
                         self.shot_taken_count += 1
-                    targets = ([aid] if aid in shaped
-                               else [a for a in active_agents if a in shaped])
-                    for t in targets:
-                        shaped[t] += self.r_shot
+                    # Flat attempt bonus REMOVED: replaced by PBRS potential term.
+                    # No reward for "any attempt" — only genuine progress matters.
                 elif etype == "SHOT_SAVED":
                     self.shot_on_target_count += 1
                     targets = ([aid] if aid in shaped
                                else [a for a in active_agents if a in shaped])
                     # On target (keeper had to save it): full on-target reward.
+                    # KEPT: this is gated on a genuinely rare, high-information
+                    # event, not on "any attempt" — no blind-reward problem.
                     for t in targets:
                         shaped[t] += self.r_on_target
                 elif etype == "SHOT_MISSED":
-                    # Missed: still an attempt, paid the attempt reward so
-                    # the agent learns shooting is productive even when not
-                    # on target (missed happens both on target and off).
-                    targets = ([aid] if aid in shaped
-                               else [a for a in active_agents if a in shaped])
-                    for t in targets:
-                        shaped[t] += max(self.r_shot, 0.0)
+                    # Flat attempt bonus REMOVED: replaced by PBRS potential term.
+                    # The agent no longer gets rewarded just for "trying".
+                    pass
 
     def compute_shaped_rewards(self, base_rewards, step_events,
                                info_ground_truth, active_agents,
@@ -350,6 +407,36 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self._apply_possession(shaped, info_ground_truth)
         self._handle_events(shaped, step_events, active_agents, actions)
         self._pay_shot_rewards(shaped, step_events, active_agents)
+
+        # PBRS: potential-based reward shaping over ball distance to goal.
+        # Phi(d) = -clip(d, 0, D_MAX) / D_MAX ranges [-1, 0].
+        # Add gamma * phi(new_dist) - phi(prev_dist), gated on left possession.
+        # This term cannot be exploited by oscillating distance (telescoping
+        # property: round-trip sums to ~0).
+        ball_dist = info_ground_truth.get("ball_distance_to_goal", None)
+        if ball_dist is not None and self._prev_ball_dist is not None:
+            # Only apply PBRS when left team owns the ball (same gate as
+            # existing possession checkpoint in _apply_possession).
+            current_owner = info_ground_truth.get("current_ball_owner")
+            if isinstance(current_owner, dict) and current_owner.get("team") == "left":
+                # Skip the tick immediately after a turnover: the potential
+                # change on a turnover tick would credit the wrong team.
+                if not self._post_turnover_tick:
+                    prev_phi = self._phi(self._prev_ball_dist)
+                    new_phi = self._phi(float(ball_dist))
+                    delta = self.gamma * new_phi - prev_phi
+                    # Distribute potential change to all active left agents.
+                    for a in shaped:
+                        shaped[a] += delta
+
+        # Update PBRS state for next tick.
+        if ball_dist is not None:
+            self._prev_ball_dist = float(ball_dist)
+        else:
+            self._prev_ball_dist = None
+        # Reset PBRS state on possession change (turnover detection).
+        self._update_turnover_state(info_ground_truth)
+
         # Do not charge step cost on a goal-scoring tick: time pressure is
         # meant to push toward completion, not tax the successful finish.
         has_goal = any(isinstance(e, dict) and e.get("type") == "GOAL_SCORED"

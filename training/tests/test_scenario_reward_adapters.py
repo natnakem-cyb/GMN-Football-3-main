@@ -76,6 +76,12 @@ def test_attacking_preserves_goal_step_base():
 
 
 def test_attacking_pays_shot_taken_bonus():
+    """SHOT_TAKEN no longer gets flat r_shot bonus (PBRS replaces it).
+
+    Only step cost (-0.005) applies; the flat attempt bonus is removed.
+    PBRS potential term requires previous distance state, which is None
+    on the first call, so no potential term is added here.
+    """
     ad = AttackingDrillRewardAdapter()
     ad.reset()
     base = {"left_0": 0.0}
@@ -83,7 +89,8 @@ def test_attacking_pays_shot_taken_bonus():
     out = ad.compute_shaped_rewards(
         base, evs, GT_L0, ["left_0"], actions={"left_0": 12}
     )
-    assert out["left_0"] == pytest.approx(0.25 - 0.005)
+    # No flat r_shot bonus; only step cost applies.
+    assert out["left_0"] == pytest.approx(-0.005)
     assert ad.solitary_shot_count == 0
 
 
@@ -200,6 +207,11 @@ def test_rondo_keeps_pass_and_turnover_signals():
 
 
 def test_adapters_differ_on_identical_shot_event():
+    """Attacking and Rondo adapters must still produce different rewards.
+
+    After PBRS: Attacking no longer gives flat r_shot for SHOT_TAKEN, but
+    still differs from Rondo (which gives -0.30 solitary penalty + action cost).
+    """
     evs = [{"type": "SHOT_TAKEN", "team": "left", "agent_id": "left_0"}]
     ad = AttackingDrillRewardAdapter()
     ad.reset()
@@ -210,5 +222,196 @@ def test_adapters_differ_on_identical_shot_event():
         {"left_0": 0.0}, evs, GT_L0, ["left_0"], actions={"left_0": 5}
     )
     assert a["left_0"] != pytest.approx(r["left_0"])
-    assert a["left_0"] > 0.0
+    # Attacking: step cost only (-0.005) on first call (no prev dist for PBRS).
+    # Rondo: solitary penalty + action cost = -0.30 + -0.01 = -0.31
+    assert a["left_0"] > r["left_0"]  # -0.005 > -0.31
     assert r["left_0"] <= 0.0
+
+
+def test_pibrs_boundedness_telescoping():
+    """PBRS potential term is bounded and doesn't diverge over round trips.
+
+    Move ball toward goal for N ticks, then back to starting distance.
+    Verify the total potential-term contribution is bounded (not exploited
+    by oscillating distance back and forth).
+
+    Note: With gamma=0.99, the sum of (gamma*phi(new) - phi(prev)) over
+    a trajectory doesn't telescope to exactly 0, but it's bounded. The
+    key PBRS property is policy invariance, not that round trips sum to 0.
+    What matters is that the potential change is finite and bounded.
+    """
+    ad = AttackingDrillRewardAdapter()
+    ad.reset()
+
+    # Start at distance 2.0 (far from goal), move toward goal, then back.
+    distances = [2.0, 1.8, 1.6, 1.4, 1.2, 1.0, 0.8, 0.6, 0.5, 0.5, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0]
+    total_potential = 0.0
+
+    for i, dist in enumerate(distances):
+        gt = {
+            "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+            "ball_distance_to_goal": dist,
+        }
+        base = {"left_0": 0.0}
+        evs = []
+        out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
+        step_cost = -0.005
+        potential_delta = out["left_0"] - step_cost
+        total_potential += potential_delta
+
+    # The total potential contribution should be bounded.
+    # After the round trip, phi returns to phi(2.0) = -1.0.
+    # The cumulative PBRS is bounded by the D_MAX range.
+    # Key property: total_potential should NOT be large positive (no exploit).
+    assert -2.0 < total_potential < 2.0, (
+        f"PBRS total {total_potential} is unbounded - possible exploit!"
+    )
+
+    # Additional check: phi is bounded in [-1, 0], so any single-step
+    # delta = gamma*phi(new) - phi(prev) is bounded by:
+    # max: gamma*0 - (-1) = 1.0
+    # min: gamma*(-1) - 0 = -0.99
+    assert -1.0 <= total_potential <= 1.0 * len(distances), (
+        f"PBRS total {total_potential} exceeds theoretical bounds"
+    )
+
+
+def test_pibrs_no_contribution_without_ball():
+    """PBRS contributes nothing when left team doesn't own the ball."""
+    ad = AttackingDrillRewardAdapter()
+    ad.reset()
+
+    distances = [2.0, 1.5, 1.0, 0.5]
+    for dist in distances:
+        gt = {
+            "current_ball_owner": {"team": "right", "agent_id": "right_0"},
+            "ball_distance_to_goal": dist,
+        }
+        base = {"left_0": 0.0}
+        evs = []
+        out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
+        assert out["left_0"] == pytest.approx(-0.005)
+
+
+def test_pibrs_phi_bounded():
+    """Phi(d) is bounded in [-1, 0] for all d >= 0."""
+    ad = AttackingDrillRewardAdapter()
+    assert ad._phi(0.0) == pytest.approx(0.0)
+    assert ad._phi(2.0) == pytest.approx(-1.0)
+    assert ad._phi(100.0) == pytest.approx(-1.0)
+    assert ad._phi(1.0) == pytest.approx(-0.5)
+    assert ad._phi(0.5) == pytest.approx(-0.25)
+    assert ad._phi(1.5) == pytest.approx(-0.75)
+
+
+def test_pibrs_positive_for_progress():
+    """Genuine progress toward goal nets positive PBRS contribution."""
+    ad = AttackingDrillRewardAdapter()
+    ad.reset()
+
+    distances = [2.0, 1.5, 1.0, 0.5]
+    total_reward = 0.0
+
+    for i, dist in enumerate(distances):
+        gt = {
+            "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+            "ball_distance_to_goal": dist,
+        }
+        base = {"left_0": 0.0}
+        evs = []
+        out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
+        total_reward += out["left_0"]
+
+    # Expected: first tick no PBRS (prev=None), then 3 ticks of progress.
+    # phi(2.0) = -1.0, phi(1.5) = -0.75, phi(1.0) = -0.5, phi(0.5) = -0.25
+    # Tick 2: gamma*phi(1.5) - phi(2.0) = 0.99*(-0.75) - (-1.0) = 0.2575
+    # Tick 3: gamma*phi(1.0) - phi(1.5) = 0.99*(-0.5) - (-0.75) = 0.255
+    # Tick 4: gamma*phi(0.5) - phi(1.0) = 0.99*(-0.25) - (-0.5) = 0.2525
+    expected_potential = (
+        ad.gamma * ad._phi(1.5) - ad._phi(2.0) +
+        ad.gamma * ad._phi(1.0) - ad._phi(1.5) +
+        ad.gamma * ad._phi(0.5) - ad._phi(1.0)
+    )
+    expected_total = 4 * (-0.005) + expected_potential
+    assert total_reward == pytest.approx(expected_total, abs=1e-6)
+
+
+def test_pibrs_with_shot_saved_still_gets_on_target_bonus():
+    """SHOT_SAVED still gets r_on_target bonus (not affected by PBRS change)."""
+    ad = AttackingDrillRewardAdapter()
+    ad.reset()
+
+    # First set up PBRS state with a previous distance.
+    gt_setup = {
+        "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+        "ball_distance_to_goal": 2.0,
+    }
+    ad.compute_shaped_rewards({"left_0": 0.0}, [], gt_setup, ["left_0"])
+
+    # Now a SHOT_SAVED event.
+    gt_shot = {
+        "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+        "ball_distance_to_goal": 0.5,
+    }
+    evs = [{"type": "SHOT_SAVED", "team": "left", "agent_id": "left_0"}]
+    out = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, evs, gt_shot, ["left_0"]
+    )
+
+    # Should get: step_cost + PBRS_delta + r_on_target
+    pb_delta = ad.gamma * ad._phi(0.5) - ad._phi(2.0)
+    expected = -0.005 + pb_delta + 0.40
+    assert out["left_0"] == pytest.approx(expected, abs=1e-6)
+
+
+def test_pibrs_no_contribution_after_turnover():
+    """PBRS contributes nothing on the tick immediately after a turnover."""
+    ad = AttackingDrillRewardAdapter()
+    ad.reset()
+
+    # Tick 1: left has ball at distance 2.0
+    gt1 = {
+        "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+        "ball_distance_to_goal": 2.0,
+    }
+    base = {"left_0": 0.0}
+    evs = []
+    out1 = ad.compute_shaped_rewards(base, evs, gt1, ["left_0"])
+    # First tick: _prev_ball_dist is None, so no PBRS.
+    assert out1["left_0"] == pytest.approx(-0.005)
+
+    # Tick 2: turnover - right now has ball.
+    gt2 = {
+        "current_ball_owner": {"team": "right", "agent_id": "right_0"},
+        "ball_distance_to_goal": 2.0,
+    }
+    out2 = ad.compute_shaped_rewards(base, evs, gt2, ["left_0"])
+    # After turnover: no PBRS, only step cost.
+    assert out2["left_0"] == pytest.approx(-0.005)
+
+
+def test_pibrs_shape_term_magnitude_sane():
+    """PBRS term magnitude is sane relative to terminal goal reward.
+
+    The potential term per tick should be modest, dominated by the real
+    terminal goal reward (+2.0 from engine).
+    """
+    ad = AttackingDrillRewardAdapter()
+
+    # Max possible single-tick PBRS: ball moves from max distance to goal.
+    # delta = gamma * phi(0.0) - phi(2.0) = 0.99 * 0 - (-1.0) = 1.0
+    max_delta = ad.gamma * ad._phi(0.0) - ad._phi(2.0)
+    assert abs(max_delta) <= 1.0  # Bounded by D_MAX range
+
+    # Terminal goal reward is +2.0. PBRS should be a shaping nudge.
+    realistic_total_pb = 0
+    prev_dist = 2.0
+    for _ in range(10):
+        new_dist = prev_dist - 0.2
+        delta = ad.gamma * ad._phi(new_dist) - ad._phi(prev_dist)
+        realistic_total_pb += delta
+        prev_dist = new_dist
+
+    # After 10 ticks of progress, total should be positive but modest.
+    assert realistic_total_pb > 0
+    assert realistic_total_pb < 5.0  # Goal is +2.0

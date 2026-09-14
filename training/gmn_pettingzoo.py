@@ -1264,7 +1264,10 @@ class GMNMultiAgentEnv(ParallelEnv):
                 shaped = adapter.compute_shaped_rewards(
                     base_rewards={a: shared_reward for a in agents},
                     step_events=step_events,
-                    info_ground_truth={"current_ball_owner": current_ball_owner},
+                    info_ground_truth={
+                        "current_ball_owner": current_ball_owner,
+                        "ball_distance_to_goal": float(dist_goal),
+                    },
                     active_agents=list(agents),
                     actions=actions,
                     tick=env_state.get("ep_len", 0),
@@ -1274,7 +1277,10 @@ class GMNMultiAgentEnv(ParallelEnv):
             return shaper.compute_shaped_rewards(
                 base_rewards={a: shared_reward for a in agents},
                 step_events=step_events,
-                info_ground_truth={"current_ball_owner": current_ball_owner},
+                info_ground_truth={
+                    "current_ball_owner": current_ball_owner,
+                    "ball_distance_to_goal": float(dist_goal),
+                },
                 active_agents=list(agents),
                 actions=actions,
             ), None
@@ -1558,7 +1564,10 @@ class GMNMultiAgentEnv(ParallelEnv):
                     shaped_rewards = _adapter.compute_shaped_rewards(
                         base_rewards=rewards,
                         step_events=step_events,
-                        info_ground_truth={"current_ball_owner": current_ball_owner},
+                        info_ground_truth={
+                            "current_ball_owner": current_ball_owner,
+                            "ball_distance_to_goal": float(dist_goal),
+                        },
                         active_agents=list(self.agents),
                         actions=actions,
                         tick=self._step_count,
@@ -1577,7 +1586,10 @@ class GMNMultiAgentEnv(ParallelEnv):
                     shaped_rewards = self.reward_shaper.compute_shaped_rewards(
                         base_rewards=rewards,
                         step_events=step_events,
-                        info_ground_truth={"current_ball_owner": current_ball_owner},
+                        info_ground_truth={
+                            "current_ball_owner": current_ball_owner,
+                            "ball_distance_to_goal": float(dist_goal),
+                        },
                         active_agents=list(self.agents),
                         actions=actions,
                     )
