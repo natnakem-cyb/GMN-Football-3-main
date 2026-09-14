@@ -1,5 +1,7 @@
 ﻿# Baseline Report: 4-Seed 200k Post-CCD-Fix Retrain
 
+**Superseded by:** `training/results/BASELINE_200k_PBRS_EXPLORATION.md` — that report reflects commit `81031ae`, which adds PBRS shaping and a count-based exploration bonus on top of this same post-CCD game. Use the newer report as the current baseline for any work on `81031ae` or later. This report is retained for historical comparison against the pre-CCD game.
+
 **Supersedes (for post-CCD comparisons):** `training/results/BASELINE_200k_VERIFIED.md` — that report reflects the pre-CCD-fix game (shots tunneled through defenders with no resistance). This one reflects current HEAD with real shot-blocking in play. See "Comparison against the old baseline" below.
 
 **Verification method:** Fresh training runs from scratch against commit `3a8dc60`, followed by `eval_mappo_comprehensive.py` with `--force` (no cached results reused). Checkpoint SHA-256 hashes computed independently via `Get-FileHash`.
