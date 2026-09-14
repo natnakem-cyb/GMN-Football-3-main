@@ -127,7 +127,9 @@ Technology Stack
 | RL algorithms | Stable-Baselines3 PPO; custom IPPO and MAPPO implementations |
 | ML backend | PyTorch |
 | Browser inference | **`onnxruntime-web`, loading `public/models/mappo_policy.onnx`.** `src/agents/TrainedPolicyAgent.ts` runs real ONNX inference for the in-browser "Neural" controller. The older hand-rolled MLP path (`src/agents/mappo_weights.ts`) is explicitly `@deprecated` in the file itself and retained only for offline reference / test parity, not used in the live decision path. The `RLGymnasiumPanel` supports hot-swapping `.onnx` models at runtime without restarting the app. |
+| Graph Neural Network | **Phase 4 GNN encoder complete** — graph builder (`training/gnn_graph_builder.py`), tensor conversion (`training/gnn_graph_to_tensor.py`), diagnostics (`training/gnn_diagnostics.py`), and encoders (`training/gnn_encoders.py`). Validated with correctness suite (`test_gnn_phase4.py`, `test_gnn_graph_builder.py`). Graph schema frozen at v3 with formation identity, edge features, and task semantics. |
 | Deterministic RNG | Mulberry32 (`SeededRNG.ts`) |
+| Reward Shaping | **Potential-Based Reward Shaping (PBRS)** — `AttackingDrillRewardAdapter` now uses Φ(d) = -clip(d, 0, D_MAX) / D_MAX with gamma=0.99, gated on left-team possession. Replaces flat shot attempt bonus. See commit `15d6775`. |
 | License | Apache-2.0 |
 
 Repository Structure
@@ -176,6 +178,12 @@ GMN-Football-3/
 │   ├── verify_scenario_playability.ts / scripted_eval.ts
 │   ├── validate_learned_policy.ts/.py
 │   ├── modular_encoder.ts / modular_networks.py
+│   ├── reward_adapters.py    # Scenario-scoped reward adapters (RondoRewardAdapter, AttackingDrillRewardAdapter with PBRS)
+│   ├── smoke_check_pbrs.py   # PBRS sanity check script
+│   ├── gnn_encoders.py       # GNN encoder implementations (Phase 4)
+│   ├── gnn_graph_builder.py  # Phase 4 graph builder
+│   ├── gnn_graph_to_tensor.py # Graph to tensor conversion
+│   ├── gnn_diagnostics.py    # GNN diagnostics and validation
 │   ├── models/              # Checkpoints (currently: smoke tests for PPO/IPPO/MAPPO, plus one completed drill-scenario training run each for IPPO and MAPPO — see Current Status)
 │   └── results/             # win_rate_progress.csv, generalization.csv, comparison_table.md/.html
 │   # See `training/README.md` for the full script inventory, dependency notes,
@@ -315,6 +323,12 @@ Current Status
 - Scenario registry from 1v0 drills through 5v5 and 11v11
 - Determinism, transport-parity, and observation/action audit test suites
 - `academy_rondo_4v1` is the one scenario where **both sides are genuinely policy-controlled** (all players on both teams are in `controllableAgentIds`); every other scenario has a scripted/frozen right-side opponent
+- Scenario-scoped reward adapters: `RondoRewardAdapter` (pass/interception focus) and `AttackingDrillRewardAdapter` (finishing drills) with configurable PBRS, shot-clock, step cost, and possession tracking
+- Potential-Based Reward Shaping (PBRS) in `AttackingDrillRewardAdapter`: Φ(d) = -clip(d, 0, D_MAX) / D_MAX with gamma=0.99, gated on left-team possession, replaces flat attempt bonus for SHOT_TAKEN/SHOT_BLOCKED/SHOT_MISSED. r_on_target for SHOT_SAVED preserved (rare high-information event). Tests: `test_scenario_reward_adapters.py` (23 tests), `test_reward_exploits.py` (6 tests), `smoke_check_pbrs.py` (commit `15d6775`).
+- GNN Phase 4 encoder: Graph builder (`gnn_graph_builder.py`), tensor conversion (`gnn_graph_to_tensor.py`), diagnostics (`gnn_diagnostics.py`), encoders (`gnn_encoders.py`). Graph schema v3 frozen with formation identity, edge features, and task semantics. Validated with `test_gnn_phase4.py` and `test_gnn_graph_builder.py` (commit `da2b4e6`).
+- Canonical task representation (z_scenario encoder) with semantic integration (Phase 3 closure audit complete, commit `ac693b5`)
+- Shot physics CCD fixes: collinear default shot validation, segment catch for shots in flight (commit `abd8be2`)
+- Formation slot generation gated to 11_vs_11 scenario; removed fabricated taskSpec.formation (commit `3a8dc60`)
 
 **Not yet done — read before assuming a fully "trained agent" exists:**
 - The MAPPO browser policy on `academy_3_vs_1_with_keeper` has been trained to ~200k steps but has not yet reached the task-brief target of `success_rate >= 40%` over 100 eval episodes. IPPO on the same scenario has reached ~68% goal rate.
