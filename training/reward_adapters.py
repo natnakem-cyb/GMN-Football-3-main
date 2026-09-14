@@ -107,11 +107,23 @@ class BaseScenarioRewardAdapter:
             return self.previous_left_ball_carrier
         return None
 
-    def _log_victim(self, etype, aid, victim, shaped) -> None:
+    def _penalize_victim(self, shaped, victim, etype) -> bool:
+        """Apply (or suppress) the left-victim turnover penalty.
+
+        Returns True if the penalty was actually applied. Base behavior:
+        always apply. Subclasses (e.g. AttackingDrillRewardAdapter) may
+        override this to implement turnover-spam protection without
+        duplicating _handle_events.
+        """
+        if victim is not None:
+            shaped[victim] += self.p_turnover
+        return True
+
+    def _log_victim(self, etype, aid, victim, shaped, penalty_applied=None) -> None:
         self._attribution_log.append({"event_type": etype, "event_agent_id": aid,
             "resolved_victim_id": victim,
             "fallback_used": victim is not None and aid not in shaped,
-            "penalty_applied": victim is not None,
+            "penalty_applied": (victim is not None) if penalty_applied is None else penalty_applied,
             "shaped_rewards": {k: float(v) for k, v in shaped.items()}})
 
     def _handle_shot(self, shaped, etype, aid, actions) -> None:
@@ -148,10 +160,10 @@ class BaseScenarioRewardAdapter:
                     self.pass_intercepted_count += 1
                 else:
                     self.turnover_conceded_count += 1
-                if victim is not None:
-                    shaped[victim] += self.p_turnover
+                penalty_applied = self._penalize_victim(shaped, victim, etype)
                 self.previous_left_ball_carrier = None
-                self._log_victim(etype, aid, victim, shaped)
+                self._log_victim(etype, aid, victim, shaped,
+                                 penalty_applied=penalty_applied)
                 continue
             if eteam != "left":
                 continue
@@ -272,6 +284,45 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
     # can never dominate the learning signal or be farmed indefinitely.
     EXPLORATION_BETA = 0.03
 
+    # Dense reward shaping (Fixes 2, 4 of the policy-paralysis remediation).
+    # Without these, the only reward is the step cost, producing a uniform
+    # ~-0.095/episode with near-zero variance — advantages collapse and the
+    # policy gradient vanishes. These terms create variance even when no goal is
+    # scored. All are gated on left-team possession so they cannot be farmed by
+    # the defender or during loose-ball phases.
+    #
+    # Possession reward: small per-tick bonus for left team owning the ball.
+    # Directly incentivizes winning and keeping possession. Scaled below the
+    # terminal goal reward (+2.0) so it nudges rather than dominates.
+    DENSE_POSSESSION_REWARD = 0.01
+    # Ball proximity reward: PBRS on the distance between the nearest left-team
+    # agent and the ball. Drives agents toward the ball so they can gain
+    # possession. Phi(d) = -d / D_PROX_MAX ranges [-1, 0]; shaping uses
+    # gamma=1.0 (telescoping) so it can't be farmed by oscillating.
+    # NOTE: the separate ball-advancement PBRS is intentionally NOT added —
+    # it would double-pay the same (ball_distance_to_goal) potential the base
+    # PBRS already shapes. Proximity (nearest-left-agent to ball) is a
+    # distinct potential, so it is kept.
+    DENSE_PROXIMITY_REWARD = 0.02
+    DENSE_PROXIMITY_MAX_DIST = 1.0  # meters for proximity normalization
+
+    # Tackle-spam protection (policy-paralysis remediation). The engine emits a
+    # 'tackle' event per successful slide tackle, which maps to
+    # TURNOVER_CONCEDED (-0.10). Two spam paths stack that penalty:
+    #   1. Same-tick double-count: while a pass is pending, a tackle produces
+    #      BOTH a PASS_FAILED (pending-pass resolver) and a TURNOVER_CONCEDED
+    #      (event map) on the same tick — two penalties for one possession loss.
+    #   2. Rapid re-tackle stacking: multiple successful tackles in quick
+    #      succession (several defenders, or fast lose/regain/lose cycles) each
+    #      pay -0.10, which dwarfs the dense shaping terms (0.01 possession +
+    #      ~0.02 proximity) and re-teaches ball avoidance — the exact paralysis
+    #      being remediated.
+    # One possession-loss sequence pays ONE penalty: duplicates on the same tick
+    # are deduped, and further victim penalties within the grace window are
+    # suppressed. Events are still counted and logged (truthful telemetry);
+    # only the reward penalty is protected.
+    TURNOVER_SPAM_WINDOW_TICKS = 10
+
     def __init__(self, step_cost=-0.005, shot_reward=0.25,
                  on_target_reward=0.40, t_max=50,
                  timeout_penalty=-0.50, gamma=None, **kw):
@@ -309,6 +360,14 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self._left_had_ball = False
         # PBRS: skip potential term on the tick immediately after a turnover.
         self._post_turnover_tick = False
+        # Dense reward shaping state: previous-tick proximity distance.
+        # None = no previous tick (skip first tick).
+        self._prev_prox_dist: Optional[float] = None
+        # Tackle-spam protection state: tick of the last APPLIED victim penalty
+        # (None = none yet this episode) and the current step tick.
+        self._last_penalty_tick: Optional[int] = None
+        self._current_tick = 0
+        self.turnover_penalties_suppressed = 0
         # NOTE: self._visit_counts is intentionally NOT reset here. Exploration
         # bonuses only work if counts accumulate over the whole training run —
         # resetting every episode would make every cell "novel" at the start of
@@ -327,7 +386,32 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         d["timeout_count"] = self.timeout_count
         d["shot_taken_count"] = self.shot_taken_count
         d["shot_on_target_count"] = self.shot_on_target_count
+        d["turnover_penalties_suppressed"] = self.turnover_penalties_suppressed
         return d
+
+    def _penalize_victim(self, shaped, victim, etype) -> bool:
+        """Tackle-spam protection: one penalty per possession-loss sequence.
+
+        Suppresses the left-victim turnover penalty when a second victim event
+        arrives on the same tick (pass-resolution + tackle double-count) or
+        within TURNOVER_SPAM_WINDOW_TICKS of the last APPLIED penalty (rapid
+        re-tackles during the loose-ball scramble). Suppressed events still
+        increment the counters in _handle_events and are logged with
+        penalty_applied=False, so attribution stays truthful.
+        """
+        tick = self._current_tick
+        same_tick = (self._last_penalty_tick is not None
+                     and tick == self._last_penalty_tick)
+        in_window = (self._last_penalty_tick is not None
+                     and 0 < tick - self._last_penalty_tick
+                     < AttackingDrillRewardAdapter.TURNOVER_SPAM_WINDOW_TICKS)
+        if same_tick or in_window:
+            self.turnover_penalties_suppressed += 1
+            return False
+        if victim is not None:
+            shaped[victim] += self.p_turnover
+        self._last_penalty_tick = tick
+        return True
 
     def check_shot_clock(self) -> Optional[float]:
         """Return timeout penalty once, after t_max ticks without a shot.
@@ -468,6 +552,7 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
                                actions=None, tick=0, max_ticks=None):
         shaped = {a: base_rewards.get(a, 0.0) for a in active_agents
                   if not a.startswith("right_")}
+        self._current_tick = tick
         self._strip_progress(shaped, step_events)
         # No action cost: shot/pass/dribble are all allowed freely; the
         # -0.005 step cost is the only time pressure.
@@ -531,8 +616,43 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
 
         # Do not charge step cost on a goal-scoring tick: time pressure is
         # meant to push toward completion, not tax the successful finish.
+        # Computed BEFORE the dense block so dense terms can share the
+        # same goal-tick exemption (goal-step base reward preserved whole).
         has_goal = any(isinstance(e, dict) and e.get("type") == "GOAL_SCORED"
                        for e in step_events)
+
+        # Dense reward shaping: possession and ball proximity PBRS.
+        # These create reward variance even when no goal is scored, breaking the
+        # policy paralysis where advantages collapse to ~0. All gated on left
+        # possession so they can't be farmed by the defender or loose ball.
+        # On goal-scoring ticks the dense terms are skipped so the goal-step
+        # base reward is preserved whole (same exemption as the step cost).
+        # Only possession + proximity are added here: the base PBRS block above
+        # already shapes ball_distance_to_goal, so a second advancement term
+        # would double-pay that same potential.
+        current_owner = info_ground_truth.get("current_ball_owner")
+        left_owns = isinstance(current_owner, dict) and current_owner.get("team") == "left"
+        if left_owns and not has_goal:
+            # 1. Possession reward: small per-tick bonus for having the ball.
+            for a in shaped:
+                shaped[a] += AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+
+            # 2. Ball proximity PBRS: reward the nearest left agent getting closer
+            #    to the ball. Uses gamma=1.0 (telescoping) so oscillation can't farm it.
+            prox_dist = info_ground_truth.get("nearest_left_agent_ball_distance")
+            if prox_dist is not None and self._prev_prox_dist is not None:
+                # Phi(d) = -d / D_PROX_MAX, range [-1, 0]. Clamp to [0, MAX].
+                phi_new = -min(max(prox_dist, 0.0), AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST) / AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST
+                phi_old = -min(max(self._prev_prox_dist, 0.0), AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST) / AttackingDrillRewardAdapter.DENSE_PROXIMITY_MAX_DIST
+                prox_delta = phi_new - phi_old  # gamma_shaping=1.0
+                if abs(prox_delta) > 1e-9:
+                    shaped_bonus = AttackingDrillRewardAdapter.DENSE_PROXIMITY_REWARD * prox_delta
+                    for a in shaped:
+                        shaped[a] += shaped_bonus
+
+        # Update dense-reward state for next tick.
+        self._prev_prox_dist = info_ground_truth.get("nearest_left_agent_ball_distance") if left_owns else None
+
         if not has_goal:
             for a in shaped:
                 shaped[a] += self.step_cost

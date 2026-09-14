@@ -175,6 +175,7 @@ def run_mappo_training(
             batch_size=n_envs,
             opponent_difficulty=opponent_difficulty,
             opponent_pool=opponent_pool,
+            training_mode=True,
         )
         envs = [env]
     else:
@@ -187,6 +188,7 @@ def run_mappo_training(
                     port=5050 + i if i > 0 else None,
                     opponent_difficulty=opponent_difficulty,
                     opponent_pool=opponent_pool,
+                    training_mode=True,
                 )
             )
         env = envs[0]

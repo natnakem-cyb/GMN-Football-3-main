@@ -45,6 +45,17 @@ export class GMNBridgeService {
   private scenarioMap: Map<string, ScenarioConfig>;
   public currentScenarioName = 'academy_empty_goal';
 
+  /**
+   * Training mode: when true, patches loaded scenarios to disable
+   * terminateOnOpponentPossession so episodes run the full time limit.
+   * This is the single highest-impact change for breaking the policy
+   * paralysis — without it, episodes end after ~8 ticks of possession
+   * (defender wins the ball, episode terminates), starving the reward
+   * signal of any variance. Eval should NOT use training mode (strict
+   * termination preserves fair scoring).
+   */
+  public trainingMode = false;
+
   // Batched IPC pool: additional engines for vectorized multi-env stepping.
   private pool: GameEngine[] = [];
   public poolSize = 0;
@@ -74,8 +85,23 @@ export class GMNBridgeService {
     // Default to academy_empty_goal
     const defaultScenario = this.scenarioMap.get('academy_empty_goal');
     if (defaultScenario) {
-      this.engine.loadScenario(defaultScenario);
+      this.engine.loadScenario(this.resolveScenario(defaultScenario));
     }
+  }
+
+  /**
+   * Returns a training-safe copy of a scenario config with
+   * terminateOnOpponentPossession disabled (when trainingMode is on).
+   * This lets episodes run the full time limit instead of terminating
+   * the instant the defender wins possession — the single highest-impact
+   * change for breaking the policy paralysis.
+   */
+  private resolveScenario(sc: ScenarioConfig): ScenarioConfig {
+    if (!this.trainingMode || !sc.terminateOnOpponentPossession) {
+      return sc;
+    }
+    // Shallow-clone and disable early termination for training only.
+    return { ...sc, terminateOnOpponentPossession: false };
   }
 
   public ensurePool(size: number) {
@@ -84,7 +110,7 @@ export class GMNBridgeService {
       const newEngine = new GameEngine();
       const sc = this.scenarioMap.get(this.currentScenarioName) || this.scenarioMap.get('academy_empty_goal');
       if (sc) {
-        newEngine.loadScenario(sc);
+        newEngine.loadScenario(this.resolveScenario(sc));
       } else {
         newEngine.resetToKickoff(false);
       }
@@ -223,7 +249,7 @@ export class GMNBridgeService {
 
   private buildEnvResetResult(scenarioName: string, seed: number | undefined, engine: GameEngine) {
     const sc = this.scenarioMap.get(scenarioName) || this.scenarioMap.get('academy_empty_goal')!;
-    engine.loadScenario(sc, seed);
+    engine.loadScenario(this.resolveScenario(sc), seed);
     const isRondo = engine.activeScenario?.id === 'academy_rondo_4v1';
     const controllableIds = isRondo
       ? engine.players.map((p) => p.id)
@@ -394,7 +420,7 @@ export class GMNBridgeService {
 
     const sc = this.scenarioMap.get(scenarioName) || this.scenarioMap.get('academy_empty_goal');
     if (sc) {
-      this.engine.loadScenario(sc, seed);
+      this.engine.loadScenario(this.resolveScenario(sc), seed);
     } else {
       this.engine.resetToKickoff(false, seed);
     }
@@ -1286,6 +1312,13 @@ wss.on('connection', (ws: WebSocket, req) => {
         if (parsed.type === 'reset') {
           const resetResult = bridge.reset(parsed.scenario, parsed.seed);
           ws.send(JSON.stringify(resetResult));
+        } else if (parsed.type === 'set_training_mode') {
+          // Training mode disables terminateOnOpponentPossession so
+          // episodes run the full time limit. Highest-impact fix for the
+          // policy paralysis (episodes were ending after ~8 ticks). Eval
+          // must NOT enable this (strict termination = fair scoring).
+          bridge.trainingMode = Boolean(parsed.enabled);
+          ws.send(JSON.stringify({ type: 'training_mode_ack', enabled: bridge.trainingMode }));
         } else if (parsed.type === 'reset_batch') {
           const batchResult = bridge.resetBatch(parsed.environments);
           ws.send(JSON.stringify({ type: 'reset_batch_result', results: batchResult }));

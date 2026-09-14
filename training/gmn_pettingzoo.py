@@ -35,6 +35,35 @@ logger = logging.getLogger(__name__)
 SHOT_ACTION_ID = 12
 
 
+def _nearest_left_agent_ball_distance(
+    ball_x: Optional[float], ball_y: Optional[float], first_obs: Optional[np.ndarray]
+) -> Optional[float]:
+    """Compute min distance from any active left-team player to the ball.
+
+    Per src/engine/ObservationEncoder.ts: offset 0 (len 22) holds left-team
+    player (x, y) positions for 11 slots; inactive slots are -1. All agents
+    share the same absolute positions, so the first agent's obs suffices.
+    Returns None when the ball position or obs is unavailable.
+    """
+    if ball_x is None or ball_y is None or first_obs is None:
+        return None
+    try:
+        if len(first_obs) < 22:
+            return None
+        best: Optional[float] = None
+        for slot in range(11):
+            px = float(first_obs[2 * slot])
+            py = float(first_obs[2 * slot + 1])
+            if px == -1 and py == -1:
+                continue  # inactive slot sentinel
+            d = float(np.hypot(px - ball_x, py - ball_y))
+            if best is None or d < best:
+                best = d
+        return best
+    except Exception:
+        return None
+
+
 def _npx_cmd():
     return ["npx.cmd"] if sys.platform == "win32" else ["npx"]
 
@@ -369,6 +398,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         opponent_pool: Optional[Any] = None,
         batch_size: int = 1,
         debug_rewards: bool = False,
+        training_mode: bool = False,
     ):
         super().__init__()
         self.scenario = scenario
@@ -386,6 +416,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.current_opponent: Optional[Dict[str, Any]] = None
         self.batch_size = max(1, int(batch_size))
         self.debug_rewards = debug_rewards
+        # Training mode: disables terminateOnOpponentPossession so episodes
+        # run the full time limit instead of ending when the defender wins
+        # the ball. Highest-impact fix for the policy paralysis. Eval must
+        # NOT enable this (strict termination = fair scoring).
+        self.training_mode = training_mode
         self.reward_components: List[Dict[str, Any]] = []
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
@@ -448,6 +483,22 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.ws_recv_timeout = float(os.environ.get("GMN_WS_RECV_TIMEOUT", "10.0"))
         if self.auto_start_bridge:
             self._connect_ws()
+
+        # Enable training mode on the bridge (disables early episode termination)
+        # AFTER the WS connection is established so the message is delivered.
+        if self.training_mode and self.ws_client is not None:
+            try:
+                import json as _json
+                self.ws_client.send(_json.dumps({"type": "set_training_mode", "enabled": True}))
+                # Drain the acknowledgment (non-binary JSON frame).
+                import select
+                try:
+                    ack = self.ws_client.recv()
+                    print(f"[GMN-PettingZoo] training_mode enabled (ack={ack})", flush=True)
+                except Exception:
+                    print("[GMN-PettingZoo] training_mode enabled (no ack received)", flush=True)
+            except Exception as e:
+                print(f"[GMN-PettingZoo] WARNING: failed to set training_mode: {e}", flush=True)
 
         # Perform initial reset to discover controllable agents.
         # When auto_start_bridge=False (e.g. unit tests injecting a mock WS),
@@ -764,18 +815,38 @@ class GMNMultiAgentEnv(ParallelEnv):
             }
             env_state["obs_dict"] = batched_obs
             env_state["action_masks"] = action_masks
-            # Extract absolute ball position from the first agent's observation
-            # for the exploration bonus (obs indices 88, 89 per
+            # Extract absolute ball position AND nearest-left-agent distance
+            # from the first agent's observation (obs indices 88, 89 for ball
+            # and 0..21 for left-player positions per
             # src/engine/ObservationEncoder.ts). Shared by all agents.
             _ball_x: Optional[float] = None
             _ball_y: Optional[float] = None
+            _nearest_left_dist: Optional[float] = None
             if terminal_agents:
                 _first_obs = observations.get(terminal_agents[0], {}).get("observation")
                 if _first_obs is not None and len(_first_obs) > 89:
                     _ball_x = float(_first_obs[88])
                     _ball_y = float(_first_obs[89])
+                    try:
+                        LEFT_POS_END = 22  # offsets 0..21 = left (x, y) positions
+                        _best = None
+                        for _pi in range(11):
+                            if 2 * _pi + 1 >= LEFT_POS_END:
+                                break
+                            _px = float(_first_obs[2 * _pi])
+                            _py = float(_first_obs[2 * _pi + 1])
+                            if _px == -1.0 and _py == -1.0:
+                                continue  # inactive player slot
+                            _dx = _px - _ball_x
+                            _dy = _py - _ball_y
+                            _d = (_dx * _dx + _dy * _dy) ** 0.5
+                            _best = _d if _best is None else min(_best, _d)
+                        _nearest_left_dist = _best
+                    except Exception:
+                        _nearest_left_dist = None
             env_state["_ball_x"] = _ball_x
             env_state["_ball_y"] = _ball_y
+            env_state["_nearest_left_dist"] = _nearest_left_dist
             env_state["ep_rew"] += shared_reward
             env_state["ep_len"] += 1
             if shared_term or shared_trunc:
@@ -804,6 +875,7 @@ class GMNMultiAgentEnv(ParallelEnv):
                 score_l=score_l,
                 score_r=score_r,
                 actions=env_state.get("last_actions", {}),
+                dist_goal=float(dist_goal),
             )
             if timeout_penalty is not None:
                 # Shot-clock fired for this sub-env: apply the penalty on top
@@ -1238,6 +1310,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         score_l: int,
         score_r: int,
         actions: Dict[str, int],
+        dist_goal: float = 0.0,
     ) -> Tuple[Dict[str, float], Optional[float]]:
         """M5: Apply cooperative reward shaping for one sub-environment.
 
@@ -1281,6 +1354,11 @@ class GMNMultiAgentEnv(ParallelEnv):
                         "ball_distance_to_goal": float(dist_goal),
                         "ball_x": env_state.get("_ball_x"),
                         "ball_y": env_state.get("_ball_y"),
+                        # Nearest left agent's distance to the ball (drives the
+                        # proximity PBRS so agents approach the ball pre-goal).
+                        "nearest_left_agent_ball_distance": env_state.get(
+                            "_nearest_left_dist"
+                        ),
                     },
                     active_agents=list(agents),
                     actions=actions,
@@ -1296,6 +1374,9 @@ class GMNMultiAgentEnv(ParallelEnv):
                     "ball_distance_to_goal": float(dist_goal),
                     "ball_x": env_state.get("_ball_x"),
                     "ball_y": env_state.get("_ball_y"),
+                    "nearest_left_agent_ball_distance": env_state.get(
+                        "_nearest_left_dist"
+                    ),
                 },
                 active_agents=list(agents),
                 actions=actions,
@@ -1549,17 +1630,35 @@ class GMNMultiAgentEnv(ParallelEnv):
             if step_events:
                 infos[agent]["step_events"] = step_events
 
-            # Extract absolute ball position from the first agent's observation
-            # for the exploration bonus. Per src/engine/ObservationEncoder.ts the
-            # ball (x, y) is at obs indices 88, 89 in the 127-dim vector; all
-            # agents share the same absolute ball position, so any agent works.
-            _ball_x: Optional[float] = None
-            _ball_y: Optional[float] = None
-            if self.agents:
-                _first_obs = observations.get(self.agents[0], {}).get("observation")
-                if _first_obs is not None and len(_first_obs) > 89:
-                    _ball_x = float(_first_obs[88])
-                    _ball_y = float(_first_obs[89])
+        # Extract absolute ball position AND the nearest-left-agent ball
+        # distance from the first agent's observation for reward shaping.
+        # Per src/engine/ObservationEncoder.ts the ball (x, y) is at obs
+        # indices 88, 89 and left-player (x, y) positions at 0..21 in the
+        # 127-dim vector; all agents share the same absolute ball position,
+        # so any agent works. The proximity PBRS consumes the nearest
+        # distance so agents are drawn toward the ball even with no goal.
+        _ball_x: Optional[float] = None
+        _ball_y: Optional[float] = None
+        _nearest_left_dist: Optional[float] = None
+        if self.agents:
+            _first_obs = observations.get(self.agents[0], {}).get("observation")
+            if _first_obs is not None and len(_first_obs) > 89:
+                _ball_x = float(_first_obs[88])
+                _ball_y = float(_first_obs[89])
+                try:
+                    _best = None
+                    for _pi in range(11):
+                        _px = float(_first_obs[2 * _pi])
+                        _py = float(_first_obs[2 * _pi + 1])
+                        if _px == -1.0 and _py == -1.0:
+                            continue  # inactive player slot
+                        _dx = _px - _ball_x
+                        _dy = _py - _ball_y
+                        _d = (_dx * _dx + _dy * _dy) ** 0.5
+                        _best = _d if _best is None else min(_best, _d)
+                    _nearest_left_dist = _best
+                except Exception:
+                    _nearest_left_dist = None
 
         # Collect debug reward components if enabled
         if self.debug_rewards and reward_components is not None:
@@ -1597,6 +1696,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                             "ball_distance_to_goal": float(dist_goal),
                             "ball_x": _ball_x,
                             "ball_y": _ball_y,
+                            # Nearest left agent's ball distance (proximity PBRS).
+                            "nearest_left_agent_ball_distance": _nearest_left_dist,
                         },
                         active_agents=list(self.agents),
                         actions=actions,

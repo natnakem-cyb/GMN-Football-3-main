@@ -78,7 +78,8 @@ def test_attacking_preserves_goal_step_base():
 def test_attacking_pays_shot_taken_bonus():
     """SHOT_TAKEN no longer gets flat r_shot bonus (PBRS replaces it).
 
-    Only step cost (-0.005) applies; the flat attempt bonus is removed.
+    Step cost (-0.005) plus the dense possession reward (+0.01) apply when
+    left owns the ball; the flat attempt bonus is removed.
     PBRS potential term requires previous distance state, which is None
     on the first call, so no potential term is added here.
     """
@@ -89,8 +90,8 @@ def test_attacking_pays_shot_taken_bonus():
     out = ad.compute_shaped_rewards(
         base, evs, GT_L0, ["left_0"], actions={"left_0": 12}
     )
-    # No flat r_shot bonus; only step cost applies.
-    assert out["left_0"] == pytest.approx(-0.005)
+    # No flat r_shot bonus; step cost + dense possession reward apply.
+    assert out["left_0"] == pytest.approx(-0.005 + 0.01)
     assert ad.solitary_shot_count == 0
 
 
@@ -222,9 +223,9 @@ def test_adapters_differ_on_identical_shot_event():
         {"left_0": 0.0}, evs, GT_L0, ["left_0"], actions={"left_0": 5}
     )
     assert a["left_0"] != pytest.approx(r["left_0"])
-    # Attacking: step cost only (-0.005) on first call (no prev dist for PBRS).
-    # Rondo: solitary penalty + action cost = -0.30 + -0.01 = -0.31
-    assert a["left_0"] > r["left_0"]  # -0.005 > -0.31
+    # Attacking: step cost + dense possession (+0.01 - 0.005) on first call
+    # (no prev dist for PBRS). Rondo: solitary penalty + action cost.
+    assert a["left_0"] > r["left_0"]  # 0.005 > -0.31
     assert r["left_0"] <= 0.0
 
 
@@ -254,12 +255,16 @@ def test_pibrs_boundedness_telescoping():
         gt = {
             "current_ball_owner": {"team": "left", "agent_id": "left_0"},
             "ball_distance_to_goal": dist,
+            # No proximity info: proximity PBRS only fires when
+            # nearest_left_agent_ball_distance is present.
         }
         base = {"left_0": 0.0}
         evs = []
         out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
-        step_cost = -0.005
-        potential_delta = out["left_0"] - step_cost
+        # Subtract the known non-PBRS terms: step cost + dense possession
+        # reward (both fire every left-possession tick without a goal).
+        expected_offset = -0.005 + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        potential_delta = out["left_0"] - expected_offset
         total_potential += potential_delta
 
     # With PBRS_GAMMA = 1.0, the round trip telescopes to exactly zero.
@@ -303,8 +308,8 @@ def test_pibrs_stationary_hold_yields_zero():
         base = {"left_0": 0.0}
         evs = []
         out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
-        step_cost = -0.005
-        potential_delta = out["left_0"] - step_cost
+        expected_offset = -0.005 + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        potential_delta = out["left_0"] - expected_offset
         total_potential += potential_delta
 
     EPSILON = 1e-9
@@ -350,8 +355,8 @@ def test_pibrs_many_cycle_oscillation_bounded_near_zero():
         base = {"left_0": 0.0}
         evs = []
         out = ad.compute_shaped_rewards(base, evs, gt, ["left_0"])
-        step_cost = -0.005
-        potential_delta = out["left_0"] - step_cost
+        expected_offset = -0.005 + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        potential_delta = out["left_0"] - expected_offset
         total_potential += potential_delta
 
     # With PBRS_GAMMA = 1.0, the sum telescopes:
@@ -426,7 +431,12 @@ def test_pibrs_positive_for_progress():
         PBRS_GAMMA * ad._phi(1.0) - ad._phi(1.5) +
         PBRS_GAMMA * ad._phi(0.5) - ad._phi(1.0)
     )
-    expected_total = 4 * (-0.005) + expected_potential
+    n = len(distances)
+    expected_total = (
+        n * (-0.005)
+        + n * AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        + expected_potential
+    )
     assert total_reward == pytest.approx(expected_total, abs=1e-6)
 
 
@@ -452,12 +462,17 @@ def test_pibrs_with_shot_saved_still_gets_on_target_bonus():
         {"left_0": 0.0}, evs, gt_shot, ["left_0"]
     )
 
-    # Should get: step_cost + PBRS_delta + r_on_target
+    # Should get: step_cost + dense possession + PBRS_delta + r_on_target
     # With PBRS_GAMMA = 1.0:
     # delta = 1.0 * phi(0.5) - phi(2.0) = -0.25 - (-1.0) = 0.75
     PBRS_GAMMA = AttackingDrillRewardAdapter.PBRS_GAMMA
     pb_delta = PBRS_GAMMA * ad._phi(0.5) - ad._phi(2.0)
-    expected = -0.005 + pb_delta + 0.40
+    expected = (
+        -0.005
+        + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        + pb_delta
+        + 0.40
+    )
     assert out["left_0"] == pytest.approx(expected, abs=1e-6)
 
 
@@ -474,8 +489,10 @@ def test_pibrs_no_contribution_after_turnover():
     base = {"left_0": 0.0}
     evs = []
     out1 = ad.compute_shaped_rewards(base, evs, gt1, ["left_0"])
-    # First tick: _prev_ball_dist is None, so no PBRS.
-    assert out1["left_0"] == pytest.approx(-0.005)
+    # First tick: _prev_ball_dist is None, so no PBRS. Step cost plus the
+    # dense possession reward (left owns the ball) apply.
+    expected1 = -0.005 + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+    assert out1["left_0"] == pytest.approx(expected1)
 
     # Tick 2: turnover - right now has ball.
     gt2 = {
@@ -534,11 +551,12 @@ def _exploration_adapter():
     """Adapter configured to isolate the exploration bonus.
 
     max_hold is set huge and p_ball_hogging to 0 so the possession-based
-    ball-hogging penalty never fires — these tests target the exploration
-    bonus specifically, not the hold mechanism. The adapter is reset()ed and
-    ready to use.
+    ball-hogging penalty never fires; t_max is set huge so the shot-clock
+    never fires during long bonus sequences. These tests target the
+    exploration bonus specifically, not the hold/clock mechanisms. The
+    adapter is reset()ed and ready to use.
     """
-    ad = AttackingDrillRewardAdapter(max_hold=100000, p_hog=0.0)
+    ad = AttackingDrillRewardAdapter(max_hold=100000, p_hog=0.0, t_max=100000)
     ad.reset()
     return ad
 
@@ -546,8 +564,9 @@ def _exploration_adapter():
 def _bonus_for(ad, ball_x, ball_y, owner_gt, base_reward=0.0):
     """Run one shaped-reward tick and return the exploration bonus paid.
 
-    Isolates the exploration component by subtracting the known step cost
-    and the PBRS term (zero here because distance is constant and the first
+    Isolates the exploration component by subtracting the known step cost,
+    the dense possession reward (fires on every left-possession tick), and
+    the PBRS term (zero here because distance is constant and the first
     call has no previous distance). The remaining delta is the exploration
     bonus.
     """
@@ -558,8 +577,10 @@ def _bonus_for(ad, ball_x, ball_y, owner_gt, base_reward=0.0):
         "ball_distance_to_goal": 1.0,  # constant => PBRS delta == 0
     }
     out = ad.compute_shaped_rewards({"left_0": base_reward}, [], gt, ["left_0"])
-    # step_cost applies every tick; PBRS is 0 (constant dist, no prior).
-    return out["left_0"] - base_reward - ad.step_cost
+    owner = owner_gt.get("current_ball_owner")
+    left_owns = isinstance(owner, dict) and owner.get("team") == "left"
+    dense = AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD if left_owns else 0.0
+    return out["left_0"] - base_reward - ad.step_cost - dense
 
 
 def test_exploration_bonus_decreases_with_repeated_visits():
@@ -679,6 +700,139 @@ def test_exploration_bonus_only_paid_on_left_possession():
     assert bonus == pytest.approx(BETA / math.sqrt(1 + 2), abs=1e-9)
 
 
+# ---------------------------------------------------------------------------
+# Dense reward shaping tests (policy-paralysis remediation).
+#
+# These prove the new possession/proximity terms create reward variance even
+# when no goal is scored, without breaking any PBRS/exploration guarantees:
+# proximity shaping telescopes (can't be farmed by oscillation), possession
+# stays small relative to the goal reward, and the goal-step base is kept
+# whole.
+# ---------------------------------------------------------------------------
+
+
+def _dense_adapter(**kw):
+    """Adapter with hogging penalties disabled to isolate dense terms."""
+    ad = AttackingDrillRewardAdapter(max_hold=100000, p_hog=0.0, **kw)
+    ad.reset()
+    return ad
+
+
+def test_dense_possession_reward_paid_on_left_possession():
+    """+0.01 per tick when left owns the ball (offset vs step cost)."""
+    ad = _dense_adapter()
+    gt = {
+        "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+        "ball_distance_to_goal": 1.0,  # constant => PBRS delta == 0 after tick 1
+    }
+    # Tick 1: step cost + possession + exploration(first visit to None-cell=0:
+    # ball_x/ball_y missing => no exploration bonus).
+    out = ad.compute_shaped_rewards({"left_0": 0.0}, [], gt, ["left_0"])
+    assert out["left_0"] == pytest.approx(
+        -0.005 + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD, abs=1e-9
+    )
+
+
+def test_dense_possession_reward_not_paid_without_left_possession():
+    """No possession bonus when right owns or ball is loose."""
+    for owner in ({"team": "right", "agent_id": "right_0"}, None):
+        ad = _dense_adapter()
+        gt = {"current_ball_owner": owner}
+        out = ad.compute_shaped_rewards({"left_0": 0.0}, [], gt, ["left_0"])
+        assert out["left_0"] == pytest.approx(-0.005, abs=1e-9)
+
+
+def test_dense_proximity_pbrs_positive_for_approach():
+    """Approaching the ball pays positive proximity shaping."""
+    ad = _dense_adapter()
+    owner = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+    # Tick 1 establishes prev (no proximity delta yet).
+    ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [],
+        {**owner, "nearest_left_agent_ball_distance": 0.8},
+        ["left_0"],
+    )
+    # Tick 2: agent closes 0.8 -> 0.3. phi: -0.8 -> -0.3, delta = +0.5.
+    out = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [],
+        {**owner, "nearest_left_agent_ball_distance": 0.3},
+        ["left_0"],
+    )
+    expected = (
+        -0.005
+        + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        + AttackingDrillRewardAdapter.DENSE_PROXIMITY_REWARD * 0.5
+    )
+    assert out["left_0"] == pytest.approx(expected, abs=1e-9)
+
+
+def test_dense_proximity_pbrs_round_trip_telescopes_to_zero():
+    """Proximity shaping round trip sums to ~0 (can't be farmed)."""
+    ad = _dense_adapter()
+    owner = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+    dists = [0.9, 0.7, 0.5, 0.3, 0.3, 0.5, 0.7, 0.9]
+    total_prox = 0.0
+    for d in dists:
+        out = ad.compute_shaped_rewards(
+            {"left_0": 0.0}, [],
+            {**owner, "nearest_left_agent_ball_distance": d},
+            ["left_0"],
+        )
+        total_prox += (
+            out["left_0"] - (-0.005)
+            - AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        )
+    assert abs(total_prox) < 1e-9, f"round trip leaked {total_prox}"
+
+
+def test_dense_proximity_stationary_hold_is_zero():
+    """Holding a fixed agent-ball distance pays zero proximity shaping."""
+    ad = _dense_adapter()
+    owner = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+    total_prox = 0.0
+    for _ in range(50):
+        out = ad.compute_shaped_rewards(
+            {"left_0": 0.0}, [],
+            {**owner, "nearest_left_agent_ball_distance": 0.6},
+            ["left_0"],
+        )
+        total_prox += (
+            out["left_0"] - (-0.005)
+            - AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
+        )
+    assert abs(total_prox) < 1e-9, f"stationary hold leaked {total_prox}"
+
+
+def test_dense_terms_skipped_on_goal_tick():
+    """Goal-step base reward stays whole (dense terms exempt like step cost)."""
+    ad = _dense_adapter()
+    gt = {
+        "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+        "ball_distance_to_goal": 1.0,
+    }
+    # Establish prev state first so PBRS paths are armed.
+    ad.compute_shaped_rewards({"left_0": 0.0}, [], gt, ["left_0"])
+    evs = [{"type": "GOAL_SCORED", "team": "left", "agent_id": "left_0"}]
+    out = ad.compute_shaped_rewards({"left_0": 2.0}, evs, gt, ["left_0"])
+    assert out["left_0"] == pytest.approx(2.0, abs=1e-6)
+
+
+def test_dense_magnitude_sane_vs_goal():
+    """30 ticks of possession stay far below the +2.0 terminal goal reward."""
+    ad = _dense_adapter()
+    gt = {
+        "current_ball_owner": {"team": "left", "agent_id": "left_0"},
+        "ball_distance_to_goal": 1.0,
+    }
+    total = 0.0
+    for _ in range(30):
+        out = ad.compute_shaped_rewards({"left_0": 0.0}, [], gt, ["left_0"])
+        total += out["left_0"]
+    # 30 * (-0.005 + 0.01) = +0.15 net; firm ceiling well below +2.0.
+    assert total == pytest.approx(0.15, abs=1e-9)
+    assert total < 1.0
+
+
 def test_exploration_cell_for_position_bounds():
     """_cell_for_position maps in-bounds positions to cells and rejects
     out-of-bounds positions (no tracking, no crash)."""
@@ -692,3 +846,115 @@ def test_exploration_cell_for_position_bounds():
     assert AttackingDrillRewardAdapter._cell_for_position(0.0, 0.5) is None
     # None inputs: rejected.
     assert AttackingDrillRewardAdapter._cell_for_position(None, 0.0) is None
+
+
+# ---------------------------------------------------------------------------
+# Tackle-spam protection tests (policy-paralysis remediation).
+#
+# The engine maps every successful tackle to TURNOVER_CONCEDED (-0.10). Two
+# spam paths stack that penalty on one possession loss: (1) same-tick
+# double-count (pending-pass PASS_FAILED + tackle TURNOVER_CONCEDED), and
+# (2) rapid re-tackles within the grace window. One possession-loss sequence
+# must pay ONE penalty; events are still counted and logged truthfully.
+# ---------------------------------------------------------------------------
+
+
+def _turnover_event(etype="TURNOVER_CONCEDED", aid="left_0"):
+    return {"type": etype, "team": "right", "agent_id": aid}
+
+
+def test_tackle_spam_same_tick_double_count_is_deduped():
+    """PASS_FAILED + TURNOVER_CONCEDED on the same tick pay ONE penalty.
+
+    This is the pending-pass resolver + event-map double-count: the tackle
+    resolves the pending pass (PASS_FAILED) and the tackle event itself maps
+    to TURNOVER_CONCEDED. Without dedupe the carrier pays -0.20 for one loss.
+    """
+    ad = _dense_adapter()
+    owner_left = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
+    # Tick 0: establish left_0 as the carrier (sets previous_left_ball_carrier).
+    ad.compute_shaped_rewards({"left_0": 0.0}, [], owner_left, ["left_0"])
+    # Tick 1: ball lost to right; both victim events fire on the same tick.
+    evs = [
+        {"type": "PASS_FAILED", "team": "left", "agent_id": "left_0"},
+        _turnover_event(),
+    ]
+    gt = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    out = ad.compute_shaped_rewards({"left_0": 0.0}, evs, gt, ["left_0"], tick=1)
+    # -0.005 step cost, NO dense terms (right owns), exactly one -0.10 penalty.
+    assert out["left_0"] == pytest.approx(-0.105, abs=1e-9)
+    assert ad.turnover_penalties_suppressed == 1
+
+
+def test_tackle_spam_grace_window_suppresses_rapid_re_tackles():
+    """Victim penalties within the 10-tick grace window are suppressed."""
+    ad = _dense_adapter()
+    gt_right = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    # Tick 0: first turnover penalized.
+    out0 = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=0)
+    assert out0["left_0"] == pytest.approx(-0.105, abs=1e-9)
+    # Tick 5: second tackle inside the window -> suppressed, only step cost.
+    out5 = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=5)
+    assert out5["left_0"] == pytest.approx(-0.005, abs=1e-9)
+    assert ad.turnover_penalties_suppressed == 1
+    # Tick 10: window boundary (10 - 0 == 10 is NOT inside the window).
+    out10 = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=10)
+    assert out10["left_0"] == pytest.approx(-0.105, abs=1e-9)
+    assert ad.turnover_penalties_suppressed == 1
+    # Tick 12: still inside the new window -> suppressed again.
+    out12 = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=12)
+    assert out12["left_0"] == pytest.approx(-0.005, abs=1e-9)
+    assert ad.turnover_penalties_suppressed == 2
+
+
+def test_tackle_spam_attribution_log_marks_suppressed_events():
+    """Suppressed events are logged with penalty_applied=False (truthful
+    telemetry): counters increment, but the reward is not taxed."""
+    ad = _dense_adapter()
+    gt_right = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=0)
+    ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=3)
+    log = ad.get_attribution_log()
+    assert len(log) == 2
+    assert log[0]["penalty_applied"] is True
+    assert log[1]["penalty_applied"] is False
+    # The event itself still happened: counters are truthful.
+    assert ad.turnover_conceded_count == 2
+    assert ad.get_diagnostics()["turnover_penalties_suppressed"] == 1
+
+
+def test_tackle_spam_state_resets_per_episode():
+    """reset() clears the grace window so a fresh episode penalizes normally."""
+    ad = _dense_adapter()
+    gt_right = {"current_ball_owner": {"team": "right", "agent_id": "right_0"}}
+    ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=0)
+    ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=1)
+    assert ad.turnover_penalties_suppressed == 1
+    ad.reset()
+    assert ad.turnover_penalties_suppressed == 0
+    assert ad._last_penalty_tick is None
+    out = ad.compute_shaped_rewards(
+        {"left_0": 0.0}, [_turnover_event()], gt_right, ["left_0"], tick=2)
+    assert out["left_0"] == pytest.approx(-0.105, abs=1e-9)
+
+
+def test_rondo_turnover_penalties_are_not_spam_protected():
+    """Spam protection is scoped to the attacking drill: the Rondo adapter
+    (base behavior) still applies every victim penalty, even same-tick."""
+    ad = RondoRewardAdapter()
+    ad.reset()
+    shaped = {"left_0": 0.0}
+    evs = [
+        {"type": "PASS_FAILED", "team": "left", "agent_id": "left_0"},
+        {"type": "TURNOVER_CONCEDED", "team": "right", "agent_id": "left_0"},
+    ]
+    ad._handle_events(shaped, evs, ["left_0"], None)
+    assert shaped["left_0"] == pytest.approx(2 * ad.p_turnover, abs=1e-9)
