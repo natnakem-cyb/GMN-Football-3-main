@@ -21,8 +21,12 @@ _LEFT_VICTIM_TYPES = frozenset(("PASS_INTERCEPTED", "PASS_FAILED", "TURNOVER_CON
 class BaseScenarioRewardAdapter:
     """Shared event logic ported from CooperativeRewardShaper."""
 
-    def __init__(self, r_pass=0.30, r_assisted=0.50, p_solitary=-0.30,
+    def __init__(self, r_pass=0.0, r_assisted=0.50, p_solitary=-0.30,
                  p_hog=-0.02, p_turn=-0.10, max_hold=15, act_cost=-0.01):
+        # NOTE: r_pass default is 0.0 because the engine (ObservationEncoder.computeReward)
+        # already pays +0.15 per completed pass as the base physical reward.
+        # The adapter owns training-specific shaping (assisted goals, penalties, dense terms).
+        # If a scenario needs additional pass reward beyond the engine's base, override r_pass.
         self.r_pass = r_pass
         self.r_assisted_goal = r_assisted
         self.p_solitary_shot = p_solitary
@@ -323,9 +327,43 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
     # only the reward penalty is protected.
     TURNOVER_SPAM_WINDOW_TICKS = 10
 
+    # Pass reward cap/diminishing: prevent unlimited pass-loop farming.
+    # The scenario objective "create_triangle" requires 2+ passes, so we reward
+    # the first N productive passes and then diminish to zero.
+    MAX_PRODUCTIVE_PASSES = 2
+    PASS_REWARD_PER_PASS = 0.10
+
+    # Shot reward cap: prevent unlimited shot-spam farming.
+    # First attempt: +0.15, second: +0.05, third and later: +0.00
+    # SHOT_SAVED (on-target): first +0.20, later +0.00
+    MAX_PRODUCTIVE_SHOTS = 3
+    SHOT_REWARD_FIRST = 0.15
+    SHOT_REWARD_SECOND = 0.05
+    SHOT_SAVED_REWARD_FIRST = 0.20
+
+    # Exploration bonus: DISABLED by default for finishing drills.
+    ENABLE_EXPLORATION_BONUS = False
+    EXPLORATION_BETA = 0.0
+
     def __init__(self, step_cost=-0.005, shot_reward=0.25,
                  on_target_reward=0.40, t_max=50,
-                 timeout_penalty=-0.50, gamma=None, **kw):
+                 timeout_penalty=-0.50, gamma=None,
+                 enable_exploration_bonus=None,
+                 exploration_beta=None,
+                 **kw):
+        # Extract exploration bonus parameters before base constructor
+        # (BaseScenarioRewardAdapter does not accept these kwargs)
+        self.enable_exploration_bonus = (
+            enable_exploration_bonus
+            if enable_exploration_bonus is not None
+            else self.ENABLE_EXPLORATION_BONUS
+        )
+        self.exploration_beta = (
+            exploration_beta
+            if exploration_beta is not None
+            else self.EXPLORATION_BETA
+        )
+
         super().__init__(**kw)
         self.step_cost = step_cost
         self.r_shot = shot_reward
@@ -347,6 +385,14 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         # penalize a missed attempt beyond the missing on-target bonus.
         self.p_solitary_shot = 0.0
         self.action_cost = 0.0
+
+        # Pass reward cap: first 2 passes earn +0.10 each, later passes earn 0.00
+        self.max_productive_passes = self.MAX_PRODUCTIVE_PASSES
+        self.pass_reward_per_pass = self.PASS_REWARD_PER_PASS
+
+        # Shot reward cap: first +0.15, second +0.05, later 0.00
+        self.max_productive_shots = self.MAX_PRODUCTIVE_SHOTS
+
         self.reset()
 
     def reset(self) -> None:
@@ -357,6 +403,11 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         self.shot_taken_count = 0
         self.shot_on_target_count = 0
         self.shot_missed_count = 0
+        # Episode-scoped pass reward counter (hard cap at 2 passes)
+        self.attacking_pass_reward_count = 0
+        # Episode-scoped shot reward counters
+        self.shot_attempt_reward_count = 0
+        self.shot_on_target_reward_count = 0
         # PBRS state: distance to goal from previous tick (None = no prev).
         self._prev_ball_dist = None
         # PBRS turnover tracking: whether left team had ball on previous tick.
@@ -390,6 +441,10 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         d["shot_taken_count"] = self.shot_taken_count
         d["shot_on_target_count"] = self.shot_on_target_count
         d["turnover_penalties_suppressed"] = self.turnover_penalties_suppressed
+        d["attacking_pass_reward_count"] = self.attacking_pass_reward_count
+        d["shot_attempt_reward_count"] = self.shot_attempt_reward_count
+        d["shot_on_target_reward_count"] = self.shot_on_target_reward_count
+        d["enable_exploration_bonus"] = self.enable_exploration_bonus
         return d
 
     def _penalize_victim(self, shaped, victim, etype) -> bool:
@@ -531,20 +586,39 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         gy = int((min(ball_y, cmaxy - 1e-9) - cminy) / size)
         return (gx, gy)
 
-    def _pay_shot_rewards(self, shaped, step_events, active_agents) -> None:
-        """Pay shot incentives and clear the shot-clock on any shot event.
+    def _pay_pass_rewards(self, shaped, step_events, active_agents) -> None:
+        """Pay pass rewards with hard cap to prevent pass-loop farming.
 
-        SHOT_TAKEN/SHOT_BLOCKED pay the flat attempt bonus (r_shot, default
-        0.25), RESTORED deliberately (policy-paralysis remediation): this is
-        the term that historically produced shooting on this drill (Sept 7
-        runs: 20 shots/ep at 50k, 2.17/ep selective at 401k, 20-60% goal
-        rate). The PBRS-only design left no path to discovering the shot
-        action at all. Spam pressure is handled by the step cost, the
-        shot-clock timeout and the fact that every shot releases the ball
-        (turnover -> possible conceded goal), not by silencing the attempt
-        signal. Paid left-team gated so the defender cannot farm it.
-        r_on_target for SHOT_SAVED KEPT: it's gated on a rare, high-information
-        event (keeper actively intervened = shot was on target), not "any attempt".
+        Invariant: cumulative attacking-drill pass-event reward <= 0.20 per episode.
+        First 2 passes earn +0.10 each; all subsequent passes earn 0.00.
+        Uses a separate episode-scoped counter (attacking_pass_reward_count)
+        independent of pass_chain_length, which resets on turnover.
+        """
+        for event in step_events:
+            if not isinstance(event, dict):
+                continue
+            etype = event.get("type")
+            if etype != "PASS_COMPLETED":
+                continue
+            if event.get("team") != "left":
+                continue
+            aid = event.get("agent_id")
+            if aid not in shaped:
+                continue
+
+            self.attacking_pass_reward_count += 1
+            pass_count = self.attacking_pass_reward_count
+
+            if pass_count <= self.max_productive_passes:
+                shaped[aid] += self.pass_reward_per_pass
+            # else: reward = 0.00 (hard cap)
+
+    def _pay_shot_rewards(self, shaped, step_events, active_agents) -> None:
+        """Pay shot incentives with bounded rewards to prevent shot-spam farming.
+
+        SHOT_TAKEN/SHOT_BLOCKED: first +0.15, second +0.05, third+ 0.00.
+        SHOT_SAVED (on-target): first +0.20, later 0.00.
+        Uses separate episode-scoped counters for attempt and on-target rewards.
         """
         for event in step_events:
             if not isinstance(event, dict):
@@ -554,25 +628,29 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
             if etype in SHOT_EVENT_TYPES:
                 self._clear_shot_clock()
                 if etype in ("SHOT_TAKEN", "SHOT_BLOCKED"):
-                    # shot_taken_count is incremented in _handle_shot; do NOT
-                    # count again here (the event passes through both methods).
                     if self._is_left_shot_event(event):
+                        self.shot_attempt_reward_count += 1
+                        shot_count = self.shot_attempt_reward_count
+
+                        if shot_count == 1:
+                            reward = self.SHOT_REWARD_FIRST
+                        elif shot_count == 2:
+                            reward = self.SHOT_REWARD_SECOND
+                        else:
+                            reward = 0.0
+
                         targets = ([aid] if aid in shaped
                                    else [a for a in active_agents if a in shaped])
                         for t in targets:
-                            shaped[t] += self.r_shot
+                            shaped[t] += reward
                 elif etype == "SHOT_SAVED":
-                    self.shot_on_target_count += 1
+                    self.shot_on_target_reward_count += 1
                     targets = ([aid] if aid in shaped
                                else [a for a in active_agents if a in shaped])
-                    # On target (keeper had to save it): full on-target reward.
-                    # KEPT: this is gated on a genuinely rare, high-information
-                    # event, not on "any attempt" — no blind-reward problem.
-                    for t in targets:
-                        shaped[t] += self.r_on_target
+                    if self.shot_on_target_reward_count == 1:
+                        for t in targets:
+                            shaped[t] += self.SHOT_SAVED_REWARD_FIRST
                 elif etype == "SHOT_MISSED":
-                    # Flat attempt bonus REMOVED: replaced by PBRS potential term.
-                    # The agent no longer gets rewarded just for "trying".
                     pass
 
     def compute_shaped_rewards(self, base_rewards, step_events,
@@ -586,6 +664,7 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
         # -0.005 step cost is the only time pressure.
         self._apply_possession(shaped, info_ground_truth)
         self._handle_events(shaped, step_events, active_agents, actions)
+        self._pay_pass_rewards(shaped, step_events, active_agents)
         self._pay_shot_rewards(shaped, step_events, active_agents)
 
         # PBRS: potential-based reward shaping over ball distance to goal.
@@ -626,31 +705,33 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
                        for e in step_events)
 
         # Exploration bonus: count-based novelty reward over ball position.
+        # DISABLED by default for finishing drills (enable_exploration_bonus=False).
         # Standard count-based form beta / sqrt(1 + count[cell]) where count is
         # the number of PRIOR visits to the cell. The count tracks TRUE
         # visitation (incremented regardless of team), but the bonus is only
-        # PAID when left team owns the ball — same possession gate as PBRS. A
-        # flat, non-decaying bonus would be farmable; the 1/sqrt(1+count) decay
+        # PAID when left team owns the ball — same possession gate as PBRS.
+        # A flat, non-decaying bonus would be farmable; the 1/sqrt(1+count) decay
         # is what prevents that. Goal ticks are exempt exactly like the dense
         # terms and the step cost (the bonus is capped at beta, so this is a
         # consistency fix, not an exploit fix).
-        ebeta = AttackingDrillRewardAdapter.EXPLORATION_BETA
-        ball_x = info_ground_truth.get("ball_x")
-        ball_y = info_ground_truth.get("ball_y")
-        cell = AttackingDrillRewardAdapter._cell_for_position(ball_x, ball_y)
-        if cell is not None:
-            current_owner = info_ground_truth.get("current_ball_owner")
-            left_owns = isinstance(current_owner, dict) and current_owner.get("team") == "left"
-            # Compute the bonus from the pre-increment (prior-visit) count, so
-            # the very first visit pays the full beta.
-            prior_count = self._visit_counts.get(cell, 0)
-            if left_owns and not has_goal:
-                bonus = ebeta / math.sqrt(1 + prior_count)
-                for a in shaped:
-                    shaped[a] += bonus
-            # Always record the visitation, even when right team / loose ball —
-            # this is true visitation, independent of who we pay.
-            self._visit_counts[cell] = prior_count + 1
+        if self.enable_exploration_bonus:
+            ebeta = self.exploration_beta
+            ball_x = info_ground_truth.get("ball_x")
+            ball_y = info_ground_truth.get("ball_y")
+            cell = AttackingDrillRewardAdapter._cell_for_position(ball_x, ball_y)
+            if cell is not None:
+                current_owner = info_ground_truth.get("current_ball_owner")
+                left_owns = isinstance(current_owner, dict) and current_owner.get("team") == "left"
+                # Compute the bonus from the pre-increment (prior-visit) count, so
+                # the very first visit pays the full beta.
+                prior_count = self._visit_counts.get(cell, 0)
+                if left_owns and not has_goal:
+                    bonus = ebeta / math.sqrt(1 + prior_count)
+                    for a in shaped:
+                        shaped[a] += bonus
+                # Always record the visitation, even when right team / loose ball —
+                # this is true visitation, independent of who we pay.
+                self._visit_counts[cell] = prior_count + 1
 
 
         # Dense reward shaping: possession (owning phase) + ball proximity PBRS

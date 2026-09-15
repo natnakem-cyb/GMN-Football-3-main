@@ -218,3 +218,15 @@ All 9 checkpoints + eval JSONs + replay preserved in `training/models/` and `tra
 - [x] Full Python suite: `python -m pytest training/tests/ -v` → 173/174 passed
   - Note: 1 transient failure in `test_schema_validation_academy_3_vs_1_defender_3` due to port contention when running full suite; passes in isolation
 - [x] Final validation report: `docs/GNN_PHASE4_VALIDATION_REPORT.md` updated with actual results
+
+## Reward System Correctness + Anti-Spam Hardening
+- [x] Audit complete reward flow: GameEngine → ObservationEncoder → bridge → gmn_pettingzoo → reward adapter → final rewards
+- [x] Fix PASS_COMPLETED double-accounting: canonicalize pass events in `_canonicalize_pass_events()` for both single-env and batched paths
+- [x] Resolve engine + adapter pass-reward duplication: set `BaseScenarioRewardAdapter.r_pass` default to `0.0`; engine owns base `+0.15` per completed pass
+- [x] Add episode-scoped pass reward hard cap in `AttackingDrillRewardAdapter`: first 2 passes `+0.10` each, later `0.00` (max `0.20/episode`)
+- [x] Add bounded shot reward scheme: first `+0.15`, second `+0.05`, third+ `0.00`; first `SHOT_SAVED` `+0.20`, later `0.00`
+- [x] Disable count-based exploration bonus by default: `ENABLE_EXPLORATION_BONUS = False`, `EXPLORATION_BETA = 0.0`
+- [x] Extract `enable_exploration_bonus` / `exploration_beta` before base `__init__` to avoid `TypeError`
+- [x] Add deterministic regression tests: `training/tests/test_reward_exploit_regression.py` (18 tests, all passing)
+- [x] Verify existing tests still pass: `test_reward_shaper.py` (31), `test_action_masks.py` (10), `test_reward_exploits.py` (6)
+- [x] Produce `REWARD_AUDIT_FIX_REPORT.md` with root causes, reward table, exploit measurements, decomposition, terminology clarification, regression status, and remaining risks

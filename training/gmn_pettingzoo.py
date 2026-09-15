@@ -1403,6 +1403,58 @@ class GMNMultiAgentEnv(ParallelEnv):
         return step_events
 
     @staticmethod
+    def _canonicalize_pass_events(
+        step_events: List[Dict[str, Any]],
+        env_state: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """
+        Deduplicate PASS_COMPLETED events to ensure exactly one logical event per physical pass.
+
+        The engine emits a 'pass_completed' event when the receiver gains possession.
+        Separately, _resolve_pending_pass_state emits PASS_COMPLETED when ball ownership
+        changes from passer to a different left-team player. These can refer to the same
+        physical pass, causing double payment.
+
+        Canonicalization key: (tick, passer_id, receiver_id, event_type='PASS_COMPLETED').
+        We use the env_state's ep_len as tick, and extract passer/receiver from events.
+        """
+        seen: set = set()
+        canonical: List[Dict[str, Any]] = []
+
+        current_tick = env_state.get("ep_len", 0)
+
+        for event in step_events:
+            if not isinstance(event, dict):
+                canonical.append(event)
+                continue
+
+            etype = event.get("type")
+            if etype != "PASS_COMPLETED":
+                canonical.append(event)
+                continue
+
+            # Extract identity: agent_id is the RECEIVER (who now has the ball)
+            receiver = event.get("agent_id")
+            # Passer is not directly in the event; infer from pending_pass state if available
+            # The pending_pass stores the passer_id. Use that as the canonical passer.
+            passer = None
+            pending = env_state.get("pending_pass")
+            if pending and isinstance(pending, dict):
+                passer = pending.get("agent_id")
+
+            # Build a stable key for this physical pass
+            key = (current_tick, passer, receiver, "PASS_COMPLETED")
+
+            if key in seen:
+                # Duplicate - skip this event
+                continue
+
+            seen.add(key)
+            canonical.append(event)
+
+        return canonical
+
+    @staticmethod
     def _apply_shaping_for_env(
         env_state: Dict[str, Any],
         shared_reward: float,
@@ -1436,6 +1488,9 @@ class GMNMultiAgentEnv(ParallelEnv):
             env_state.get("pending_pass"), ball_owner_agent_idx, current_ev_type, agents
         )
         step_events = resolution_events + step_events
+
+        # Canonicalize PASS_COMPLETED events: exactly one per physical pass
+        step_events = GMNMultiAgentEnv._canonicalize_pass_events(step_events, env_state)
 
         # Store actions for shot-attribution fallback.
         env_state["last_actions"] = actions
@@ -1705,6 +1760,9 @@ class GMNMultiAgentEnv(ParallelEnv):
             step_events = (
                 self._resolve_pending_pass(ball_owner_agent_idx, current_ev_type) + step_events
             )
+
+            # Canonicalize PASS_COMPLETED events: exactly one per physical pass
+            step_events = GMNMultiAgentEnv._canonicalize_pass_events(step_events, {"ep_len": self._step_count, "pending_pass": self._pending_pass})
 
         observations: Dict[str, np.ndarray] = {}
         rewards: Dict[str, float] = {}
