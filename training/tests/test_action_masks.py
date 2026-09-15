@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv  # noqa: E402
 from training.mappo_networks import SharedActor  # noqa: E402
-from training.mappo_rollout import unwrap_masks, _mask_matrix  # noqa: E402
+from training.mappo_rollout import unwrap_masks, _mask_matrix, _fail_closed_fallback_mask  # noqa: E402
 
 # 19-action layout (src/engine/ActionMapping.ts): IDLE=0, movement=1..8,
 # LONG/HIGH/SHORT_PASS=9/10/11, SHOT=12, SPRINT=13, RELEASE_DIRECTION=14,
@@ -169,10 +169,27 @@ def test_off_ball_entropy_matches_legal_action_count():
 
     with torch.no_grad():
         dist = actor(obs, mask)
+        probs = dist.probs
+
+        # Explicit legality check: illegal actions must have probability zero.
+        illegal_mask = ~mask
+        # probs has shape [batch, actions]; illegal_mask has shape [batch, actions].
+        # Use boolean indexing to select the illegal action probabilities.
+        illegal_probs = probs[illegal_mask]
+        assert torch.all(illegal_probs == 0), (
+            f"Illegal actions should have exactly zero probability, "
+            f"got {illegal_probs.tolist()}"
+        )
+        assert torch.allclose(probs.sum(-1), torch.ones_like(probs.sum(-1))), (
+            f"Probabilities should sum to 1, got {probs.sum(-1).item():.6f}"
+        )
+
         entropy = float(dist.entropy().item())
 
     expected_entropy = math.log(9)
-    assert abs(entropy - expected_entropy) < 0.3, (
+    # Tighter threshold: 0.15 is still generous for a randomly initialized policy,
+    # but catches egregious deviations better than the original 0.3.
+    assert abs(entropy - expected_entropy) < 0.15, (
         f"Off-ball entropy {entropy:.4f} should be near ln(9)={expected_entropy:.4f}, "
         f"not ln(19)={math.log(19):.4f}"
     )

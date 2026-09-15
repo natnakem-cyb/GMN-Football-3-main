@@ -44,11 +44,18 @@ class SharedActor(nn.Module):
             mask_t = torch.as_tensor(action_mask, dtype=torch.bool, device=logits.device)
             if mask_t.shape != logits.shape:
                 mask_t = mask_t.reshape(logits.shape)
-            # Guard: if every action is masked off for a row (should not happen
-            # with the engine's masks — IDLE/MOVE are always legal), leave that
-            # row unmasked instead of producing a NaN distribution.
-            any_legal = mask_t.any(dim=-1, keepdim=True)
-            mask_t = torch.where(any_legal, mask_t, torch.ones_like(mask_t))
+            # Fail-closed: if every action is masked off for a row, raise an error
+            # rather than silently opening all actions. The engine's masks should
+            # always leave at least IDLE (index 0) legal, so an all-zero mask
+            # indicates a protocol/bridge fault that should be surfaced loudly.
+            # Do NOT convert an all-zero mask to all-ones - that silently fails open.
+            any_legal = mask_t.any(dim=-1)
+            if not any_legal.all():
+                raise ValueError(
+                    "Action mask contains no legal actions for some batch rows; "
+                    "this indicates a bridge/protocol fault. Every valid mask "
+                    "should leave at least IDLE (index 0) legal."
+                )
             logits = logits.masked_fill(~mask_t, float("-inf"))
         return Categorical(logits=logits)
 

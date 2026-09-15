@@ -28,6 +28,23 @@ from pettingzoo.utils.env import ParallelEnv
 
 logger = logging.getLogger(__name__)
 
+
+def _fail_closed_fallback_mask() -> np.ndarray:
+    """Return a fail-closed mask: IDLE (0) + movement (1-8) legal, everything else illegal.
+
+    This is the canonical safe fallback when a real mask is unavailable (e.g., legacy
+    bridge that predates mask transmission, or a protocol fault). It is consistent with
+    the bridge's stale/missing-agent-ID fallback and the engine's guarantee that at
+    least IDLE/movement should always be legal during normal play.
+
+    Do NOT use np.ones(19) as a fallback — that silently fails open and violates the
+    fail-closed action-masking contract.
+    """
+    mask = np.zeros(ACTION_SPACE_SIZE, dtype=np.int8)
+    mask[0:9] = 1  # IDLE (idx 0) + movement (idx 1-8)
+    return mask
+
+
 # Discrete action index for a shot attempt (ACTION_SPACE_SIZE == 19).
 # Used by CooperativeRewardShaper to attribute the engine's SHOT_TAKEN event to
 # the controlling agent(s) that actually commanded a shot when the binary frame
@@ -583,20 +600,23 @@ class GMNMultiAgentEnv(ParallelEnv):
             observations[agent] = obs
         # Real reset-time legality masks from the bridge (masking gap, Part 1):
         # at kickoff the ball is unowned, so SHOT/PASS/DRIBBLE are illegal and
-        # TACKLE is legal. The all-ones fallback exists only for a stale bridge
-        # that predates reset-mask transmission.
+        # TACKLE is legal. Note: We now use a fail-closed fallback (IDLE + movement
+        # only) for any missing/stale bridge mask, NOT all-ones. The all-ones fallback
+        # was a legacy compatibility shim that silently failed open and violates the
+        # fail-closed action-masking contract.
         raw_masks = result.get("action_masks") or info_data.get("action_masks")
         if raw_masks:
             action_masks = {
                 agent: (
                     np.array(raw_masks[idx], dtype=np.int8)
                     if idx < len(raw_masks)
-                    else np.ones(19, dtype=np.int8)
+                    else _fail_closed_fallback_mask()
                 )
                 for idx, agent in enumerate(controllable_ids)
             }
         else:
-            action_masks = {agent: np.ones(19, dtype=np.int8) for agent in controllable_ids}
+            # Legacy/stale-bridge fallback: fail-closed, not all-ones.
+            action_masks = {agent: _fail_closed_fallback_mask() for agent in controllable_ids}
         batched_obs = {
             agent: {"observation": observations[agent], "action_mask": action_masks[agent]}
             for agent in controllable_ids

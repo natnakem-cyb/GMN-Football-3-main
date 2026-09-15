@@ -57,20 +57,40 @@ def unwrap_masks(obs_dict: Dict[str, Any]) -> Dict[str, Optional[np.ndarray]]:
     return masks
 
 
-# Engine action-space size (src/engine/ActionMapping.ts). Used only for the
-# all-ones fallback when an env does not provide masks.
+# Engine action-space size (src/engine/ActionMapping.ts).
 _ACTION_DIM = 19
+
+
+def _fail_closed_fallback_mask() -> np.ndarray:
+    """Return a fail-closed mask: IDLE (0) + movement (1-8) legal, everything else illegal.
+
+    This is the canonical safe fallback when a real mask is unavailable (e.g., legacy
+    bridge that predates mask transmission, or a protocol fault). It is consistent with
+    the bridge's stale/missing-agent-ID fallback and the engine's guarantee that at
+    least IDLE/movement should always be legal during normal play.
+
+    Do NOT use np.ones(19) as a fallback — that silently fails open and violates the
+    fail-closed action-masking contract.
+    """
+    mask = np.zeros(_ACTION_DIM, dtype=np.int8)
+    mask[0:9] = 1  # IDLE (idx 0) + movement (idx 1-8)
+    return mask
 
 
 def _mask_matrix(
     masks: Optional[Dict[str, Optional[np.ndarray]]],
     agent_order: List[str],
 ) -> np.ndarray:
-    """Stack per-agent masks into (num_agents, _ACTION_DIM); ones if absent."""
+    """Stack per-agent masks into (num_agents, _ACTION_DIM); fail-closed if absent.
+
+    When a mask is absent for an agent, uses a fail-closed fallback (IDLE + movement
+    legal, everything else illegal) rather than the legacy all-ones. This is consistent
+    with the bridge's stale/missing-agent-ID fallback behavior.
+    """
     rows = []
     for a in agent_order:
         m = masks.get(a) if masks else None
-        rows.append(m if m is not None else np.ones(_ACTION_DIM, dtype=np.int8))
+        rows.append(m if m is not None else _fail_closed_fallback_mask())
     return np.stack(rows, axis=0).astype(np.int8)
 
 
