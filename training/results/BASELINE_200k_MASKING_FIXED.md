@@ -1,6 +1,8 @@
-# Baseline Report: 4-Seed 200k Masking-Fix Retrain
+# Baseline Report: 4-Seed 200k Masking-Fix Retrain (stale checkpoints)
 
-**Supersedes:** `training/results/BASELINE_200k_PBRS_EXPLORATION.md` — that report reflects commit `81031ae` without the end-to-end mask fixes and bridge fail-closed changes from this brief. Use this report as the current baseline for any work on `1dab833` or later.
+**Note:** This document evaluates pre-fix checkpoints from commit `e2509b0` using the new mask-aware eval scripts. For the **fresh retrain from scratch** against current HEAD (`fdf8ea0`) with all mask fixes in place, see [`BASELINE_200k_MASKING_FIXED_RETRAIN.md`](BASELINE_200k_MASKING_FIXED_RETRAIN.md).
+
+**Supersedes:** `training/results/BASELINE_200k_PBRS_EXPLORATION.md` — that report reflects commit `81031ae` without the end-to-end mask fixes and bridge fail-closed changes from this brief. Use the retrain doc above as the current baseline for any work on `1dab833` or later.
 
 **Verification method:** Training artifacts produced at commit `e2509b0` (4-seed 200k retrain with PBRS + exploration bonus). Evaluation re-run with the fixed eval scripts from this brief (Parts 4 mask-threading applied). Checkpoint SHA-256 hashes computed independently. Full test suite gate passed (236 tests, 0 failures) before evaluation.
 

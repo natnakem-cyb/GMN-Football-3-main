@@ -926,6 +926,7 @@ if __name__ == "__main__":
     parser.add_argument("--curriculum-promote-threshold", type=float, default=0.6, help="Success rate threshold to promote to next stage")
     parser.add_argument("--curriculum-demote-threshold", type=float, default=0.1, help="Success rate threshold to demote after regression")
     parser.add_argument("--curriculum-min-episodes", type=int, default=200, help="Minimum episodes before promotion is allowed")
+    parser.add_argument("--models-dir", type=str, default=None, help="Output directory for checkpoints and logs")
     args = parser.parse_args()
 
     if args.curriculum and args.scenario:
@@ -948,4 +949,7 @@ if __name__ == "__main__":
         curriculum_promote_threshold=args.curriculum_promote_threshold,
         curriculum_demote_threshold=args.curriculum_demote_threshold,
         curriculum_min_episodes=args.curriculum_min_episodes,
+        models_dir=args.models_dir,
     )
+
+
