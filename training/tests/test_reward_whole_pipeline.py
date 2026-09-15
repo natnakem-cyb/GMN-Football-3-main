@@ -802,7 +802,7 @@ class TestLiveOnePassPipeline:
             # enable_reward_shaping=False so rewards == the pure ENGINE stream
             # (shared_reward broadcast) — isolates R_engine for measurement.
             env = GMNMultiAgentEnv(
-                scenario="academy_empty_goal",
+                scenario="academy_pass_and_shoot_with_keeper",
                 auto_start_bridge=False,
                 port=LIVE_PORT,
                 enable_reward_shaping=False,
