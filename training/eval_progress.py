@@ -592,7 +592,7 @@ def evaluate_multi_agent_mappo(
     import torch
     from training.gmn_pettingzoo import GMNMultiAgentEnv
     from training.mappo_networks import SharedActor
-    from training.mappo_rollout import unwrap_obs
+    from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     obs_dim = checkpoint.get("obs_dim", 127 if "actor" in checkpoint and checkpoint["actor"]["net.0.weight"].shape[1] == 127 else (checkpoint["actor"]["net.0.weight"].shape[1] if "actor" in checkpoint else 127))
@@ -626,6 +626,7 @@ def evaluate_multi_agent_mappo(
         for ep in range(num_episodes):
             seed = base_seed + ep * 1009
             obs_dict, _ = env.reset(seed=seed)
+            current_ep_masks = unwrap_masks(obs_dict)
             tracker = FootballMetricsTracker()
             sample_obs = next(iter(obs_dict.values())) if obs_dict else None
             tracker.start_episode(scenario, seed, _extract_ball_pos(sample_obs))
@@ -640,9 +641,10 @@ def evaluate_multi_agent_mappo(
                 current_agents = list(env.agents if env.agents else controllable_agents)
                 obs_dict = unwrap_obs(obs_dict)
                 local_obs = np.stack([obs_dict[a] for a in current_agents], axis=0).astype(np.float32)
+                mask_matrix = _mask_matrix(current_ep_masks, current_agents)
 
                 with torch.no_grad():
-                    dist = actor(torch.from_numpy(local_obs).float())
+                    dist = actor(torch.from_numpy(local_obs).float(), torch.tensor(mask_matrix, dtype=torch.bool))
                     if deterministic:
                         actions = dist.logits.argmax(dim=-1)
                     else:
@@ -656,6 +658,7 @@ def evaluate_multi_agent_mappo(
                         shots += 1
 
                 obs_dict, rews, terms, truncs, infos = env.step(action_dict)
+                current_ep_masks = unwrap_masks(obs_dict)
                 steps += 1
 
                 shared_rew = float(rews[current_agents[0]]) if current_agents and current_agents[0] in rews else 0.0

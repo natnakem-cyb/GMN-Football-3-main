@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.mappo_networks import SharedActor
-from training.mappo_rollout import unwrap_obs
+from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
 from training.football_metrics import FootballMetricsTracker, EpisodeMetrics, compute_distribution
 
 
@@ -169,6 +169,7 @@ def evaluate_checkpoint_comprehensive(
     for ep in range(num_episodes):
         ep_seed = base_seed + ep * 1009
         obs_dict, _ = env.reset(seed=ep_seed)
+        current_ep_masks = unwrap_masks(obs_dict)
         obs_dict = unwrap_obs(obs_dict)
 
         # Initialize episode tracking
@@ -189,9 +190,10 @@ def evaluate_checkpoint_comprehensive(
         while True:
             current_agents = list(env.agents if env.agents else controllable_agents)
             local_obs = np.stack([obs_dict[a] for a in current_agents], axis=0).astype(np.float32)
+            mask_matrix = _mask_matrix(current_ep_masks, current_agents)
 
             with torch.no_grad():
-                dist = actor(torch.from_numpy(local_obs).float())
+                dist = actor(torch.from_numpy(local_obs).float(), torch.tensor(mask_matrix, dtype=torch.bool))
                 if deterministic:
                     actions = dist.logits.argmax(dim=-1)
                 else:
@@ -219,6 +221,7 @@ def evaluate_checkpoint_comprehensive(
                     action_counts_this_episode[act_int] += 1
 
             obs_dict, rews, terms, truncs, infos = env.step(action_dict)
+            current_ep_masks = unwrap_masks(obs_dict)
             obs_dict = unwrap_obs(obs_dict)
             ep_length += 1
 

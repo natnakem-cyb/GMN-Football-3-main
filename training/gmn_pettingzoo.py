@@ -581,7 +581,22 @@ class GMNMultiAgentEnv(ParallelEnv):
             else:
                 obs = np.zeros(OBSERVATION_DIM, dtype=np.float32)
             observations[agent] = obs
-        action_masks = {agent: np.ones(19, dtype=np.int8) for agent in controllable_ids}
+        # Real reset-time legality masks from the bridge (masking gap, Part 1):
+        # at kickoff the ball is unowned, so SHOT/PASS/DRIBBLE are illegal and
+        # TACKLE is legal. The all-ones fallback exists only for a stale bridge
+        # that predates reset-mask transmission.
+        raw_masks = result.get("action_masks") or info_data.get("action_masks")
+        if raw_masks:
+            action_masks = {
+                agent: (
+                    np.array(raw_masks[idx], dtype=np.int8)
+                    if idx < len(raw_masks)
+                    else np.ones(19, dtype=np.int8)
+                )
+                for idx, agent in enumerate(controllable_ids)
+            }
+        else:
+            action_masks = {agent: np.ones(19, dtype=np.int8) for agent in controllable_ids}
         batched_obs = {
             agent: {"observation": observations[agent], "action_mask": action_masks[agent]}
             for agent in controllable_ids
@@ -1240,13 +1255,21 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         observations: Dict[str, np.ndarray] = {}
         action_masks: Dict[str, np.ndarray] = {}
+        # Real reset-time legality masks from the bridge (masking gap, Part 1):
+        # at kickoff the ball is unowned, so SHOT/PASS/DRIBBLE are illegal and
+        # TACKLE is legal. All-ones fallback only for a stale bridge that
+        # predates reset-mask transmission.
+        raw_masks = data.get("action_masks") or info_data.get("action_masks")
         for idx, agent in enumerate(self.agents):
             if idx < len(raw_obs_list):
                 obs = np.array(raw_obs_list[idx], dtype=np.float32)
             else:
                 obs = np.zeros(OBSERVATION_DIM, dtype=np.float32)
             observations[agent] = obs
-            action_masks[agent] = np.ones(19, dtype=np.int8)
+            if raw_masks and idx < len(raw_masks):
+                action_masks[agent] = np.array(raw_masks[idx], dtype=np.int8)
+            else:
+                action_masks[agent] = np.ones(19, dtype=np.int8)
 
         infos: Dict[str, Any] = {agent: dict(info_data) for agent in self.agents}
         for agent in self.agents:

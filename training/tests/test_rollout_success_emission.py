@@ -40,7 +40,7 @@ N_ACTIONS = 5
 class DummyActor:
     """Returns a uniform Categorical over N_ACTIONS for the agent batch."""
 
-    def __call__(self, obs: torch.Tensor):
+    def __call__(self, obs: torch.Tensor, action_mask=None):
         n = obs.shape[0]
         return torch.distributions.Categorical(
             logits=torch.zeros(n, N_ACTIONS)

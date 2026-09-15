@@ -265,15 +265,22 @@ export class GMNBridgeService {
         engine.gameMode
       ).rawVector
     );
+    const actionMasks = this.computeActionMasks(engine, controllableIds);
     return {
       observation: engine.getObservation().rawVector,
       observations: perAgentObservations,
+      // Real reset-time legality masks (masking gap, Part 1): at kickoff the
+      // ball is unowned, so SHOT/PASS/DRIBBLE are illegal and TACKLE is legal.
+      // The Python side previously synthesized all-ones here, which made the
+      // first action of every episode be sampled under a fake all-legal mask.
+      action_masks: actionMasks,
       info: {
         score: { ...engine.score },
         controllableAgentIds: controllableIds,
         // Per-env id (was this.engine.controlledPlayerId, which reported
         // env-0's id for every pool engine).
         controlledPlayerId: engine.controlledPlayerId,
+        action_masks: actionMasks,
       },
     };
   }
@@ -307,10 +314,9 @@ export class GMNBridgeService {
     return controllableIds.map((id) => {
       const player = engine.players.find((p) => p.id === id);
       if (!player) {
-        // BUG-5 fix: a missing/stale controllable id must not produce an
-        // all-zero (deny-everything, incl. IDLE) mask. Fall back to
-        // all-valid so the agent can still act while ids resync.
-        return new Array(19).fill(1);
+        const fallback = new Array(19).fill(0);
+        for (let i = 0; i <= 8; i++) fallback[i] = 1;
+        return fallback;
       }
       return ObservationEncoder.getActionMask(player, engine);
     });
@@ -450,9 +456,13 @@ export class GMNBridgeService {
       ).rawVector
     );
 
+    const actionMasks = this.computeActionMasks(this.engine, controllableAgentIds);
     return {
       observation: initialObs.rawVector,
       observations: perAgentObservations,
+      // Real reset-time legality masks (masking gap, Part 1) — see
+      // buildEnvResetResult for rationale. Kickoff: ball unowned.
+      action_masks: actionMasks,
       info: {
         score: { ...this.engine.score },
         ballDistanceToGoal: Vec2.distance(
@@ -462,6 +472,7 @@ export class GMNBridgeService {
         scenario: sc?.codeName || 'free_play',
         controlledPlayerId: this.engine.controlledPlayerId,
         controllableAgentIds,
+        action_masks: actionMasks,
       },
     };
   }
@@ -917,6 +928,28 @@ const server = http.createServer((req, res) => {
 // Offset 18/22 (OBSERVATION_DIM * float32): OBSERVATION_DIM * float32 observation
 // Offset 18/22 + OBSERVATION_DIM*4 (19 B): action mask (one uint8 per discrete action, 1=valid 0=invalid)
 const MASK_BYTES = 19;
+
+// Always-legal fallback mask: IDLE (0) + movement (1-8) = 9 actions.
+// Used when the real mask is missing or malformed — denies SHOT/PASS/DRIBBLE/TACKLE
+// without deadlocking the agent (BUG-5 preservation: IDLE must stay legal).
+const FAIL_CLOSED_MASK = (() => {
+  const m = new Array(19).fill(0);
+  for (let i = 0; i <= 8; i++) m[i] = 1;
+  return m;
+})();
+
+function writeMaskToBuffer(buf: Buffer, maskOffset: number, mask?: number[]): void {
+  if (mask && mask.length === 19) {
+    for (let i = 0; i < 19; i++) {
+      buf.writeUInt8(mask[i] ? 1 : 0, maskOffset + i);
+    }
+  } else {
+    for (let i = 0; i < 19; i++) {
+      buf.writeUInt8(FAIL_CLOSED_MASK[i], maskOffset + i);
+    }
+  }
+}
+
 export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isRondo = false, defenderReward = 0, actionMask?: number[]): Buffer {
   const obsBytes = OBSERVATION_DIM * 4;
   const headerSize = isRondo ? 22 : 18;
@@ -951,17 +984,8 @@ export function encodeStepBinary(stepResult: any, ballOwnerAgentIdx: number, isR
   }
 
   const mask = actionMask ?? stepResult.action_mask;
-  if (mask && mask.length === 19) {
-    const maskOffset = headerSize + obsBytes;
-    for (let i = 0; i < 19; i++) {
-      buf.writeUInt8(mask[i] ? 1 : 0, maskOffset + i);
-    }
-  } else {
-    const maskOffset = headerSize + obsBytes;
-    for (let i = 0; i < 19; i++) {
-      buf.writeUInt8(1, maskOffset + i);
-    }
-  }
+  const maskOffset = headerSize + obsBytes;
+  writeMaskToBuffer(buf, maskOffset, mask);
 
   return buf;
 }
@@ -1017,15 +1041,7 @@ export function encodeMultiStepBinary(multiResult: any, isRondo = false, defende
     }
     const mask = multiResult.action_masks?.[agentIdx];
     const maskOffset = headerSize + N * obsBytes + agentIdx * maskBytes;
-    if (mask && mask.length === 19) {
-      for (let i = 0; i < 19; i++) {
-        buf.writeUInt8(mask[i] ? 1 : 0, maskOffset + i);
-      }
-    } else {
-      for (let i = 0; i < 19; i++) {
-        buf.writeUInt8(1, maskOffset + i);
-      }
-    }
+    writeMaskToBuffer(buf, maskOffset, mask);
   }
 
   return buf;
@@ -1091,15 +1107,7 @@ export function encodeBatchedStepBinary(results: any[]): Buffer {
       }
       const mask = multiResult.action_masks?.[agentIdx];
       const maskOffset = baseOffset + headerSize + N * obsBytes + agentIdx * maskBytes;
-      if (mask && mask.length === 19) {
-        for (let i = 0; i < 19; i++) {
-          buf.writeUInt8(mask[i] ? 1 : 0, maskOffset + i);
-        }
-      } else {
-        for (let i = 0; i < 19; i++) {
-          buf.writeUInt8(1, maskOffset + i);
-        }
-      }
+      writeMaskToBuffer(buf, maskOffset, mask);
     }
   }
 

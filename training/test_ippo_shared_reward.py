@@ -24,14 +24,16 @@ def test_shared_reward_broadcast_unpack():
     print("========================================================================")
 
     # Instantiate env without connecting network
-    env = GMNMultiAgentEnv(scenario="academy_3_vs_1_with_keeper", auto_start_bridge=False)
+    env = GMNMultiAgentEnv(scenario="academy_3_vs_1_with_keeper", auto_start_bridge=False, enable_reward_shaping=False)
     env.agents = ["agent_0", "agent_1", "agent_2"]
     env.possible_agents = list(env.agents)
     env._step_count = 1
 
     # Synthesize binary step frame from bridge:
-    # 18-byte header: <f (reward=0.75), ?? (term=False, trunc=False), BB (score_l=1, score_r=0), ff (cp_rew=0.1, dist=0.2), BB (event=0, ball_owner=0)
+    # 18-byte header: <f (reward=4B), ?? (term+trunc=2B), BB (score_l+score_r=2B),
+    # ff (cp_rew+dist=8B), BB (event_code+ball_owner=2B) = 18B total
     # followed by 3 agent observations (OBSERVATION_DIM * 4 bytes each)
+    # followed by 3 agent action masks (3 * 19 bytes)
     test_reward_val = 0.75
     header = struct.pack(
         "<f??BBffBB",
@@ -53,7 +55,12 @@ def test_shared_reward_broadcast_unpack():
         arr[0] = float(i + 1)
         obs_payload.extend(arr.tobytes())
 
-    frame_data = header + bytes(obs_payload)
+    mask_bytes_per_agent = 19
+    mask_payload = bytearray()
+    for i in range(3):
+        mask_payload.extend(bytes([1] * mask_bytes_per_agent))
+
+    frame_data = bytes(header) + bytes(obs_payload) + bytes(mask_payload)
 
     # Mock ws_client.recv to return frame_data and mock ws_client.send.
     # Signature mirrors websockets.sync.client.ClientConnection.recv(timeout, decode).

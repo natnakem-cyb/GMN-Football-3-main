@@ -380,9 +380,13 @@ export class ObservationEncoder {
    * Build a 19-element action mask for the given player/engine state.
    * 1 = valid, 0 = invalid.
    *
-   * Movement actions (indices 0-7) and IDLE (index 8) are always valid.
+   * IDLE (index 0) and movement actions (indices 1-8) are always valid.
    * Ball-handling actions (LONG_PASS=9, HIGH_PASS=10, SHORT_PASS=11,
-   * SHOT=12, DRIBBLE=17) are only valid when the player has possession.
+   * SHOT=12) are only valid when the player has possession.
+   * DRIBBLE=17 is intentionally excluded from BALL_ACTIONS: the engine
+   * permits off-ball dribble as a movement modifier (sets sticky direction
+   * and targetPosition without requiring possession), so masking it would
+   * incorrectly forbid legal actions at kickoff / loose-ball phases.
    * TACKLE (16) is only valid when the player does NOT have possession
    * (the engine already enforces this, but the mask makes it explicit to
    * the agent so it does not waste an action slot).
@@ -391,8 +395,10 @@ export class ObservationEncoder {
     const hasPossession = player.hasBall || engine.ball.ownerId === player.id;
     const mask: number[] = new Array(19).fill(1);
 
-    // Ball-handling actions require possession.
-    const BALL_ACTIONS = new Set<number>([9, 10, 11, 12, 17]);
+    // Ball-handling actions require possession. DRIBBLE=17 is omitted: the
+    // engine allows off-ball dribble as movement (see GameEngine.ts DRIBBLE
+    // case), so the mask must not forbid it.
+    const BALL_ACTIONS = new Set<number>([9, 10, 11, 12]);
     // TACKLE requires NO possession.
     const TACKLE_INDEX = 16;
 

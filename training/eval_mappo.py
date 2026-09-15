@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.mappo_networks import SharedActor
-from training.mappo_rollout import unwrap_obs
+from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
 from training.episode_recorder import EpisodeRecorder
 
 
@@ -106,6 +106,7 @@ def evaluate_mappo(
     for ep in range(1, num_episodes + 1):
         ep_seed = base_seed + ep
         obs_dict, _ = env.reset(seed=ep_seed)
+        current_ep_masks = unwrap_masks(obs_dict)
         obs_dict = unwrap_obs(obs_dict)
         ep_reward = 0.0
         ep_length = 0
@@ -124,9 +125,10 @@ def evaluate_mappo(
         while True:
             current_agents = list(env.agents if env.agents else controllable_agents)
             local_obs = np.stack([obs_dict[a] for a in current_agents], axis=0).astype(np.float32)
+            mask_matrix = _mask_matrix(current_ep_masks, current_agents)
 
             with torch.no_grad():
-                dist = actor(torch.from_numpy(local_obs).float())
+                dist = actor(torch.from_numpy(local_obs).float(), torch.tensor(mask_matrix, dtype=torch.bool))
                 if deterministic:
                     # Argmax over action logits
                     actions = dist.logits.argmax(dim=-1)
@@ -135,6 +137,7 @@ def evaluate_mappo(
 
             action_dict = {a: int(actions[i].item()) for i, a in enumerate(current_agents)}
             obs_dict, rewards, terminations, truncations, infos = env.step(action_dict)
+            current_ep_masks = unwrap_masks(obs_dict)
             obs_dict = unwrap_obs(obs_dict)
 
             shared_rew = float(rewards[current_agents[0]]) if current_agents and current_agents[0] in rewards else 0.0

@@ -38,6 +38,8 @@ class _FakeEnv:
         self._mappo_ep_len = 0
         self._batch_envs = []
         self._pending_pass = None
+        self.shot_clock_truncates = True
+        self.shot_clock_t_max = None
 
     def set_scenario(self, scenario: str) -> None:
         self.scenario = scenario
@@ -115,34 +117,34 @@ class TestTrainMappoCurriculum:
                 # Also patch the networks so we don't need a real GPU.
                 with patch("training.train_mappo.SharedActor") as MockActor, \
                      patch("training.train_mappo.CentralizedCritic") as MockCritic:
-                    # Build lightweight nn.Module subclasses with real parameters.
-                    class FakeActor(torch.nn.Module):
-                        def __init__(self):
-                            super().__init__()
-                            self.net = torch.nn.Linear(127, 19)
+                     # Build lightweight nn.Module subclasses with real parameters.
+                     class FakeActor(torch.nn.Module):
+                         def __init__(self):
+                             super().__init__()
+                             self.net = torch.nn.Linear(127, 19)
 
-                        def forward(self, obs):
-                            logits = self.net(obs)
-                            dist = MagicMock()
-                            dist.sample.return_value = torch.zeros(obs.shape[0], dtype=torch.long)
-                            dist.log_prob.return_value = torch.zeros(obs.shape[0])
-                            dist.entropy.return_value = torch.zeros(obs.shape[0])
-                            return dist
+                         def forward(self, obs, action_mask=None):
+                             logits = self.net(obs)
+                             dist = MagicMock()
+                             dist.sample.return_value = torch.zeros(obs.shape[0], dtype=torch.long)
+                             dist.log_prob.return_value = torch.zeros(obs.shape[0])
+                             dist.entropy.return_value = torch.zeros(obs.shape[0])
+                             return dist
 
-                    class FakeCritic(torch.nn.Module):
-                        def __init__(self):
-                            super().__init__()
-                            self.value_head = torch.nn.Linear(1, 1)
+                     class FakeCritic(torch.nn.Module):
+                         def __init__(self):
+                             super().__init__()
+                             self.value_head = torch.nn.Linear(1, 1)
 
-                        def forward(self, x):
-                            return self.value_head(torch.zeros(1, 1)).squeeze(-1)
+                         def forward(self, x):
+                             return self.value_head(torch.zeros(1, 1)).squeeze(-1)
 
-                    mock_actor = FakeActor()
-                    mock_critic = FakeCritic()
-                    MockActor.return_value = mock_actor
-                    MockCritic.return_value = mock_critic
+                     mock_actor = FakeActor()
+                     mock_critic = FakeCritic()
+                     MockActor.return_value = mock_actor
+                     MockCritic.return_value = mock_critic
 
-                    result = train_mappo.run_mappo_training(
+                     result = train_mappo.run_mappo_training(
                         timesteps=256,  # 1 rollout
                         scenario="academy_empty_goal",
                         seed=42,
@@ -200,41 +202,41 @@ class TestTrainMappoCurriculum:
                  patch("training.train_mappo.persist_trend_snapshots"):
                 with patch("training.train_mappo.SharedActor") as MockActor, \
                      patch("training.train_mappo.CentralizedCritic") as MockCritic:
-                    class FakeActor(torch.nn.Module):
-                        def __init__(self):
-                            super().__init__()
-                            self.net = torch.nn.Linear(127, 19)
+                     class FakeActor(torch.nn.Module):
+                         def __init__(self):
+                             super().__init__()
+                             self.net = torch.nn.Linear(127, 19)
 
-                        def forward(self, obs):
-                            logits = self.net(obs)
-                            dist = MagicMock()
-                            dist.sample.return_value = torch.zeros(obs.shape[0], dtype=torch.long)
-                            dist.log_prob.return_value = torch.zeros(obs.shape[0])
-                            dist.entropy.return_value = torch.zeros(obs.shape[0])
-                            return dist
+                         def forward(self, obs, action_mask=None):
+                             logits = self.net(obs)
+                             dist = MagicMock()
+                             dist.sample.return_value = torch.zeros(obs.shape[0], dtype=torch.long)
+                             dist.log_prob.return_value = torch.zeros(obs.shape[0])
+                             dist.entropy.return_value = torch.zeros(obs.shape[0])
+                             return dist
 
-                    class FakeCritic(torch.nn.Module):
-                        def __init__(self):
-                            super().__init__()
-                            self.value_head = torch.nn.Linear(1, 1)
+                     class FakeCritic(torch.nn.Module):
+                         def __init__(self):
+                             super().__init__()
+                             self.value_head = torch.nn.Linear(1, 1)
 
-                        def forward(self, x):
-                            return self.value_head(torch.zeros(1, 1)).squeeze(-1)
+                         def forward(self, x):
+                             return self.value_head(torch.zeros(1, 1)).squeeze(-1)
 
-                    mock_actor = FakeActor()
-                    mock_critic = FakeCritic()
-                    MockActor.return_value = mock_actor
-                    MockCritic.return_value = mock_critic
+                     mock_actor = FakeActor()
+                     mock_critic = FakeCritic()
+                     MockActor.return_value = mock_actor
+                     MockCritic.return_value = mock_critic
 
-                    train_mappo.run_mappo_training(
-                        timesteps=256 * 2,  # 2 rollouts
-                        scenario="academy_empty_goal",
-                        seed=42,
-                        n_envs=1,
-                        curriculum=True,
-                        curriculum_state_path=state_path,
-                        curriculum_window_size=5,
-                        curriculum_promote_threshold=0.6,
+                     train_mappo.run_mappo_training(
+                         timesteps=256 * 2,  # 2 rollouts
+                         scenario="academy_empty_goal",
+                         seed=42,
+                         n_envs=1,
+                         curriculum=True,
+                         curriculum_state_path=state_path,
+                         curriculum_window_size=5,
+                         curriculum_promote_threshold=0.6,
                         curriculum_demote_threshold=0.1,
                         curriculum_min_episodes=3,
                         models_dir=models_dir,
