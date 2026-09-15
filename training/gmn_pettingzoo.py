@@ -1289,7 +1289,7 @@ class GMNMultiAgentEnv(ParallelEnv):
             if raw_masks and idx < len(raw_masks):
                 action_masks[agent] = np.array(raw_masks[idx], dtype=np.int8)
             else:
-                action_masks[agent] = np.ones(19, dtype=np.int8)
+                action_masks[agent] = _fail_closed_fallback_mask()
 
         infos: Dict[str, Any] = {agent: dict(info_data) for agent in self.agents}
         for agent in self.agents:

@@ -193,3 +193,15 @@ def test_off_ball_entropy_matches_legal_action_count():
         f"Off-ball entropy {entropy:.4f} should be near ln(9)={expected_entropy:.4f}, "
         f"not ln(19)={math.log(19):.4f}"
     )
+
+def test_actor_raises_on_all_zero_mask():
+    """SharedActor must raise ValueError when every action is masked off."""
+    actor = SharedActor(obs_dim=127, action_dim=19, hidden=64)
+    actor.eval()
+
+    torch.manual_seed(42)
+    obs = torch.randn(1, 127)
+    all_zero_mask = torch.zeros(1, 19, dtype=torch.bool)
+
+    with pytest.raises(ValueError, match="no legal actions|bridge/protocol fault"):
+        actor(obs, all_zero_mask)
