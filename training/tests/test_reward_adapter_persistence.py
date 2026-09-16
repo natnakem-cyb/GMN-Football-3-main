@@ -213,8 +213,11 @@ def test_shaping_disabled_yields_no_adapter(monkeypatch):
 def test_exploration_bonus_not_paid_on_goal_tick():
     """G6: goal ticks are exempt from the exploration bonus, like the dense
     terms and the step cost (the count still increments: true visitation)."""
-    beta = AttackingDrillRewardAdapter.EXPLORATION_BETA
-    adapter = AttackingDrillRewardAdapter(max_hold=100000, p_hog=0.0, t_max=100000)
+    beta = 0.03  # explicit; class default is 0.0 when disabled
+    adapter = AttackingDrillRewardAdapter(
+        max_hold=100000, p_hog=0.0, t_max=100000,
+        enable_exploration_bonus=True, exploration_beta=beta,
+    )
     adapter.reset()
     gt = {
         "current_ball_owner": {"team": "left", "agent_id": "left_0"},
