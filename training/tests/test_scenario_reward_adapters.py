@@ -56,6 +56,41 @@ def test_factory_uses_loud_error_message_for_unknown_scenario():
     assert "some_future_scenario_x" in msg
 
 
+def test_get_reward_adapter_enables_exploration_bonus_for_finishing():
+    from training.reward_adapters import get_reward_adapter, AttackingDrillRewardAdapter
+    adapter = get_reward_adapter("academy_3_vs_1_with_keeper")
+    assert isinstance(adapter, AttackingDrillRewardAdapter)
+    assert adapter.enable_exploration_bonus is True
+    assert adapter.exploration_beta == pytest.approx(0.03)
+
+
+def test_strip_progress_audit_per_event_class():
+    """Isolation audit: engine base zeroed on every non-GOAL event class."""
+    from training.reward_adapters import AttackingDrillRewardAdapter
+    agents = ["left_0", "left_1", "left_2"]
+    adapter = AttackingDrillRewardAdapter(enable_exploration_bonus=False)
+    cases = [
+        ("no_event", {}, {"left_0": 0.02, "left_1": 0.02, "left_2": 0.02}, False),
+        ("PASS_COMPLETED", [{"type": "PASS_COMPLETED", "team": "left"}],
+         {"left_0": 0.15, "left_1": 0.15, "left_2": 0.15}, False),
+        ("SHOT_TAKEN", [{"type": "SHOT_TAKEN", "team": "left"}],
+         {"left_0": 0.0, "left_1": 0.0, "left_2": 0.0}, False),
+        ("GOAL_SCORED", [{"type": "GOAL_SCORED", "team": "left"}],
+         {"left_0": 2.0, "left_1": 2.0, "left_2": 2.0}, True),
+        ("TURNOVER", [{"type": "TURNOVER_CONCEDED", "team": "left"}],
+         {"left_0": 0.01, "left_1": 0.01, "left_2": 0.01}, False),
+    ]
+    for name, events, base, expect_keep in cases:
+        shaped = {a: float(base.get(a, 0.0)) for a in agents}
+        adapter._strip_progress(shaped, events)
+        if expect_keep:
+            for a in agents:
+                assert shaped[a] == pytest.approx(base[a]), f"{name}: should keep engine base"
+        else:
+            for a in agents:
+                assert shaped[a] == 0.0, f"{name}: should zero engine base, got {shaped[a]}"
+
+
 def test_attacking_strips_progress_on_quiet_steps():
     ad = AttackingDrillRewardAdapter()
     ad.reset()
@@ -76,13 +111,13 @@ def test_attacking_preserves_goal_step_base():
 
 
 def test_attacking_pays_shot_taken_bonus():
-    """SHOT_TAKEN pays the restored flat attempt bonus (r_shot, 0.25).
+    """SHOT_TAKEN pays the bounded attempt bonus (SHOT_REWARD_FIRST = 0.15).
 
-    Restored deliberately: the PBRS-only design removed the only term that
-    historically produced shooting (Sept 7: 2.17 shots/ep, 20-60% goals).
-    Step cost (-0.005) and dense possession (+0.01) also apply on this tick;
-    PBRS potential requires previous distance state, which is None on the
-    first call, so no potential term is added here.
+    The bounded scheme (first +0.15, second +0.05, third+ 0.00) replaced the
+    flat 0.25 to prevent shot-spam farming. Step cost (-0.005) and dense
+    possession (+0.01) also apply on this tick; PBRS potential requires
+    previous distance state, which is None on the first call, so no potential
+    term is added here.
     """
     ad = AttackingDrillRewardAdapter()
     ad.reset()
@@ -91,8 +126,8 @@ def test_attacking_pays_shot_taken_bonus():
     out = ad.compute_shaped_rewards(
         base, evs, GT_L0, ["left_0"], actions={"left_0": 12}
     )
-    # r_shot + step cost + dense possession reward.
-    assert out["left_0"] == pytest.approx(0.25 - 0.005 + 0.01)
+    # SHOT_REWARD_FIRST + step cost + dense possession reward.
+    assert out["left_0"] == pytest.approx(0.15 - 0.005 + 0.01)
     assert ad.solitary_shot_count == 0
     assert ad.shot_taken_count == 1
 
@@ -183,7 +218,9 @@ def test_attacking_shot_saved_bonus_and_seen_shot():
         GT_NONE,
         ["left_0"],
     )
-    assert out["left_0"] == pytest.approx(0.40 - 0.005)
+    # SHOT_SAVED_REWARD_FIRST (0.20) + step cost (-0.005). PBRS delta is 0 on
+    # first call (no prev distance), dense possession is 0 (no owner in GT_NONE).
+    assert out["left_0"] == pytest.approx(0.20 - 0.005)
     assert ad.check_shot_clock() is None or ad.seen_shot
 
 
@@ -219,7 +256,9 @@ def test_rondo_keeps_pass_and_turnover_signals():
         GT_L0,
         ["left_0", "left_1"],
     )
-    assert out["left_0"] == pytest.approx(0.30)
+    # r_pass default is 0.0 (engine owns base pass reward). Only the base
+    # reward would be non-zero, but here base is 0.0 so expect 0.0.
+    assert out["left_0"] == pytest.approx(0.0)
     out2 = rd.compute_shaped_rewards(
         {"left_0": 0.0},
         [{"type": "TURNOVER_CONCEDED", "team": "left", "agent_id": "left_0"}],
@@ -493,7 +532,7 @@ def test_pibrs_with_shot_saved_still_gets_on_target_bonus():
         -0.005
         + AttackingDrillRewardAdapter.DENSE_POSSESSION_REWARD
         + pb_delta
-        + 0.40
+        + 0.20  # SHOT_SAVED_REWARD_FIRST
     )
     assert out["left_0"] == pytest.approx(expected, abs=1e-6)
 
@@ -566,7 +605,7 @@ def test_pibrs_shape_term_magnitude_sane():
 import math
 
 GT_LEFT = {"current_ball_owner": {"team": "left", "agent_id": "left_0"}}
-BETA = AttackingDrillRewardAdapter.EXPLORATION_BETA
+BETA = 0.03  # explicit; class default is 0.0 when disabled
 
 
 def _exploration_adapter():
@@ -578,7 +617,13 @@ def _exploration_adapter():
     exploration bonus specifically, not the hold/clock mechanisms. The
     adapter is reset()ed and ready to use.
     """
-    ad = AttackingDrillRewardAdapter(max_hold=100000, p_hog=0.0, t_max=100000)
+    ad = AttackingDrillRewardAdapter(
+        max_hold=100000,
+        p_hog=0.0,
+        t_max=100000,
+        enable_exploration_bonus=True,
+        exploration_beta=0.03,
+    )
     ad.reset()
     return ad
 

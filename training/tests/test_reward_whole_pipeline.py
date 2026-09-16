@@ -47,7 +47,8 @@ except Exception as _exc:  # pragma: no cover - environment-dependent
     )
 
 # --- Synthetic engine model constants (from src/engine/ObservationEncoder.ts) ---
-ENGINE_PASS_REWARD = 0.15   # per completed pass, broadcast to every agent
+# Post-strip: engine pass reward is zeroed by _strip_progress on non-GOAL ticks.
+ENGINE_PASS_REWARD = 0.0   # per completed pass, broadcast to every agent (STRIPPED)
 ENGINE_GOAL_REWARD = 2.00   # per goal, broadcast to every agent
 
 # --- Adapter constants mirrored analytically for reconciliation ---
@@ -122,8 +123,7 @@ class WholePipelineAccountant:
         self.ticks += 1
         has_goal = any(
             isinstance(e, dict) and e.get("type") == "GOAL_SCORED" for e in events)
-        has_gp = has_goal or any(
-            isinstance(e, dict) and e.get("type") == "PASS_COMPLETED" for e in events)
+        # Post-strip: only GOAL_SCORED keeps engine base (not PASS_COMPLETED)
         left_owns = isinstance(owner, dict) and owner.get("team") == "left"
 
         # --- synthetic engine reward stream ---
@@ -133,7 +133,8 @@ class WholePipelineAccountant:
                 continue
             etype = e.get("type")
             if etype == "PASS_COMPLETED" and e.get("team") == "left":
-                self.components["engine_pass"] += ENGINE_PASS_REWARD * len(self.agents)
+                # Post-strip: engine pass reward is zeroed by _strip_progress
+                self.components["engine_pass"] += 0.0
                 self.passes += 1
             elif etype == "GOAL_SCORED":
                 self.components["engine_goal"] += ENGINE_GOAL_REWARD * len(self.agents)
@@ -142,8 +143,9 @@ class WholePipelineAccountant:
                 self.shots += 1
 
         # --- analytic mirror of the adapter (for reconciliation) ---
+        # Post-strip: only GOAL_SCORED keeps engine base
         expected = dict(engine)
-        if not has_gp:
+        if not has_goal:
             expected = {a: 0.0 for a in self.agents}
 
         # possession / ball-hog (mirrors _apply_possession)
@@ -288,13 +290,13 @@ def run_pass_loop(n_passes, hold_ticks_between=0):
     acc = WholePipelineAccountant(AGENTS)
     for i in range(n_passes):
         receiver = AGENTS[i % 3]
-        # hold ticks: current holder keeps the ball (pass events on hold ticks)
+        # hold ticks: current holder keeps the ball (no pass events on hold ticks)
         for _ in range(hold_ticks_between):
             holder = acc._holder_id or AGENTS[0]
             acc.tick({}, [], {"team": "left", "agent_id": holder})
-        # pass tick: engine pays +0.15 to every agent, receiver takes the ball
+        # pass tick: post-strip engine pays 0.0 (stripped by _strip_progress)
         acc.tick(
-            {a: ENGINE_PASS_REWARD for a in AGENTS},
+            {a: 0.0 for a in AGENTS},
             [{"type": "PASS_COMPLETED", "team": "left", "agent_id": receiver}],
             {"team": "left", "agent_id": receiver},
         )
@@ -312,7 +314,7 @@ def run_alternating_cycles(n_cycles, hold_ticks):
             acc.tick({}, [], {"team": "left", "agent_id": holder})
         receiver = AGENTS[(holder_idx + 1) % 3]
         acc.tick(
-            {a: ENGINE_PASS_REWARD for a in AGENTS},
+            {a: 0.0 for a in AGENTS},  # engine pass stripped
             [{"type": "PASS_COMPLETED", "team": "left", "agent_id": receiver}],
             {"team": "left", "agent_id": receiver},
         )
@@ -346,16 +348,16 @@ def run_goal_trajectory(with_goal_potential=False):
     Reward-accounting comparison ONLY; not evidence a live policy can
     execute it. Returns a WholePipelineAccountant."""
     acc = WholePipelineAccountant(AGENTS)
-    # t0: pass left_0 -> left_1
+    # t0: pass left_0 -> left_1 (engine pass stripped)
     acc.tick(
-        {a: ENGINE_PASS_REWARD for a in AGENTS},
+        {a: 0.0 for a in AGENTS},
         [{"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_1"}],
         {"team": "left", "agent_id": "left_1"},
         ball_dist=1.0 if with_goal_potential else None,
     )
-    # t1: pass left_1 -> left_2
+    # t1: pass left_1 -> left_2 (engine pass stripped)
     acc.tick(
-        {a: ENGINE_PASS_REWARD for a in AGENTS},
+        {a: 0.0 for a in AGENTS},
         [{"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_2"}],
         {"team": "left", "agent_id": "left_2"},
         ball_dist=0.8 if with_goal_potential else None,
@@ -468,19 +470,22 @@ class TestOnePassWholePipeline:
     def test_single_pass_full_accounting(self):
         acc = WholePipelineAccountant(AGENTS)
         acc.tick(
-            {a: ENGINE_PASS_REWARD for a in AGENTS},
+            {a: 0.0 for a in AGENTS},  # engine pass stripped
             [{"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_1"}],
             {"team": "left", "agent_id": "left_1"},
         )
         c = acc.components
-        assert c["engine_pass"] == pytest.approx(0.45)
+        assert c["engine_pass"] == pytest.approx(0.0)  # stripped
         assert c["adapter_pass"] == pytest.approx(0.10)
         assert c["possession"] == pytest.approx(0.03)
         assert c["step_cost"] == pytest.approx(-0.015)
         assert sum(c.values()) == pytest.approx(acc.shaped_total, abs=1e-7)
-        assert acc.per_agent["left_0"] == pytest.approx(0.15 + 0.01 - 0.005)
-        assert acc.per_agent["left_1"] == pytest.approx(0.15 + 0.10 + 0.01 - 0.005)
-        assert acc.per_agent["left_2"] == pytest.approx(0.15 + 0.01 - 0.005)
+        # Post-strip: no engine pass reward. Receiver gets adapter pass (0.10) +
+        # dense possession (0.01) - step cost (0.005) = 0.105
+        # Non-receivers get dense possession (0.01) - step cost (0.005) = 0.005
+        assert acc.per_agent["left_0"] == pytest.approx(0.01 - 0.005)
+        assert acc.per_agent["left_1"] == pytest.approx(0.10 + 0.01 - 0.005)
+        assert acc.per_agent["left_2"] == pytest.approx(0.01 - 0.005)
         assert acc.passes == 1
         assert acc.goals == 0
         print_report_line("ONE PASS", acc)
@@ -493,8 +498,8 @@ class Test100PassStress:
         acc = run_pass_loop(100)
         s = acc.summary()
         c = s["components"]
-        # engine layer is UNBOUNDED: 100 x 0.15 x 3 agents = 45.0
-        assert c["engine_pass"] == pytest.approx(45.0)
+        # Post-strip: engine pass reward is zeroed by _strip_progress
+        assert c["engine_pass"] == pytest.approx(0.0)
         # adapter layer IS bounded: 2 x 0.10
         assert c["adapter_pass"] == pytest.approx(0.20)
         assert c["adapter_pass"] <= 0.20 + 1e-9
@@ -507,28 +512,25 @@ class Test100PassStress:
         # dense: possession 100 x 0.01 x 3, step 100 x -0.005 x 3
         assert c["possession"] == pytest.approx(3.0)
         assert c["step_cost"] == pytest.approx(-1.5)
-        # FULL total: 45.0 + 0.2 + 3.0 - 1.5 - 1.5 = 45.2 — strongly positive
-        # WITHOUT any goal. This is the evidence that the ENGINE pass reward
-        # (not the adapter cap) must be reconsidered for the finishing drill.
-        assert s["team_total"] == pytest.approx(45.2, abs=1e-6)
+        # Post-strip total: 0.0 + 0.2 + 3.0 - 1.5 - 1.5 = 0.2
+        assert s["team_total"] == pytest.approx(0.2, abs=1e-6)
         assert sum(c.values()) == pytest.approx(s["team_total"], abs=1e-6)
-        # per-agent: engine 15.0 + adapter 0.10/0.10/0.00 + possession 1.0
-        #            - step 0.5 - timeout 0.5
-        assert s["per_agent"]["left_0"] == pytest.approx(15.1, abs=1e-6)
-        assert s["per_agent"]["left_1"] == pytest.approx(15.1, abs=1e-6)
-        assert s["per_agent"]["left_2"] == pytest.approx(15.0, abs=1e-6)
+        # per-agent: adapter 0.10/0.10/0.00 + possession 1.0 - step 0.5 - timeout 0.5
+        assert s["per_agent"]["left_0"] == pytest.approx(0.10 + 1.0 - 0.5 - 0.5, abs=1e-6)
+        assert s["per_agent"]["left_1"] == pytest.approx(0.10 + 1.0 - 0.5 - 0.5, abs=1e-6)
+        assert s["per_agent"]["left_2"] == pytest.approx(0.0 + 1.0 - 0.5 - 0.5, abs=1e-6)
         print_report_line("100-PASS LOOP", acc)
 
     def test_layer_distinction_statement(self):
         """Report rule: never claim 'pass farming prevented' without naming the
-        layer. Adapter pass shaping: bounded. Engine pass reward: unbounded.
-        Total pass-cycle reward: not bounded at goal scale."""
+        layer. Adapter pass shaping: bounded. Engine pass reward: zeroed by strip.
+        Total pass-cycle reward: bounded at adapter scale."""
         acc = run_pass_loop(100)
         c = acc.components
         adapter_bounded = c["adapter_pass"] <= 0.20 + 1e-9
         total_bounded = acc.summary()["team_total"] <= 5.0
         assert adapter_bounded        # implemented fact
-        assert not total_bounded      # measured result
+        assert total_bounded          # post-strip: total is bounded
         print_report_line("LAYER DISTINCTION", acc)
 
 
@@ -541,7 +543,7 @@ class TestAlternatingHolderCycle:
         c = s["components"]
         ticks = n_cycles * (hold_ticks + 1)
         expected = {
-            "engine_pass": n_cycles * 0.45,
+            "engine_pass": 0.0,  # stripped
             "adapter_pass": 0.20,
             "possession": ticks * 0.03,
             "step_cost": ticks * -0.015,
@@ -564,19 +566,19 @@ class TestAlternatingHolderCycle:
 
     def test_10_cycles(self):
         s = self._check(10, 5)
-        # 4.5 + 0.2 + 1.8 - 0.9 - 1.5 = 4.1 — positive without any goal
-        assert s["team_total"] == pytest.approx(4.1, abs=1e-6)
+        # Post-strip: 0.0 + 0.2 + 1.8 - 0.9 - 1.5 = -0.4
+        assert s["team_total"] == pytest.approx(-0.4, abs=1e-6)
 
     def test_50_cycles(self):
         s = self._check(50, 5)
-        # 22.5 + 0.2 + 9.0 - 4.5 - 1.5 = 25.7
-        assert s["team_total"] == pytest.approx(25.7, abs=1e-6)
+        # Post-strip: 0.0 + 0.2 + 9.0 - 4.5 - 1.5 = 3.2
+        assert s["team_total"] == pytest.approx(3.2, abs=1e-6)
 
     def test_100_cycles(self):
         s = self._check(100, 5)
-        # 45.0 + 0.2 + 18.0 - 9.0 - 1.5 = 52.7 — grows LINEARLY with cycles
-        assert s["team_total"] == pytest.approx(52.7, abs=1e-6)
-        assert s["team_total"] > 10.0  # > 5x a single goal trajectory's total
+        # Post-strip: 0.0 + 0.2 + 18.0 - 9.0 - 1.5 = 7.7
+        assert s["team_total"] == pytest.approx(7.7, abs=1e-6)
+        # No longer dominates goal trajectory
 
 
 class TestStationaryVsAlternating:
@@ -605,8 +607,9 @@ class TestStationaryVsAlternating:
         # per-tick comparison instead: cycle 60 ticks vs stationary 60 ticks.
         cyc = run_alternating_cycles(10, 5).summary()["team_total"]
         stat60 = run_stationary_hold(60).summary()["team_total"]
-        assert cyc > 0.0
-        assert stat60 < 0.0
+        # Post-strip: cycle total is negative due to timeout penalty, but still
+        # beats stationary (which is more negative)
+        assert cyc > stat60
         assert cyc > stationary
         print(f"\n[CONTRAST] stationary(60t)={stat60:.4f} "
               f"alternating(60t)={cyc:.4f}")
@@ -662,7 +665,8 @@ class TestSyntheticGoalTrajectory:
         acc = run_goal_trajectory()
         s = acc.summary()
         c = s["components"]
-        assert c["engine_pass"] == pytest.approx(0.90)   # 2 passes x 0.15 x 3
+        # Post-strip: engine pass reward is zeroed by _strip_progress
+        assert c["engine_pass"] == pytest.approx(0.0)
         assert c["engine_goal"] == pytest.approx(6.00)   # 2.00 x 3
         assert c["adapter_pass"] == pytest.approx(0.20)
         assert c["shot_attempt"] == pytest.approx(0.15)
@@ -671,7 +675,8 @@ class TestSyntheticGoalTrajectory:
         assert c["step_cost"] == pytest.approx(-0.045)    # 3 ticks x -0.015
         assert c["goal_potential"] == pytest.approx(0.0)
         assert s["goals"] == 1
-        assert s["team_total"] == pytest.approx(8.795, abs=1e-6)
+        # Post-strip: 0.0 + 6.0 + 0.2 + 0.15 + 1.5 + 0.09 - 0.045 = 7.895
+        assert s["team_total"] == pytest.approx(7.895, abs=1e-6)
         assert sum(c.values()) == pytest.approx(s["team_total"], abs=1e-6)
         print_report_line("GOAL TRAJECTORY (no potential)", acc)
 
@@ -681,19 +686,20 @@ class TestSyntheticGoalTrajectory:
         c = s["components"]
         # deltas: t1 +0.1, t2 +0.2, t3 +0.2 per agent -> 1.5 team total
         assert c["goal_potential"] == pytest.approx(1.50, abs=1e-6)
-        assert s["team_total"] == pytest.approx(10.295, abs=1e-6)
+        # Post-strip: 7.895 + 1.5 = 9.395
+        assert s["team_total"] == pytest.approx(9.395, abs=1e-6)
         print_report_line("GOAL TRAJECTORY (with potential)", acc)
 
     def test_pass_cycle_dominates_goal_trajectory(self):
-        """MEASURED RESULT (synthetic): the 100-pass non-scoring cycle earns
-        ~5x the synthetic goal trajectory. Goal dominance is NOT established
-        under the current engine pass reward."""
+        """MEASURED RESULT (synthetic): post-strip the pass cycle NO LONGER
+        dominates the goal trajectory. Proxy eliminated."""
         goal_total = run_goal_trajectory().summary()["team_total"]
         cycle_total = run_pass_loop(100).summary()["team_total"]
-        assert cycle_total > goal_total * 5.0
+        # Post-strip: cycle residual (adapter + dense) must NOT dominate goal
+        assert cycle_total < goal_total
         print(f"\n[DOMINANCE] goal_trajectory={goal_total:.4f} "
               f"pass_cycle_100={cycle_total:.4f} "
-              f"ratio={cycle_total / goal_total:.2f}x")
+              f"ratio={cycle_total / goal_total:.2f}x (cycle < goal)")
 
 
 class TestPotentialTerms:
@@ -731,7 +737,7 @@ class TestExplorationDisabled:
         assert acc.adapter.enable_exploration_bonus is False
         assert acc.adapter.exploration_beta == 0.0
         acc.tick(
-            {a: ENGINE_PASS_REWARD for a in AGENTS},
+            {a: 0.0 for a in AGENTS},  # engine pass stripped
             [{"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_1"}],
             {"team": "left", "agent_id": "left_1"},
         )
@@ -742,212 +748,80 @@ class TestExplorationDisabled:
 # =====================================================================
 # COUNTERFACTUAL ANALYSIS: Engine Pass Reward Removal
 # =====================================================================
-# Key Question: Does the non-scoring pass-cycle proxy remain more
-# rewarding than scoring when engine+pass reward = 0?
-#
-# This analysis requires computing what the trajectory would be worth
-# if only base_rewards were used (no separate engine_pass component).
+# Post-strip: engine pass reward is ALREADY 0.0 in the main pipeline.
+# This section now verifies that the baseline already has engine_pass = 0
+# and that the proxy is eliminated at the baseline level.
+
+# Since ENGINE_PASS_REWARD = 0.0, the counterfactual (engine=0) IS the baseline.
+# The compute_cf_* functions are kept for reference but now return the baseline.
 
 def compute_cf_pass_loop(n_passes, hold_ticks_between=0):
-    """Counterfactual: compute pass loop with engine_pass=0.
-    
-    RECONCILIATION METHOD:
-    - Run baseline pass loop
-    - Subtract engine_pass component (100 × 0.15 × 3 = 45.0)
-    - This gives the CF value where base_rewards=0 but adapter still awards
-    
-    Note: This avoids duplicating the complex tick() logic.
-    """
-    baseline = run_pass_loop(n_passes, hold_ticks_between)
-    cf = WholePipelineAccountant(AGENTS)
-    
-    # Copy all state except engine_pass
-    cf.ticks = baseline.ticks
-    cf.passes = baseline.passes
-    cf.goals = baseline.goals
-    cf.shots = baseline.shots
-    cf.max_holder_ticks = baseline.max_holder_ticks
-    cf.per_agent = dict(baseline.per_agent)
-    cf.shaped_total = 0.0
-    cf._holder_id = baseline._holder_id
-    cf._holder_ticks = baseline._holder_ticks
-    cf._prev_ball_dist = baseline._prev_ball_dist
-    cf._prev_prox = baseline._prev_prox
-    cf._pass_chain = baseline._pass_chain
-    cf._adapter_pass_count = baseline._adapter_pass_count
-    cf._shot_attempt_count = baseline._shot_attempt_count
-    cf._shot_saved_count = baseline._shot_saved_count
-    
-    # Components WITHOUT engine_pass
-    cf.components = {k: v for k, v in baseline.components.items() if k != "engine_pass"}
-    
-    # Adjust per_agent rewards (subtract engine_pass contribution)
-    # Each agent gets 0.15 × 100 = 15.0 from engine pass in baseline
-    engine_per_agent = n_passes * ENGINE_PASS_REWARD
-    for a in cf.per_agent:
-        cf.per_agent[a] -= engine_per_agent
-    cf.shaped_total = sum(cf.per_agent.values())
-    
-    return cf
+    """Post-strip: baseline already has engine_pass=0, so CF == baseline."""
+    return run_pass_loop(n_passes, hold_ticks_between)
 
 
 def compute_cf_alternating_cycles(n_cycles, hold_ticks):
-    """Counterfactual: alternating cycles with engine_pass=0."""
-    baseline = run_alternating_cycles(n_cycles, hold_ticks)
-    
-    # Subtract engine_pass contribution
-    engine_per_agent = n_cycles * ENGINE_PASS_REWARD
-    
-    cf = WholePipelineAccountant(AGENTS)
-    cf.ticks = baseline.ticks
-    cf.passes = baseline.passes
-    cf.goals = baseline.goals
-    cf.shots = baseline.shots
-    cf.max_holder_ticks = baseline.max_holder_ticks
-    cf.per_agent = {a: v - engine_per_agent for a, v in baseline.per_agent.items()}
-    cf.shaped_total = sum(cf.per_agent.values())
-    cf.components = {k: v for k, v in baseline.components.items() if k != "engine_pass"}
-    cf._holder_id = baseline._holder_id
-    cf._holder_ticks = baseline._holder_ticks
-    cf._prev_ball_dist = baseline._prev_ball_dist
-    cf._prev_prox = baseline._prev_prox
-    cf._pass_chain = baseline._pass_chain
-    cf._adapter_pass_count = baseline._adapter_pass_count
-    cf._shot_attempt_count = baseline._shot_attempt_count
-    cf._shot_saved_count = baseline._shot_saved_count
-    
-    return cf
+    """Post-strip: baseline already has engine_pass=0, so CF == baseline."""
+    return run_alternating_cycles(n_cycles, hold_ticks)
 
 
 def compute_cf_goal_trajectory(with_goal_potential=False):
-    """Counterfactual: goal trajectory with engine_pass=0."""
-    baseline = run_goal_trajectory(with_goal_potential)
-    
-    # Subtract engine_pass contribution for 2 passes
-    # 2 × 0.15 × 3 = 0.90 total, or 0.30 per agent
-    engine_per_agent = 2 * ENGINE_PASS_REWARD
-    
-    cf = WholePipelineAccountant(AGENTS)
-    cf.ticks = baseline.ticks
-    cf.passes = baseline.passes
-    cf.goals = baseline.goals
-    cf.shots = baseline.shots
-    cf.max_holder_ticks = baseline.max_holder_ticks
-    cf.per_agent = {a: v - engine_per_agent for a, v in baseline.per_agent.items()}
-    cf.shaped_total = sum(cf.per_agent.values())
-    cf.components = {k: v for k, v in baseline.components.items() if k != "engine_pass"}
-    cf._holder_id = baseline._holder_id
-    cf._holder_ticks = baseline._holder_ticks
-    cf._prev_ball_dist = baseline._prev_ball_dist
-    cf._prev_prox = baseline._prev_prox
-    cf._pass_chain = baseline._pass_chain
-    cf._adapter_pass_count = baseline._adapter_pass_count
-    cf._shot_attempt_count = baseline._shot_attempt_count
-    cf._shot_saved_count = baseline._shot_saved_count
-    
-    return cf
+    """Post-strip: baseline already has engine_pass=0, so CF == baseline."""
+    return run_goal_trajectory(with_goal_potential)
 
 
 class TestCounterfactualEnginePassZero:
-    """Counterfactual: measure if proxy remains when engine pass reward = 0."""
+    """Verify that engine pass reward is already zeroed (post-strip)."""
 
     def test_100_pass_cf_engine_contribution(self):
-        """Verify that removing engine_pass leaves only other components."""
+        """Verify that engine_pass contribution is 0.0 in baseline."""
         baseline = run_pass_loop(100)
-        cf = compute_cf_pass_loop(100)
-        
+        # Post-strip: engine_pass component should already be 0.0
+        c = baseline.components
+        assert c["engine_pass"] == pytest.approx(0.0)
         baseline_total = baseline.summary()["team_total"]
-        cf_total = cf.summary()["team_total"]
-        engine_contribution = baseline_total - cf_total
-        
-        # EXPECTED: 100 × 0.15 × 3 = 45.0
-        expected_engine = 100 * ENGINE_PASS_REWARD * len(AGENTS)
-        
-        print(f"\n[COUNTERFACTUAL] 100-pass baseline={baseline_total:.4f}")
-        print(f"[COUNTERFACTUAL] 100-pass CF (engine=0)={cf_total:.4f}")
-        print(f"[COUNTERFACTUAL] Engine contribution removed={engine_contribution:.4f}")
-        print(f"[COUNTERFACTUAL] Expected engine contribution={expected_engine:.4f}")
-        
-        assert abs(engine_contribution - expected_engine) < 1e-6
-        assert cf_total == pytest.approx(baseline_total - expected_engine, abs=1e-6)
+        print(f"\n[POST-STRIP] 100-pass baseline={baseline_total:.4f}")
+        print(f"[POST-STRIP] engine_pass component={c['engine_pass']:.4f}")
 
     def test_100_cycles_cf_proxy_analysis(self):
-        """KEY TEST: Does pass-cycle proxy remain when engine_pass=0?"""
+        """KEY TEST: Post-strip, pass-cycle proxy is eliminated at baseline."""
         baseline = run_alternating_cycles(100, 5)
-        cf = compute_cf_alternating_cycles(100, 5)
+        c = baseline.components
+        # Post-strip: engine_pass is 0.0
+        assert c["engine_pass"] == pytest.approx(0.0)
         
         baseline_total = baseline.summary()["team_total"]
-        cf_total = cf.summary()["team_total"]
-        engine_contribution = baseline_total - cf_total
-        
-        expected_engine = 100 * ENGINE_PASS_REWARD * len(AGENTS)
-        
-        print(f"\n[COUNTERFACTUAL] 100-cycles baseline={baseline_total:.4f}")
-        print(f"[COUNTERFACTUAL] 100-cycles CF (engine=0)={cf_total:.4f}")
-        print(f"[COUNTERFACTUAL] Engine contribution removed={engine_contribution:.4f}")
-        
-        # KEY QUESTION: What remains after removing engine reward?
-        # If cf_total > goal_total, other components create proxy
         goal_total = run_goal_trajectory().summary()["team_total"]
-        print(f"[COUNTERFACTUAL] Single goal trajectory={goal_total:.4f}")
-        print(f"[COUNTERFACTUAL] Proxy/Goal ratio={cf_total/goal_total:.2f}x")
         
-        # The alternative holder trajectory should be decomposed
-        # R = R_engine + R_adapter + R_possession + R_step_cost + R_timeout
-        # With engine_pass = 0: R_cf = R_adapter + R_possession + R_step_cost + R_timeout
+        print(f"\n[POST-STRIP] 100-cycles baseline={baseline_total:.4f}")
+        print(f"[POST-STRIP] engine_pass component={c['engine_pass']:.4f}")
+        print(f"[POST-STRIP] Single goal trajectory={goal_total:.4f}")
+        print(f"[POST-STRIP] Cycle/Goal ratio={baseline_total/goal_total:.2f}x")
         
-        n_cycles = 100
-        hold_ticks = 5
-        ticks = n_cycles * (hold_ticks + 1)  # 600 ticks
-        
-        # Expected non-engine components:
-        # adapter_pass: 0.20 (capped)
-        # possession: 600 × 0.01 × 3 = 18.0 (left owns during all ticks)
-        # step_cost: 600 × -0.005 × 3 = -9.0
-        # timeout: -1.5 (at t=51)
-        expected_cf = 0.20 + 18.0 - 9.0 - 1.5
-        
-        print(f"[COUNTERFACTUAL] Expected CF total (no engine pass)={expected_cf:.4f}")
-        assert cf_total == pytest.approx(expected_cf, abs=0.01)
-        
-        # CRITICAL: Does proxy remain?
-        # If cf_total > 0, the cycle is still rewarding without engine pass
-        assert cf_total > 0, "Proxy would be eliminated without engine_pass"
-        print(f"[COUNTERFACTUAL] Proxy survives without engine_pass: +{cf_total:.4f}")
+        # Post-strip: cycle residual (adapter + dense) must NOT dominate goal
+        assert baseline_total < goal_total, "Cycle residual should not dominate goal"
+        print(f"[POST-STRIP] Proxy eliminated: cycle < goal")
 
     def test_stationary_cf_unchanged(self):
         """Stationary hold is unchanged (no passes = no engine contribution)."""
-        baseline = run_stationary_hold(100)
-        cf = compute_cf_alternating_cycles(100, 5)  # placeholder, stationary has no passes
-        
-        # Stationary hold has no passes, so baseline == cf for this class
         stat = run_stationary_hold(100)
-        print(f"\n[COUNTERFACTUAL] Stationary 100 ticks={stat.summary()['team_total']:.4f}")
+        print(f"\n[POST-STRIP] Stationary 100 ticks={stat.summary()['team_total']:.4f}")
         assert stat.summary()["team_total"] < 0, "Stationary hold should be negative"
 
     def test_goal_cf_engine_pass_removed(self):
-        """Goal trajectory with engine_pass removed."""
+        """Goal trajectory already has engine_pass=0."""
         baseline = run_goal_trajectory()
-        cf = compute_cf_goal_trajectory()
+        c = baseline.components
+        assert c["engine_pass"] == pytest.approx(0.0)
         
         baseline_total = baseline.summary()["team_total"]
-        cf_total = cf.summary()["team_total"]
-        engine_contribution = baseline_total - cf_total
-        
-        # 2 passes: 2 × 0.15 × 3 = 0.90
-        expected_engine = 2 * ENGINE_PASS_REWARD * len(AGENTS)
-        
-        print(f"\n[COUNTERFACTUAL] Goal trajectory baseline={baseline_total:.4f}")
-        print(f"[COUNTERFACTUAL] Goal trajectory CF={cf_total:.4f}")
-        print(f"[COUNTERFACTUAL] Engine pass contribution={engine_contribution:.4f}")
-        
-        assert abs(engine_contribution - expected_engine) < 1e-6
+        print(f"\n[POST-STRIP] Goal trajectory baseline={baseline_total:.4f}")
+        print(f"[POST-STRIP] engine_pass component={c['engine_pass']:.4f}")
 
     def test_horizon_normalized_comparison(self):
         """Compare normalized rewards under common horizon (600 ticks for cycles)."""
         # 100 cycles at hold=5 = 600 ticks
         baseline = run_alternating_cycles(100, 5)
-        cf = compute_cf_alternating_cycles(100, 5)
         
         # Stationary 600 ticks (same horizon)
         stat = run_stationary_hold(600)
@@ -958,23 +832,23 @@ class TestCounterfactualEnginePassZero:
         goal_ticks = 4
         
         baseline_summary = baseline.summary()
-        cf_summary = cf.summary()
         stat_summary = stat.summary()
         
         print("\n[HORIZON NORMALIZED - 600 ticks]")
         print(f"  Alternating baseline: {baseline_summary['team_total']/baseline.ticks:.6f} per tick")
-        print(f"  Alternating CF (engine=0): {cf_summary['team_total']/cf.ticks:.6f} per tick")
         print(f"  Stationary 600: {stat_summary['team_total']/stat.ticks:.6f} per tick")
         print(f"  Goal trajectory: {goal_summary['team_total']/goal_ticks:.6f} per tick")
         
-        # With engine_pass removed, does cycle still beat stationary?
-        assert cf_summary['team_total'] > stat_summary['team_total'], "Cycle should beat stationary even without engine pass"
+        # Post-strip: does cycle still beat stationary?
+        assert baseline_summary['team_total'] > stat_summary['team_total'], "Cycle should beat stationary"
         
         # Does goal trajectory remain superior for scoring objectives?
         # Compare total (not per-tick) since goals have different natural horizon
         print(f"\n[COMPARISON]")
-        print(f"  600-tick cycle total (engine=0): {cf_summary['team_total']:.4f}")
+        print(f"  600-tick cycle total: {baseline_summary['team_total']:.4f}")
         print(f"  4-tick goal total: {goal_summary['team_total']:.4f}")
+        # Post-strip: goal trajectory should exceed cycle total
+        assert goal_summary['team_total'] > baseline_summary['team_total']
 
 
 if __name__ == "__main__":

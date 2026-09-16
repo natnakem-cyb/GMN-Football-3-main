@@ -17,6 +17,8 @@ SHOT_ACTION_ID = 12
 BALL_ACTION_IDS = frozenset((9, 10, 11, 12, 17))
 SHOT_EVENT_TYPES = frozenset(("SHOT_TAKEN", "SHOT_SAVED", "SHOT_BLOCKED", "SHOT_MISSED"))
 GOAL_OR_PASS_TYPES = frozenset(("GOAL_SCORED", "PASS_COMPLETED"))
+# Post-strip: only GOAL_SCORED keeps engine base. PASS_COMPLETED is stripped.
+_GOAL_ONLY_TYPES = frozenset(("GOAL_SCORED",))
 _LEFT_VICTIM_TYPES = frozenset(("PASS_INTERCEPTED", "PASS_FAILED", "TURNOVER_CONCEDED"))
 class BaseScenarioRewardAdapter:
     """Shared event logic ported from CooperativeRewardShaper."""
@@ -508,9 +510,9 @@ class AttackingDrillRewardAdapter(BaseScenarioRewardAdapter):
                     self.shot_taken_count += 1
 
     def _strip_progress(self, shaped, step_events) -> None:
-        has_gp = any(isinstance(e, dict) and e.get("type") in GOAL_OR_PASS_TYPES
-                     for e in step_events)
-        if not has_gp:
+        has_goal = any(isinstance(e, dict) and e.get("type") in _GOAL_ONLY_TYPES
+                       for e in step_events)
+        if not has_goal:
             for a in shaped:
                 shaped[a] = 0.0
 
@@ -813,6 +815,9 @@ def get_reward_adapter(scenario: str, **kw) -> BaseScenarioRewardAdapter:
     if scenario == "academy_rondo_4v1":
         return RondoRewardAdapter(**kw)
     if scenario in FINISHING_SCENARIOS:
+        kw = dict(kw)
+        kw.setdefault("enable_exploration_bonus", True)
+        kw.setdefault("exploration_beta", 0.03)
         return AttackingDrillRewardAdapter(**kw)
     raise ValueError(
         f"No reward adapter defined for scenario {scenario!r}. "

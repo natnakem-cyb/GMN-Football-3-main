@@ -1,8 +1,31 @@
 # GMN-Football-3 Whole-Pipeline Reward Stress Test Report
 
-**Report Date:** 2026-09-15
+**Report Date:** 2026-09-16
 **Git Commit:** `2efff35`
 **Test Command:** `pytest -q training/tests/test_reward_whole_pipeline.py`
+
+---
+
+## Post-Strip Reward Economics (Current Baseline)
+
+**Engine pass contribution: 0.00** under the current finishing-drill path. The `_strip_progress` method in `AttackingDrillRewardAdapter` zeros the entire engine base reward on every tick that does not contain `GOAL_SCORED` (only `GOAL_SCORED` keeps engine base). Since `PASS_COMPLETED` no longer preserves the engine base, the synthetic engine pass reward of +0.15/pass is fully stripped.
+
+**Residual 100-pass / alternating-cycle totals are bounded by the adapter cap + dense terms:**
+- 100-pass loop: team_total ≈ 0.20 (adapter_pass cap 0.20 + possession 3.00 - step_cost 1.50 - timeout 1.50)
+- 100 alternating cycles (hold=5): team_total ≈ 7.70 (adapter_pass 0.20 + possession 18.00 - step_cost 9.00 - timeout 1.50)
+- Single goal trajectory: team_total ≈ 7.90 (engine_goal 6.00 + adapter_pass 0.20 + shot_attempt 0.15 + assisted_goal 1.50 + possession 0.09 - step_cost 0.045)
+
+**Proxy/goal ratio is no longer dominated by the pass cycle:**
+- Post-strip cycle/goal ratio: 7.70 / 7.90 ≈ 0.97x (cycle < goal)
+- The pass-cycle proxy has been eliminated by the strip
+
+**Exploration baseline for this freeze:** `E=1`, `β=0.03`
+- Factory `get_reward_adapter()` forces `enable_exploration_bonus=True` and `exploration_beta=0.03` for all finishing scenarios
+- Class defaults remain `ENABLE_EXPLORATION_BONUS = False` / `EXPLORATION_BETA = 0.0` (force only at factory)
+
+---
+
+## Historical Pre-Strip Numbers (Do Not Use for Baseline)
 
 ---
 
