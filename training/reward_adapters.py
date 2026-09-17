@@ -813,7 +813,7 @@ FINISHING_SCENARIOS = frozenset((
 
 def get_reward_adapter(scenario: str, **kw) -> BaseScenarioRewardAdapter:
     if scenario == "academy_rondo_4v1":
-        return RondoRewardAdapter(**kw)
+        return RondoRewardAdapter()
     if scenario in FINISHING_SCENARIOS:
         kw = dict(kw)
         kw.setdefault("enable_exploration_bonus", True)
