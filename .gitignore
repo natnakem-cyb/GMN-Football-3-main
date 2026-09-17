@@ -7,6 +7,9 @@ node_modules/
 # AI Studio
 .aistudio/
 
+# Kilo agent runtime/state
+.kilo/
+
 # Python related files
 build/
 *.egg-info/
