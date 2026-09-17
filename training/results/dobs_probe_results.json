@@ -1,0 +1,128 @@
+{
+  "ownership": {
+    "name": "Ball ownership",
+    "status": "NOT_TESTABLE",
+    "reason": "Only one class in training data"
+  },
+  "self_ball": {
+    "name": "Self-ball distance",
+    "status": "TESTED",
+    "mae": 0.1826,
+    "rmse": 0.2293,
+    "r2": -0.0296,
+    "normalized_mae": 0.1756,
+    "target_range": 1.04,
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "teammate_ball": {
+    "name": "Teammate-ball distance",
+    "status": "TESTED",
+    "mae": 0.1395,
+    "rmse": 0.1789,
+    "r2": -0.0401,
+    "normalized_mae": 0.1369,
+    "target_range": 1.0194,
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "opponent_ball": {
+    "name": "Opponent-ball distance",
+    "status": "TESTED",
+    "mae": 0.1309,
+    "rmse": 0.1654,
+    "r2": -0.004,
+    "normalized_mae": 0.1215,
+    "target_range": 1.078,
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "self_goal": {
+    "name": "Self-goal distance",
+    "status": "TESTED",
+    "mae": 0.2853,
+    "rmse": 0.3543,
+    "r2": -0.0238,
+    "normalized_mae": 0.1819,
+    "target_range": 1.5683,
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "teammate_goal": {
+    "name": "Teammate-goal distance",
+    "status": "TESTED",
+    "mae": 0.1911,
+    "rmse": 0.2202,
+    "r2": -0.0242,
+    "normalized_mae": 0.2362,
+    "target_range": 0.809,
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "ball_direction": {
+    "name": "Ball displacement direction",
+    "status": "TESTED",
+    "accuracy": 0.3053,
+    "macro_f1": 0.2049,
+    "confusion_matrix": [
+      [
+        6,
+        8,
+        4
+      ],
+      [
+        241,
+        219,
+        262
+      ],
+      [
+        22,
+        25,
+        22
+      ]
+    ],
+    "classes": [
+      0,
+      1,
+      2
+    ],
+    "class_counts": {
+      "0": 18,
+      "1": 722,
+      "2": 69
+    },
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "role": {
+    "name": "Self role",
+    "status": "TESTED",
+    "accuracy": 0.8282,
+    "macro_f1": 0.453,
+    "confusion_matrix": [
+      [
+        0,
+        2
+      ],
+      [
+        137,
+        670
+      ]
+    ],
+    "classes": [
+      9,
+      10
+    ],
+    "class_counts": {
+      "9": 2,
+      "10": 807
+    },
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "task": {
+    "name": "Task context (scenario proxy)",
+    "status": "NOT_TESTABLE",
+    "reason": "Only one class in training data"
+  }
+}

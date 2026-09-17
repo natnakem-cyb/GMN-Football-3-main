@@ -1,0 +1,76 @@
+{
+  "direct_recovery": {
+    "self_ball_exact_recovery_mae": 0.0,
+    "self_goal_exact_recovery_mae": 0.0,
+    "teammate_ball_exact_recovery_mae": 0.0,
+    "opponent_ball_exact_recovery_mae": 0.0,
+    "teammate_goal_exact_recovery_mae": 0.0,
+    "ownership_exact_recovery_accuracy": 1.0,
+    "n_valid": 2695
+  },
+  "ball_direction": {
+    "name": "Ball displacement direction",
+    "status": "TESTED",
+    "knn_accuracy": 0.89,
+    "knn_macro_f1": 0.3139,
+    "rf_accuracy": 0.7206,
+    "rf_macro_f1": 0.3043,
+    "confusion_matrix_rf": [
+      [
+        0,
+        15,
+        3
+      ],
+      [
+        57,
+        577,
+        88
+      ],
+      [
+        4,
+        59,
+        6
+      ]
+    ],
+    "classes": [
+      0,
+      1,
+      2
+    ],
+    "class_counts": {
+      "0": 18,
+      "1": 722,
+      "2": 69
+    },
+    "n_train": 1886,
+    "n_test": 809
+  },
+  "role": {
+    "name": "Self role",
+    "status": "TESTED",
+    "knn_accuracy": 0.9975,
+    "knn_macro_f1": 0.4994,
+    "rf_accuracy": 0.9963,
+    "rf_macro_f1": 0.4991,
+    "confusion_matrix_rf": [
+      [
+        0,
+        2
+      ],
+      [
+        1,
+        806
+      ]
+    ],
+    "classes": [
+      9,
+      10
+    ],
+    "class_counts": {
+      "9": 2,
+      "10": 807
+    },
+    "n_train": 1886,
+    "n_test": 809
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "self_ball_mae": 0.0,
+  "self_ball_max_error": 0.0,
+  "teammate_ball_mae": 0.0,
+  "opponent_ball_mae": 0.0,
+  "self_goal_mae": 0.0,
+  "self_goal_max_error": 0.0,
+  "teammate_goal_mae": 0.0,
+  "ownership_accuracy": 1.0,
+  "n_samples": 2695
+}

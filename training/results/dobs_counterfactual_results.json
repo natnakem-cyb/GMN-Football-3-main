@@ -1,0 +1,112 @@
+{
+  "counterfactual_pairs": [
+    {
+      "type": "ownership",
+      "expected_diff": "owner(s1) != owner(s2)",
+      "obs_distance": 118.4276,
+      "s1_seed": 68,
+      "s2_seed": 298
+    },
+    {
+      "type": "ownership",
+      "expected_diff": "owner(s1) != owner(s2)",
+      "obs_distance": 118.8611,
+      "s1_seed": 86,
+      "s2_seed": 10
+    },
+    {
+      "type": "ownership",
+      "expected_diff": "owner(s1) != owner(s2)",
+      "obs_distance": 152.3977,
+      "s1_seed": 117,
+      "s2_seed": 433
+    },
+    {
+      "type": "ownership",
+      "expected_diff": "owner(s1) != owner(s2)",
+      "obs_distance": 151.2479,
+      "s1_seed": 121,
+      "s2_seed": 35
+    },
+    {
+      "type": "ownership",
+      "expected_diff": "owner(s1) != owner(s2)",
+      "obs_distance": 164.8321,
+      "s1_seed": 89,
+      "s2_seed": 360
+    },
+    {
+      "type": "teammate_position",
+      "expected_diff": "teammate geometry differs",
+      "obs_distance": 62.9831,
+      "s1_seed": 22,
+      "s2_seed": 414
+    },
+    {
+      "type": "teammate_position",
+      "expected_diff": "teammate geometry differs",
+      "obs_distance": 125.2503,
+      "s1_seed": 394,
+      "s2_seed": 160
+    },
+    {
+      "type": "teammate_position",
+      "expected_diff": "teammate geometry differs",
+      "obs_distance": 138.4757,
+      "s1_seed": 135,
+      "s2_seed": 508
+    },
+    {
+      "type": "teammate_position",
+      "expected_diff": "teammate geometry differs",
+      "obs_distance": 104.4435,
+      "s1_seed": 35,
+      "s2_seed": 54
+    },
+    {
+      "type": "teammate_position",
+      "expected_diff": "teammate geometry differs",
+      "obs_distance": 93.9924,
+      "s1_seed": 75,
+      "s2_seed": 233
+    },
+    {
+      "type": "opponent_position",
+      "expected_diff": "opponent geometry differs",
+      "obs_distance": 68.2089,
+      "s1_seed": 78,
+      "s2_seed": 563
+    },
+    {
+      "type": "opponent_position",
+      "expected_diff": "opponent geometry differs",
+      "obs_distance": 71.8907,
+      "s1_seed": 71,
+      "s2_seed": 37
+    },
+    {
+      "type": "opponent_position",
+      "expected_diff": "opponent geometry differs",
+      "obs_distance": 58.6335,
+      "s1_seed": 82,
+      "s2_seed": 23
+    },
+    {
+      "type": "opponent_position",
+      "expected_diff": "opponent geometry differs",
+      "obs_distance": 109.5979,
+      "s1_seed": 430,
+      "s2_seed": 86
+    },
+    {
+      "type": "opponent_position",
+      "expected_diff": "opponent geometry differs",
+      "obs_distance": 71.2038,
+      "s1_seed": 28,
+      "s2_seed": 340
+    }
+  ],
+  "state_aliases": [],
+  "n_counterfactual_pairs": 15,
+  "n_state_aliases": 0
+}

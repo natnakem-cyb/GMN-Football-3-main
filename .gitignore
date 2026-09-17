@@ -49,12 +49,16 @@ bun.lock
 .env
 .env.*
 
+# Experiment artifacts (transient)
+experiment_d_results_*.json
+
 # Training artifacts (transient)
 training/runs/
 training/logs/
 training/models/opponent_pool/
 training/results/forensics/
 training/results/*.csv
+training/models/**/
 *.bak
 training/models/*_temp.pt
 training/models/smoke_*.pt
