@@ -84,7 +84,43 @@ This prevents stale-bridge mask/observation leakage between CTRL and INT runs.
 
 ---
 
-## 7. Artifacts
+## 9. Addendum — Measurement Repair & Re-run (2026-09-17)
+
+### 9.1 Issue
+Original t=0 ownership claim (Section 6) was based on post-step bridge field (`ball_owner_agent_idx`), not true reset-time measurement. Bridge did not return `current_ball_owner` in reset response.
+
+### 9.2 Fixes
+- `training/eval_occupancy_gate.py`: Capture `obs[94:97]` at `reset()`; log `t0_ball_ownership`, `t0_controlled_has_ball`, `t0_mask_sum`, `t0_pass_legal`, `t0_shot_legal`
+- `training/bridge_server.ts`: Add `current_ball_owner` to reset JSON response
+- `training/gmn_pettingzoo.py`: Parse `current_ball_owner` from reset response
+
+### 9.3 Re-run provenance
+- Same checkpoint, seeds, protocol
+- New artifacts: updated JSON logs, updated `occupancy_gate_summary.csv`
+- New t=0 metrics in CSV: `t0_left_owner_fraction`, `t0_pass_legal_eps`, `t0_shot_legal_eps`, `t0_dribble_legal_eps`, `t0_mean_mask_sum`
+
+### 9.4 Re-run outcome
+| Metric | CTRL | INT |
+|------|-----|-----|
+| `t0_left_owner_fraction` | 0.00 | 1.00 |
+| `left_possession_fraction` | 0.469 | 0.941 |
+| `pass_completed_count` | 0 | 0 |
+| `shot_event_count` | 0 | 0 |
+| `goal_count` | 0 | 0 |
+
+**Verdict confirmed:** Soft FAIL — measurement now valid.
+
+### 9.5 Updated artifacts
+| Artifact | Path |
+|----------|------|
+| Experiment report (with addendum) | `training/results/EXPERIMENT_OCCUPANCY_F.md` |
+| Provenance report (with addendum) | `training/results/EXPERIMENT_OCCUPANCY_F_PROVENANCE.md` |
+| Updated eval script | `training/eval_occupancy_gate.py` |
+| Updated bridge | `training/bridge_server.ts` |
+| Updated wrapper | `training/gmn_pettingzoo.py` |
+| Aggregate CSV | `training/results/occupancy_gate_summary.csv` |
+| CTRL per-tick log (re-run) | `training/models/occupancy_gate_CTRL_mappo_academy_3_vs_1_with_keeper_seed42_best.json` |
+| INT per-tick log (re-run) | `training/models/occupancy_gate_INT_mappo_academy_3_vs_1_with_keeper_seed42_best.json` |
 
 | Artifact | Path |
 |----------|------|

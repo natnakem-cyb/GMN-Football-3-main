@@ -473,6 +473,13 @@ export class GMNBridgeService {
         controlledPlayerId: this.engine.controlledPlayerId,
         controllableAgentIds,
         action_masks: actionMasks,
+        // OCCUPANCY-EXP: include true ball owner at reset so eval can verify t=0 ownership
+        current_ball_owner: this.engine.ball.ownerId != null
+          ? (() => {
+              const owner = this.engine.players.find((p) => p.id === this.engine.ball.ownerId);
+              return owner ? { agent_id: owner.id, team: owner.team } : null;
+            })()
+          : null,
       },
     };
   }

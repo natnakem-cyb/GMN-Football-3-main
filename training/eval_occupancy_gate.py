@@ -110,6 +110,34 @@ def evaluate_occupancy_gate(
         for ep in range(num_episodes):
             ep_seed = base_seed + ep * 1009
             obs_dict, _ = env.reset(seed=ep_seed)
+            
+            # Capture t=0 ball ownership from observation vector (indices 94:97)
+            # obs[94:97] = [no_one, left, right] one-hot per simple115_v3_role (127-D)
+            t0_ball_ownership = None
+            t0_controlled_has_ball = False
+            t0_mask_sum = None
+            t0_pass_legal = None
+            t0_shot_legal = None
+            t0_dribble_legal = None
+            if obs_dict:
+                # Unwrap to get raw obs array for first agent
+                first_agent = list(obs_dict.keys())[0]
+                agent_obs = obs_dict[first_agent]
+                if isinstance(agent_obs, dict) and "observation" in agent_obs:
+                    raw_obs = agent_obs["observation"]
+                    if hasattr(raw_obs, "__len__") and len(raw_obs) >= 97:
+                        t0_ball_ownership = raw_obs[94:97].tolist()
+                        # Check if left team owns ball (convert numpy bool to Python bool)
+                        t0_controlled_has_ball = bool(raw_obs[95] == 1.0)
+                        # Capture mask for controlled agent
+                        if "action_mask" in agent_obs:
+                            mask = agent_obs["action_mask"]
+                            if hasattr(mask, "__len__") and len(mask) >= 18:
+                                t0_mask_sum = int(np.sum(mask))
+                                t0_pass_legal = int(mask[9]) if len(mask) > 9 else 0
+                                t0_shot_legal = int(mask[12]) if len(mask) > 12 else 0
+                                t0_dribble_legal = int(mask[17]) if len(mask) > 17 else 0
+            
             current_ep_masks = unwrap_masks(obs_dict)
             obs_dict = unwrap_obs(obs_dict)
 
@@ -273,6 +301,14 @@ def evaluate_occupancy_gate(
                     "truncated": trunc,
                     "done": done,
                 }
+                # Add t=0 ownership data on first tick
+                if ep_length == 1:
+                    tick_data["t0_ball_ownership"] = t0_ball_ownership
+                    tick_data["t0_controlled_has_ball"] = t0_controlled_has_ball
+                    tick_data["t0_mask_sum"] = t0_mask_sum
+                    tick_data["t0_pass_legal"] = t0_pass_legal
+                    tick_data["t0_shot_legal"] = t0_shot_legal
+                    tick_data["t0_dribble_legal"] = t0_dribble_legal
                 ep_tick_log.append(tick_data)
 
                 # Store buffers for offline GAE (production-correct)
@@ -404,6 +440,28 @@ def evaluate_occupancy_gate(
     on_ball_advantages = [t["gae_advantage"] for t in all_ticks if t.get("controlled_has_ball") and t.get("gae_advantage") is not None]
     off_ball_advantages = [t["gae_advantage"] for t in all_ticks if not t.get("controlled_has_ball") and t.get("gae_advantage") is not None]
 
+    # t=0 ownership (captured at reset, before first step)
+    t0_left_owner_eps = sum(1 for ep in episodes_data
+                           for tick in ep["tick_log"]
+                           if tick.get("t0_controlled_has_ball"))
+    t0_left_owner_fraction = t0_left_owner_eps / max(num_episodes, 1)
+    t0_pass_legal_eps = sum(1 for ep in episodes_data
+                           for tick in ep["tick_log"]
+                           if tick.get("t0_pass_legal") == 1)
+    t0_shot_legal_eps = sum(1 for ep in episodes_data
+                           for tick in ep["tick_log"]
+                           if tick.get("t0_shot_legal") == 1)
+    t0_dribble_legal_eps = sum(1 for ep in episodes_data
+                              for tick in ep["tick_log"]
+                              if tick.get("t0_dribble_legal") == 1)
+    t0_mask_sum_vals = [tick.get("t0_mask_sum") for ep in episodes_data
+                        for tick in ep["tick_log"]
+                        if tick.get("t0_mask_sum") is not None]
+    t0_mean_mask_sum = _mean(t0_mask_sum_vals)
+    t0_ball_ownership_vals = [tick.get("t0_ball_ownership") for ep in episodes_data
+                              for tick in ep["tick_log"]
+                              if tick.get("t0_ball_ownership") is not None]
+
     summary = {
         "checkpoint": checkpoint_path,
         "checkpoint_sha256": checkpoint_sha256,
@@ -427,6 +485,12 @@ def evaluate_occupancy_gate(
             "pass_legal_fraction": pass_legal_ticks / max(total_ticks, 1),
             "shot_legal_ticks": shot_legal_ticks,
             "shot_legal_fraction": shot_legal_ticks / max(total_ticks, 1),
+            "t0_left_owner_eps": t0_left_owner_eps,
+            "t0_left_owner_fraction": t0_left_owner_fraction,
+            "t0_pass_legal_eps": t0_pass_legal_eps,
+            "t0_shot_legal_eps": t0_shot_legal_eps,
+            "t0_dribble_legal_eps": t0_dribble_legal_eps,
+            "t0_mean_mask_sum": t0_mean_mask_sum,
             "mean_d_self_ball": _mean(d_self_ball_vals),
             "std_d_self_ball": _std(d_self_ball_vals),
             "mean_d_self_goal": _mean(d_self_goal_vals),
@@ -493,6 +557,7 @@ def main():
             "num_episodes", "deterministic", "base_seed",
             "left_possession_fraction", "controlled_owner_fraction",
             "pass_legal_fraction", "shot_legal_fraction",
+            "t0_left_owner_fraction", "t0_pass_legal_eps", "t0_shot_legal_eps", "t0_dribble_legal_eps", "t0_mean_mask_sum",
             "mean_d_self_ball", "std_d_self_ball",
             "mean_d_self_goal", "std_d_self_goal",
             "pass_completed_count", "shot_event_count", "goal_count",
@@ -519,6 +584,11 @@ def main():
             "controlled_owner_fraction": summary["overall"]["controlled_owner_fraction"],
             "pass_legal_fraction": summary["overall"]["pass_legal_fraction"],
             "shot_legal_fraction": summary["overall"]["shot_legal_fraction"],
+            "t0_left_owner_fraction": summary["overall"]["t0_left_owner_fraction"],
+            "t0_pass_legal_eps": summary["overall"]["t0_pass_legal_eps"],
+            "t0_shot_legal_eps": summary["overall"]["t0_shot_legal_eps"],
+            "t0_dribble_legal_eps": summary["overall"]["t0_dribble_legal_eps"],
+            "t0_mean_mask_sum": summary["overall"]["t0_mean_mask_sum"],
             "mean_d_self_ball": summary["overall"]["mean_d_self_ball"],
             "std_d_self_ball": summary["overall"]["std_d_self_ball"],
             "mean_d_self_goal": summary["overall"]["mean_d_self_goal"],

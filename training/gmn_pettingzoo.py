@@ -632,6 +632,8 @@ class GMNMultiAgentEnv(ParallelEnv):
             agent: {"observation": observations[agent], "action_mask": action_masks[agent]}
             for agent in controllable_ids
         }
+        # OCCUPANCY-EXP: capture true ball owner at reset from bridge response
+        reset_ball_owner = info_data.get("current_ball_owner")
         return {
             "obs_dict": batched_obs,
             "action_masks": action_masks,
@@ -642,6 +644,7 @@ class GMNMultiAgentEnv(ParallelEnv):
             "ep_rew": 0.0,
             "ep_len": 0,
             "info": dict(info_data),
+            "reset_ball_owner": reset_ball_owner,
         }
 
     def _scenario_adapter(self, previous: Optional[Any] = None) -> Optional[Any]:
@@ -717,6 +720,16 @@ class GMNMultiAgentEnv(ParallelEnv):
             env_state["reward_shaper"] = CooperativeRewardShaper() if self.enable_reward_shaping else None
             env_state["reward_adapter"] = self._scenario_adapter(previous=prev_adapter)
             env_state["last_actions"] = {}
+            # OCCUPANCY-EXP: capture true ball owner at reset for each sub-env
+            reset_ball_owner = env_state.get("reset_ball_owner")
+            if reset_ball_owner and isinstance(reset_ball_owner, dict):
+                owner_id = reset_ball_owner.get("agent_id")
+                if owner_id and owner_id in env_state["agents"]:
+                    env_state["_last_ball_owner_agent_idx"] = env_state["agents"].index(owner_id)
+                else:
+                    env_state["_last_ball_owner_agent_idx"] = 255
+            else:
+                env_state["_last_ball_owner_agent_idx"] = 255
             self._batch_envs.append(env_state)
 
     def reset_batch(self, seeds: Optional[List[int]] = None) -> List[Tuple[Dict[str, np.ndarray], Dict[str, Any]]]:
@@ -801,6 +814,16 @@ class GMNMultiAgentEnv(ParallelEnv):
         state["reward_shaper"] = CooperativeRewardShaper() if self.enable_reward_shaping else None
         state["reward_adapter"] = self._scenario_adapter(previous=prev_adapter)
         state["last_actions"] = {}
+        # OCCUPANCY-EXP: capture true ball owner at reset for this sub-env
+        reset_ball_owner = state.get("reset_ball_owner")
+        if reset_ball_owner and isinstance(reset_ball_owner, dict):
+            owner_id = reset_ball_owner.get("agent_id")
+            if owner_id and owner_id in state["agents"]:
+                state["_last_ball_owner_agent_idx"] = state["agents"].index(owner_id)
+            else:
+                state["_last_ball_owner_agent_idx"] = 255
+        else:
+            state["_last_ball_owner_agent_idx"] = 255
         self._batch_envs[env_idx] = state
         return (state["obs_dict"], {a: state["info"] for a in state["agents"]})
 
@@ -1382,6 +1405,17 @@ class GMNMultiAgentEnv(ParallelEnv):
             self._connect_ws()
             self.ws_client.send(json.dumps(payload))
             data = self._recv_reset_response()
+
+        # OCCUPANCY-EXP: capture true ball owner at reset from bridge response
+        reset_ball_owner = data.get("info", {}).get("current_ball_owner")
+        if reset_ball_owner and isinstance(reset_ball_owner, dict):
+            owner_id = reset_ball_owner.get("agent_id")
+            if owner_id and owner_id in self.agents:
+                self._last_ball_owner_agent_idx = self.agents.index(owner_id)
+            else:
+                self._last_ball_owner_agent_idx = 255
+        else:
+            self._last_ball_owner_agent_idx = 255
 
         info_data = data.get("info", {})
         controllable_ids = info_data.get("controllableAgentIds", [])

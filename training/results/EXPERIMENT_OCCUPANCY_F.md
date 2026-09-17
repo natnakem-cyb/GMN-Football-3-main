@@ -148,4 +148,64 @@ This is the brief’s definition of a **Soft FAIL**: the intervention is valid a
 | `src/scenarios/ScenarioRegistry.ts` | Intervention definition |
 | `src/engine/GameEngine.ts` | Initial ownership assignment |
 | `src/types/football.ts` | `ownerId` on `ScenarioSetup.ball` |
-| `training/gmn_pettingzoo.py` | Bridge startup fix, per-tick ball owner capture |
+| `training/gmn_pettingzoo.py` | Bridge startup fix, per-tick ball owner capture, **t=0 ownership from reset** |
+| `training/bridge_server.ts` | **Reset response includes `current_ball_owner`** |
+
+---
+
+## 10. Addendum — Measurement Repair & Re-run (2026-09-17)
+
+### 10.1 Issue discovered
+
+The original report (Section 6.3) claimed t=0 ownership was measured from `obs[94:97]`, but the eval script actually read `ball_owner_agent_idx` from the **first step binary frame** — which defaults to `255` (no owner) before any step occurs. The bridge did not include `current_ball_owner` in the reset JSON response.
+
+**Original Section 6.3 claim is INVALID** — the t=0 ownership values reported were not measured at t=0.
+
+### 10.2 Fixes applied
+
+| File | Fix |
+|------|-----|
+| `training/eval_occupancy_gate.py` | Capture `obs[94:97]` at `reset()` before first step; log `t0_ball_ownership`, `t0_controlled_has_ball`, `t0_mask_sum`, `t0_pass_legal`, `t0_shot_legal` |
+| `training/bridge_server.ts` | Add `current_ball_owner` to reset JSON response (mirrors step response) |
+| `training/gmn_pettingzoo.py` | Parse `current_ball_owner` from reset response; populate `_last_ball_owner_agent_idx` immediately after reset |
+
+### 10.3 Re-run results (50 episodes/arm, same frozen weights)
+
+| Metric | CTRL | INT |
+|------|-----|-----|
+| `t0_left_owner_fraction` | **0.00** (0/50) | **1.00** (50/50) |
+| `t0_mean_mask_sum` | 15.0 | 18.0 |
+| `t0_pass_legal_eps` | 0 | 50 |
+| `t0_shot_legal_eps` | 0 | 50 |
+| `left_possession_fraction` | 0.469 | **0.941** |
+| `pass_legal_fraction` | 0.518 | **0.998** |
+| `shot_legal_fraction` | 0.518 | **0.998** |
+| `pass_completed_count` | 0 | 0 |
+| `shot_event_count` | 0 | 0 |
+| `goal_count` | 0 | 0 |
+| `mean_reward` | -0.0085 | -0.0144 |
+| `mean_value` | -0.660 | -0.649 |
+| `mean_gae_advantage` | +0.151 | -0.151 |
+| `mean_advantage_on_ball` | -0.097 | -0.153 |
+| `mean_advantage_off_ball` | +0.371 | -0.125 |
+
+### 10.4 Interpretation
+
+- ✅ **Intervention mechanically effective:** INT starts with left ownership at t=0 in 100% of episodes; controlled agent has pass/shot/dribble legal (mask_sum=18).
+- ✅ **Occupancy sustained:** INT maintains left possession for 94% of episode ticks (vs 47% in CTRL); pass/shot legal 99.8% of ticks.
+- ❌ **Policy cannot exploit:** 0 passes, 0 shots, 0 goals in 50 INT episodes despite continuous on-ball opportunity.
+- ❌ **Critic/advantage not separated:** V remains flat (~ -0.65 both arms); on-ball advantages negative in both arms.
+
+### 10.5 Updated Verdict
+
+**Soft FAIL — now measurement-validated.**
+
+The `μ-onball` intervention successfully creates the intended initial distribution and sustained on-ball occupancy, but the 100k-step policy is paralyzed and cannot convert occupancy into football actions or events. The critic basin persists because no football events occur to provide learning signal.
+
+This **confirms** the original Soft FAIL conclusion but now rests on valid measurement.
+
+### 10.6 Recommendation unchanged
+
+1. Do not start 200k or exploration ablation until all four 100k policies are characterized on these axes.
+2. If all four show paralyzed action distributions, classify Hypothesis F as Soft FAIL and redesign intervention/training target.
+3. If any 100k policy executes ball actions, re-run occupancy gate on that policy.
