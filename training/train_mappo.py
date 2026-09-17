@@ -57,6 +57,8 @@ def run_mappo_training(
     curriculum_demote_threshold: float = 0.1,
     curriculum_min_episodes: int = 200,
     models_dir: str = None,
+    enable_exploration: bool = True,
+    exploration_beta: float = 0.03,
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -176,14 +178,10 @@ def run_mappo_training(
             opponent_difficulty=opponent_difficulty,
             opponent_pool=opponent_pool,
             training_mode=True,
-            # Shot clock: keep the one-off penalty but do NOT end the episode.
-            # Truncating at the adapter default (t_max=50 ticks = 0.83 s) caps
-            # every training episode at ~51 ticks, so the policy never sees the
-            # 30 s drill it is asked to solve and eats a constant -0.5 per
-            # episode. 600 ticks (10 s) keeps the time pressure meaningful while
-            # leaving the long-horizon objective reachable.
             shot_clock_truncates=False,
             shot_clock_t_max=600,
+            enable_exploration_bonus=enable_exploration,
+            exploration_beta=exploration_beta,
         )
         envs = [env]
     else:
@@ -197,19 +195,22 @@ def run_mappo_training(
                     opponent_difficulty=opponent_difficulty,
                     opponent_pool=opponent_pool,
                     training_mode=True,
-                    # See the batched branch above: penalty without truncation,
-                    # with the clock widened from 50 to 600 ticks.
                     shot_clock_truncates=False,
                     shot_clock_t_max=600,
+                    enable_exploration_bonus=enable_exploration,
+                    exploration_beta=exploration_beta,
                 )
             )
         env = envs[0]
 
-    # Shot-clock contract, echo the env's actual values instead of assuming them
-    # so a mis-wired run is visible in the training log.
     print(
         f"   Shot clock: truncates={env.shot_clock_truncates} "
         f"t_max={env.shot_clock_t_max} (episodes are not capped by the clock)",
+        flush=True,
+    )
+    print(
+        f"   Exploration: enable_exploration_bonus={enable_exploration} "
+        f"exploration_beta={exploration_beta}",
         flush=True,
     )
 
@@ -927,7 +928,13 @@ if __name__ == "__main__":
     parser.add_argument("--curriculum-demote-threshold", type=float, default=0.1, help="Success rate threshold to demote after regression")
     parser.add_argument("--curriculum-min-episodes", type=int, default=200, help="Minimum episodes before promotion is allowed")
     parser.add_argument("--models-dir", type=str, default=None, help="Output directory for checkpoints and logs")
+    parser.add_argument("--enable-exploration", action="store_true", default=True, help="Enable exploration bonus for finishing scenarios")
+    parser.add_argument("--no-exploration", action="store_false", dest="enable_exploration", help="Disable exploration bonus for finishing scenarios")
+    parser.add_argument("--exploration-beta", type=float, default=0.03, help="Exploration bonus beta (used only when exploration is enabled)")
     args = parser.parse_args()
+
+    if not args.enable_exploration:
+        args.exploration_beta = 0.0
 
     if args.curriculum and args.scenario:
         # --scenario is used as the starting stage; scheduler drives subsequent changes.
@@ -950,6 +957,8 @@ if __name__ == "__main__":
         curriculum_demote_threshold=args.curriculum_demote_threshold,
         curriculum_min_episodes=args.curriculum_min_episodes,
         models_dir=args.models_dir,
+        enable_exploration=args.enable_exploration,
+        exploration_beta=args.exploration_beta,
     )
 
 

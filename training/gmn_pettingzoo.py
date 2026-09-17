@@ -418,6 +418,8 @@ class GMNMultiAgentEnv(ParallelEnv):
         training_mode: bool = False,
         shot_clock_truncates: bool = True,
         shot_clock_t_max: Optional[int] = None,
+        enable_exploration_bonus: bool = True,
+        exploration_beta: float = 0.03,
     ):
         super().__init__()
         self.scenario = scenario
@@ -452,6 +454,8 @@ class GMNMultiAgentEnv(ParallelEnv):
         # shot_clock_t_max overrides the adapter's own t_max (None = keep default).
         self.shot_clock_truncates = bool(shot_clock_truncates)
         self.shot_clock_t_max = shot_clock_t_max
+        self.enable_exploration_bonus = bool(enable_exploration_bonus)
+        self.exploration_beta = float(exploration_beta)
         self.reward_components: List[Dict[str, Any]] = []
         self.bridge_process: Optional[subprocess.Popen] = None
         self.ws_client = None
@@ -460,7 +464,13 @@ class GMNMultiAgentEnv(ParallelEnv):
         if enable_reward_shaping:
             self.reward_adapter = self._scenario_adapter()
             if self.reward_adapter is not None:
-                print(f"[RewardAdapter] active={type(self.reward_adapter).__name__} scenario={scenario}", flush=True)
+                print(
+                    f"[RewardAdapter] active={type(self.reward_adapter).__name__} "
+                    f"scenario={scenario} "
+                    f"enable_exploration_bonus={getattr(self.reward_adapter, 'enable_exploration_bonus', 'N/A')} "
+                    f"exploration_beta={getattr(self.reward_adapter, 'exploration_beta', 'N/A')}",
+                    flush=True,
+                )
         # Backward-compat: existing trainers read env.reward_shaper for
         # diagnostics/attribution. When an adapter is active, delegate those
         # reads to the adapter (which preserves the same method surface).
@@ -659,7 +669,11 @@ class GMNMultiAgentEnv(ParallelEnv):
             return None
         try:
             from training.reward_adapters import get_reward_adapter
-            candidate = get_reward_adapter(self.scenario)
+            candidate = get_reward_adapter(
+                self.scenario,
+                enable_exploration_bonus=getattr(self, "enable_exploration_bonus", True),
+                exploration_beta=getattr(self, "exploration_beta", 0.03),
+            )
         except Exception as exc:
             logger.warning(
                 "[RewardAdapter] no adapter for scenario %r (%s); "
