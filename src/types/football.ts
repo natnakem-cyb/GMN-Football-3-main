@@ -244,7 +244,7 @@ export interface ScenarioConfig {
   hasGoalkeeperRight: boolean;
   timeLimitSeconds: number;
   setup: {
-    ball: Vector3D;
+    ball: Vector3D & { ownerId?: string | null };
     leftPlayers: { role: PlayerRole; pos: Vector2D; isControlled?: boolean }[];
     rightPlayers: { role: PlayerRole; pos: Vector2D }[];
     positionJitter?: number;

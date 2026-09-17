@@ -803,6 +803,7 @@ FINISHING_SCENARIOS = frozenset((
     "academy_run_to_score",
     "academy_pass_and_shoot_with_keeper",
     "academy_3_vs_1_with_keeper",
+    "academy_3_vs_1_with_keeper_onball",  # OCCUPANCY-EXP: same adapter as base scenario
     "academy_3_vs_1_defender_2",
     "academy_3_vs_1_defender_3",
     "academy_3_vs_1_keeper_aggressive",

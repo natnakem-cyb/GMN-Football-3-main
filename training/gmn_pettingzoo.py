@@ -497,6 +497,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         self._last_frame_event_code: int = 0
         self._last_frame_score: Dict[str, int] = {"left": 0, "right": 0}
         self._last_shared_reward: float = 0.0
+        self._last_ball_owner_agent_idx: int = 255  # OCCUPANCY-EXP: per-tick ball owner for probe
 
         # Observation and action spaces (identical across all agents)
         self._obs_space = spaces.Dict({
@@ -1027,11 +1028,78 @@ class GMNMultiAgentEnv(ParallelEnv):
                     pass
         raise RuntimeError("[GMN-Batch] No reset_batch_result received (only broadcast frames)")
 
-    def _ensure_bridge_running(self):
-        """Verifies connection to bridge server or starts it via npx tsx."""
-        for attempt in range(6):
+    def _kill_existing_bridge(self):
+        """Kill any existing bridge processes on this port to avoid stale listeners."""
+        # 1. Terminate tracked subprocess if we have one
+        if self.bridge_process is not None:
             try:
-                res = requests.get(f"{self.base_url}/health", timeout=1.0)
+                self.bridge_process.terminate()
+                self.bridge_process.wait(timeout=2.0)
+            except Exception:
+                try:
+                    self.bridge_process.kill()
+                except Exception:
+                    pass
+            self.bridge_process = None
+
+        # 2. Kill orphaned bridge_server.ts / tsx / node processes on the same port
+        try:
+            if sys.platform == "win32":
+                # Windows: find PID listening on the port and taskkill it
+                import subprocess as _subprocess
+                port = str(self.port)
+                # netstat -ano finds the PID; findstr filters to LISTENING + port
+                netstat = _subprocess.check_output(
+                    ["netstat", "-ano"], text=True, stderr=_subprocess.DEVNULL, timeout=5.0
+                ).splitlines()
+                pids = set()
+                for line in netstat:
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[0].strip().upper() == "LISTENING":
+                        local = parts[1]
+                        if (":" + port) in local:
+                            pids.add(parts[-1])
+                for pid in pids:
+                    try:
+                        _subprocess.check_call(
+                            ["taskkill", "/F", "/PID", pid],
+                            stdout=_subprocess.DEVNULL,
+                            stderr=_subprocess.DEVNULL,
+                            timeout=5.0,
+                        )
+                    except Exception:
+                        pass
+            else:
+                # Unix: lsof -> kill
+                import subprocess as _subprocess
+                port = str(self.port)
+                try:
+                    pids = _subprocess.check_output(
+                        ["lsof", "-ti", f":{port}"], text=True, stderr=_subprocess.DEVNULL, timeout=5.0
+                    ).splitlines()
+                    for pid in pids:
+                        try:
+                            _subprocess.check_call(["kill", "-9", pid], timeout=5.0)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _ensure_bridge_running(self):
+        """Verifies connection to bridge server or starts it via npx tsx.
+        
+        Kills any existing bridge processes first, then starts fresh with retry.
+        Raises RuntimeError if the bridge cannot be started after max attempts.
+        """
+        max_launch_attempts = 3
+        launch_attempt = 0
+        bridge_script = os.path.join(os.path.dirname(__file__), "bridge_server.ts")
+
+        while True:
+            try:
+                res = requests.get(f"{self.base_url}/health", timeout=2.0)
                 if res.status_code == 200:
                     info = res.json()
                     bridge_obs_dim = info.get("observation_dim", 115)
@@ -1045,27 +1113,70 @@ class GMNMultiAgentEnv(ParallelEnv):
             except requests.RequestException:
                 pass
 
-            if self.auto_start_bridge and self.bridge_process is None:
-                print(f"[GMN-PettingZoo] Launching Headless Bridge Server on {self.base_url}...")
-                bridge_script = os.path.join(os.path.dirname(__file__), "bridge_server.ts")
+            if not self.auto_start_bridge:
+                raise RuntimeError(
+                    f"[GMN-PettingZoo] Bridge not running at {self.base_url} and auto_start_bridge=False. "
+                    "Start it manually or enable auto_start_bridge."
+                )
+
+            launch_attempt += 1
+            if launch_attempt > max_launch_attempts:
+                raise RuntimeError(
+                    f"[GMN-PettingZoo] Failed to start bridge after {max_launch_attempts} attempts. "
+                    f"Check that tsx/node are installed and {bridge_script} is valid."
+                )
+
+            # Kill stale bridge before each launch attempt
+            self._kill_existing_bridge()
+
+            print(f"[GMN-PettingZoo] Launching Headless Bridge Server on {self.base_url}...")
+            try:
                 self.bridge_process = subprocess.Popen(
                     _npx_cmd() + ["tsx", bridge_script],
                     env=dict(os.environ, GMN_BRIDGE_PORT=str(self.port)),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                 )
-                time.sleep(2.0)
-            else:
-                time.sleep(1.0)
+            except Exception as e:
+                raise RuntimeError(
+                    f"[GMN-PettingZoo] Failed to launch bridge subprocess: {e}"
+                ) from e
+
+            # Wait for bridge to come up, with increasing backoff
+            for wait_sec in (3.0, 5.0, 8.0):
+                time.sleep(wait_sec)
+                try:
+                    res = requests.get(f"{self.base_url}/health", timeout=2.0)
+                    if res.status_code == 200:
+                        return
+                except requests.RequestException:
+                    pass
+
+            # If still not up, loop back and kill/retry
 
 
     def _connect_ws(self):
-        """Establishes or reconnects WebSocket client connection."""
+        """Establishes or reconnects WebSocket connection with retry."""
         if self.ws_client is not None:
             try:
                 self.ws_client.close()
             except Exception:
                 pass
-        self.ws_client = websockets.sync.client.connect(
-            self.ws_url, max_size=None, ping_interval=None, open_timeout=5.0
+            self.ws_client = None
+
+        last_err = None
+        for attempt in range(5):
+            try:
+                self.ws_client = websockets.sync.client.connect(
+                    self.ws_url, max_size=None, ping_interval=None, open_timeout=5.0
+                )
+                return
+            except Exception as e:
+                last_err = e
+                time.sleep(1.0)
+
+        raise RuntimeError(
+            f"[GMN-PettingZoo] Failed to connect to bridge WebSocket after 5 attempts: {last_err}"
         )
 
     def _recv_frame(self, operation: str):
@@ -1668,6 +1779,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         self._last_frame_event_code = int(event_code)
         self._last_frame_score = {"left": int(score_l), "right": int(score_r)}
         self._last_shared_reward = shared_reward
+        self._last_ball_owner_agent_idx = int(ball_owner_agent_idx)  # OCCUPANCY-EXP
 
         shared_info: Dict[str, Any] = {
             "score": {"left": int(score_l), "right": int(score_r)},
@@ -1976,8 +2088,13 @@ class GMNMultiAgentEnv(ParallelEnv):
                 self.bridge_process.terminate()
                 self.bridge_process.wait(timeout=2.0)
             except Exception:
-                pass
+                try:
+                    self.bridge_process.kill()
+                except Exception:
+                    pass
             self.bridge_process = None
+        # Also kill any orphaned bridge processes on the same port
+        self._kill_existing_bridge()
 
     def __getstate__(self):
         """Allows pickling by excluding unpicklable socket/process references."""

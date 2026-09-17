@@ -490,6 +490,16 @@ export class GameEngine {
       });
     }
 
+    // OCCUPANCY-EXP: assign initial ball ownership from scenario setup if provided
+    const initialOwnerId = scenario.setup.ball.ownerId;
+    if (initialOwnerId) {
+      const owner = this.players.find((p) => p.id === initialOwnerId);
+      if (owner) {
+        this.ball.ownerId = owner.id;
+        owner.hasBall = true;
+      }
+    }
+
     this.recordEvent('kickoff', `Started Scenario: ${scenario.name}`, { x: this.ball.position.x, y: this.ball.position.y });
   }
 

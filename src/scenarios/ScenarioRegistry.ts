@@ -144,6 +144,51 @@ export const ACADEMY_SCENARIOS: ScenarioConfig[] = [
     },
   },
   {
+    // OCCUPANCY-EXP: μ-onball intervention for hypothesis F.
+    // Ball spawns on the controlled left player (CAM) so left possession at t=0 is certain
+    // under zero-jitter, and high-probability under the scenario's existing positionJitter=0.05.
+    id: 'academy_3_vs_1_with_keeper_onball',
+    stage: 4,
+    name: 'Academy: 3 vs 1 with Keeper (On-Ball Start)',
+    codeName: 'academy_3_vs_1_with_keeper_onball',
+    description: 'Same as academy_3_vs_1_with_keeper but the controlled player starts with the ball.',
+    instructions: 'Use quick 1-2 passes [J] and lobs [L] to create space around the defender and score cleanly.',
+    difficulty: 'Intermediate',
+    teamLeftPlayers: 3,
+    teamRightPlayers: 2,
+    hasGoalkeeperLeft: false,
+    hasGoalkeeperRight: true,
+    timeLimitSeconds: 30,
+    setup: {
+      ball: { x: 0.2, y: 0, z: 0, ownerId: 'left_1' }, // OCCUPANCY-EXP: ball on controlled CAM spawn
+      leftPlayers: [
+        { role: 'CAM', pos: { x: 0.2, y: 0 }, isControlled: true },
+        { role: 'LW', pos: { x: 0.45, y: -0.22 } },
+        { role: 'RW', pos: { x: 0.45, y: 0.22 } },
+      ],
+      rightPlayers: [
+        { role: 'GK', pos: { x: 0.88, y: 0 } },
+        { role: 'CB', pos: { x: 0.55, y: 0 } },
+      ],
+      positionJitter: 0.05,
+    },
+    objectives: [
+      { id: 'create_triangle', text: 'Complete 2+ passes in the episode', isCompleted: false, isFailed: false },
+      { id: 'score_goal', text: 'Score past the goalkeeper', isCompleted: false, isFailed: false },
+    ],
+    taskSpec: {
+      taskType: 'academy_drill',
+      targetPassesCount: 2,
+      targetGoalsCount: 1,
+      terminateOnTurnover: true,
+    },
+    terminateOnOpponentPossession: true,
+    rewards: {
+      scoring: 1.0,
+      completion: 500,
+    },
+  },
+  {
     id: 'academy_3_vs_1_defender_2',
     stage: 4,
     name: 'Academy: 3 vs 2 with Keeper (Variation)',
