@@ -233,18 +233,29 @@ python -m pytest \
 
 **Fix applied:** Modified `evaluate_checkpoint_progress()` and all trainer callers (`train_mappo.py`, `train_ppo.py`, `train_ippo.py`, `train_mappo_shaped.py`) to write per-run eval CSVs under `runs/{experiment_name}/eval_progress.csv`. `generate_comparison_table.py` updated to scan per-run CSVs. The legacy global `win_rate_progress.csv` is preserved but no longer receives new entries from canonical trainers.
 
-### 11.5 Corrected checkpoint provenance
+### 11.5 Best-vs-final gap investigation (detailed trace)
 
-| Checkpoint | SHA256 | Actual peak performance |
-|------------|--------|------------------------|
-| `mappo_ac3v1_seed42_200k_B` | `4c1d6b7d4ac39d...` | ~2.0% rolling goal rate at step 92,160 |
-| `mappo_ac3v1_seed123_200k_B` | `de5eb3b4dd5d14...` | 0.0% rolling goal rate |
-| `mappo_ac3v1_seed7_200k_B` | `02f70ff44c6a9d...` | 0.0% rolling goal rate |
-| `mappo_ac3v1_seed999_200k_B` | `3abfc55d514ef3...` | 0.0% rolling goal rate |
+**See also:** `training/results/EXPERIMENT_B_HORIZON_200k.md` for the full hypothesis table, re-eval data, and closure recommendation.
 
-The `experiment_manifest.json` `best_deterministic_goal_rate` fields for seed42 (33.33%) and seed123 (23.33%) do not match the actual training logs or final deterministic evaluations. These values appear to have been populated from stale cache data or a different run and were never corrected.
+Re-evaluation of the exact “best” checkpoints from the manifests with the **same 30-episode deterministic protocol** used during training yields **0.0% goal rate** for all four seeds. Three independent re-runs on seed42’s best checkpoint are fully deterministic and all return 0.0% (evaluation_id `3da26710aeb08111`, identical cache key). The in-training 33.33% / 23.33% / 30.0% / 36.67% values are therefore **not reproducible** and should be treated as transient false positives, likely from small-sample eval noise combined with environmental non-determinism or a transient bridge/game state during the training run.
 
-### 11.6 Next steps
+The 33.33% entry is recorded in `training/results/win_rate_progress_v2.csv` (created 2026-09-17 11:51 UTC), not in the original `win_rate_progress.csv`. The versioned CSV was created because the original file lacked the `schema_version` header at the time of the first Experiment B eval write.
 
-- Do not promote any Experiment B checkpoint to `_clean.pt` based on the manifest fields alone.
+### 11.6 Corrected checkpoint provenance
+
+| Checkpoint | SHA256 | Reproducible peak performance |
+|------------|--------|------------------------------|
+| `mappo_ac3v1_seed42_200k_B` | `1d9be7e16f07d9becaa1de364510bee48b15256768fc14327e47532c856bf47b` | 0.0% (final 50-ep eval, re-eval) |
+| `mappo_ac3v1_seed123_200k_B` | `7624efee69555a3e8e8a1c582ef0cdb39b51d31edfd8555e559e63ceaa95e8cc` | 0.0% |
+| `mappo_ac3v1_seed7_200k_B` | `73581605c65bd7d298be848b23de1d29ced52c4680147957a17825dcd3726eaf` | 0.0% |
+| `mappo_ac3v1_seed999_200k_B` | `c1b36f41d74975f4154923bcdec920f9f0f67f58998c59de65394dba9d0f7ebb` | 0.0% |
+
+The `experiment_manifest.json` `best_deterministic_goal_rate` fields (33.33% for seed42, 23.33% for seed123, 30.0% for seed7, 36.67% for seed999) are **unreliable**. They do not match reproducible re-evals and appear to have been populated from transient in-training eval noise.
+
+### 11.7 Next steps
+
+- Do not promote any Experiment B checkpoint to `_clean.pt` based on the manifest `best_deterministic_goal_rate` field.
+- The reliable headline numbers for Experiment B are: **0.0% final deterministic goal rate across all four seeds**, with severe tackle spam on seeds 7 and 999 (9.48 and 42.64 tackles/episode).
+- Proceed with targeted investigation into action masking, reward shaping, and exploration strategy before the next training run.
+- Do not treat the in-training 33.33% / 23.33% figures as evidence of learning; they are non-reproducible transient eval noise.
 - Proceed with targeted investigation into action masking, reward shaping, and exploration strategy before the next training run.
