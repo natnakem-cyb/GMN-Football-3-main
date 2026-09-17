@@ -34,12 +34,14 @@ class IPPORewardLoggingCallback(BaseCallback):
         scenario: str = "academy_3_vs_1_with_keeper",
         models_dir: str = "training/models",
         verbose: int = 1,
+        csv_path: str = None,
     ):
         super().__init__(verbose)
         self.check_freq_steps = check_freq_steps
         self.milestone_freq_steps = milestone_freq_steps
         self.scenario = scenario
         self.models_dir = models_dir
+        self.csv_path = csv_path
         self.last_check_step = 0
         self.last_milestone_step = 0
         self.episode_rewards: List[float] = []
@@ -132,6 +134,7 @@ class IPPORewardLoggingCallback(BaseCallback):
                     learning_rate=3e-4,
                     num_episodes=30,
                     deterministic=True,
+                    csv_path=self.csv_path,
                 )
                 milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
                 # Noise guard: deterministic eval must beat the current best by >= 2 percentage points
@@ -181,6 +184,11 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
     os.makedirs(logs_dir, exist_ok=True)
     os.makedirs(results_dir, exist_ok=True)
 
+    _runs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runs"))
+    _run_dir = os.path.join(_runs_dir, f"ippo_academy_3_vs_1_with_keeper_seed42")
+    os.makedirs(_run_dir, exist_ok=True)
+    _eval_csv_path = os.path.join(_run_dir, "eval_progress.csv")
+
     print("\n1. Initializing Multi-Agent PettingZoo Environment & SuperSuit Vectorization...")
     pz_env = GMNMultiAgentEnv(scenario="academy_3_vs_1_with_keeper", auto_start_bridge=True)
     print(f"   Controllable Agents: {pz_env.possible_agents}")
@@ -224,6 +232,7 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
             scenario="academy_3_vs_1_with_keeper",
             models_dir=models_dir,
             verbose=1,
+            csv_path=_eval_csv_path,
         )
         checkpoint_cb = CheckpointCallback(
             save_freq=100_000,
@@ -278,6 +287,7 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
                 learning_rate=3e-4,
                 num_episodes=50,
                 deterministic=True,
+                csv_path=_eval_csv_path,
             )
         except Exception as e:
             print(f"[Notice] End of run IPPO eval notice: {e}")

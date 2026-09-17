@@ -73,6 +73,11 @@ def run_mappo_shaped_training(
     model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "models"))
     os.makedirs(model_dir, exist_ok=True)
 
+    _runs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runs"))
+    _run_dir = os.path.join(_runs_dir, f"mappo_{scenario}_seed{seed}_shaped")
+    os.makedirs(_run_dir, exist_ok=True)
+    _eval_csv_path = os.path.join(_run_dir, "eval_progress.csv")
+
     shaped_suffix = "shaped"
     best_model_path = os.path.join(model_dir, f"mappo_{scenario}_seed{seed}_{shaped_suffix}_best.pt")
     latest_model_path = os.path.join(model_dir, f"mappo_{scenario}_seed{seed}_{shaped_suffix}_latest.pt")
@@ -374,6 +379,7 @@ def run_mappo_shaped_training(
                     learning_rate=float(actor_opt.param_groups[0]["lr"]),
                     num_episodes=validation_episodes,
                     deterministic=True,
+                    csv_path=_eval_csv_path,
                 )
                 val_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
                 val_pass_acc = float(eval_row.get("pass_completion_rate_pct", 0.0))
@@ -409,6 +415,7 @@ def run_mappo_shaped_training(
                     learning_rate=float(actor_opt.param_groups[0]["lr"]),
                     num_episodes=30,
                     deterministic=True,
+                    csv_path=_eval_csv_path,
                 )
                 milestone_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
                 milestone_pass_acc = float(eval_row.get("pass_completion_rate_pct", 0.0))
@@ -473,6 +480,7 @@ def run_mappo_shaped_training(
             learning_rate=float(actor_opt.param_groups[0]["lr"]),
             num_episodes=50,
             deterministic=True,
+            csv_path=_eval_csv_path,
         )
         end_goal_rate = float(eval_row.get("goal_rate_pct", 0.0))
         end_pass_acc = float(eval_row.get("pass_completion_rate_pct", 0.0))

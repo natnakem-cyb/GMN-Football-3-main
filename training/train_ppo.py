@@ -16,7 +16,7 @@ from training.eval_progress import evaluate_checkpoint_progress
 
 class PPOProgressLoggingCallback(BaseCallback):
     """
-    Evaluates policy milestones every 100k steps and appends records to win_rate_progress.csv.
+    Evaluates policy milestones every 100k steps and appends records to eval_progress.csv.
     """
 
     def __init__(
@@ -29,6 +29,7 @@ class PPOProgressLoggingCallback(BaseCallback):
         lr_schedule: str = "constant",
         total_timesteps: int = 100_000,
         eval_episodes: int = 50,
+        csv_path: str = None,
         verbose: int = 1,
     ):
         super().__init__(verbose)
@@ -40,6 +41,7 @@ class PPOProgressLoggingCallback(BaseCallback):
         self.lr_schedule = lr_schedule
         self.total_timesteps = total_timesteps
         self.eval_episodes = eval_episodes
+        self.csv_path = csv_path
         self.last_saved_step = 0
 
     def _on_step(self) -> bool:
@@ -70,6 +72,7 @@ class PPOProgressLoggingCallback(BaseCallback):
                     learning_rate=curr_lr,
                     num_episodes=self.eval_episodes,
                     deterministic=True,
+                    csv_path=self.csv_path,
                 )
             except Exception as e:
                 print(f"[PPOProgressLoggingCallback] Warning during checkpoint eval: {e}")
@@ -98,6 +101,7 @@ def run_ppo_training(
     eval_episodes: int = 5,
     n_envs: int = 1,
     opponent_difficulty: str = "medium",
+    csv_path: str = None,
 ):
     print("==================================================")
     print("GMN FOOTBALL -- STABLE-BASELINES3 PPO TRAINING")
@@ -108,6 +112,11 @@ def run_ppo_training(
     logs_dir = os.path.join(os.path.dirname(__file__), "logs")
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
+
+    _runs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runs"))
+    _run_dir = os.path.join(_runs_dir, f"ppo_{scenario}_seed42")
+    os.makedirs(_run_dir, exist_ok=True)
+    _eval_csv_path = csv_path or os.path.join(_run_dir, "eval_progress.csv")
 
     print("\n1. Initializing Environment...")
     # Parallel mode (optional): with n_envs > 1, each environment runs its own
@@ -176,6 +185,7 @@ def run_ppo_training(
             lr_schedule=lr_schedule,
             total_timesteps=timesteps,
             eval_episodes=max(10, eval_episodes),
+            csv_path=_eval_csv_path,
         )
 
         start_time = time.time()
@@ -209,6 +219,7 @@ def run_ppo_training(
                 learning_rate=final_lr,
                 num_episodes=eval_episodes,
                 deterministic=True,
+                csv_path=_eval_csv_path,
             )
         except Exception as e:
             print(f"[Notice] Final checkpoint evaluation: {e}")

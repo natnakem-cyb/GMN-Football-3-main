@@ -108,6 +108,7 @@ def run_mappo_training(
     _run_dir = os.path.join(_runs_dir, _experiment_name)
     os.makedirs(_run_dir, exist_ok=True)
     _manifest_path = os.path.join(_run_dir, "experiment_manifest.json")
+    _eval_csv_path = os.path.join(_run_dir, "eval_progress.csv")
     try:
         _git_commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=os.path.dirname(__file__)
@@ -612,6 +613,7 @@ def run_mappo_training(
                     learning_rate=float(actor_opt.param_groups[0]["lr"]),
                     num_episodes=30,
                     deterministic=True,
+                    csv_path=_eval_csv_path,
                 )
                 _raw_milestone_goal_rate = eval_row.get("goal_rate_pct", 0.0)
                 milestone_goal_rate = float(_raw_milestone_goal_rate) if not isinstance(_raw_milestone_goal_rate, dict) else 0.0
@@ -688,6 +690,7 @@ def run_mappo_training(
             learning_rate=float(actor_opt.param_groups[0]["lr"]),
             num_episodes=50,
             deterministic=True,
+            csv_path=_eval_csv_path,
         )
         _raw_goal_rate = eval_row.get("goal_rate_pct", 0.0)
         end_goal_rate = float(_raw_goal_rate) if not isinstance(_raw_goal_rate, dict) else 0.0

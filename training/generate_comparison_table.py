@@ -13,19 +13,20 @@ from typing import Dict, Any, List, Set
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "results"))
-CSV_PATH = os.path.join(RESULTS_DIR, "win_rate_progress.csv")
+LEGACY_CSV_PATH = os.path.join(RESULTS_DIR, "win_rate_progress.csv")
+RUNS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runs"))
 MD_OUT_PATH = os.path.join(RESULTS_DIR, "comparison_table.md")
 HTML_OUT_PATH = os.path.join(RESULTS_DIR, "comparison_table.html")
 
 STANDARD_STEPS = [100000 * i for i in range(1, 11)]  # 100k to 1M
 
 
-def load_win_rate_data(csv_path: str = CSV_PATH) -> List[Dict[str, Any]]:
-    """Loads records from win_rate_progress.csv."""
-    if not os.path.exists(csv_path):
+def _load_csv(path: str) -> List[Dict[str, Any]]:
+    """Loads records from a single eval_progress.csv."""
+    if not os.path.exists(path):
         return []
     records = []
-    with open(csv_path, mode="r", newline="", encoding="utf-8") as f:
+    with open(path, mode="r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             try:
@@ -43,6 +44,25 @@ def load_win_rate_data(csv_path: str = CSV_PATH) -> List[Dict[str, Any]]:
                 })
             except Exception as e:
                 print(f"[generate_comparison_table] Warning skipping invalid row {row}: {e}")
+    return records
+
+
+def load_win_rate_data(csv_path: str = None) -> List[Dict[str, Any]]:
+    """Loads records from per-run eval_progress.csv files under runs/, falling back to the legacy global CSV."""
+    records: List[Dict[str, Any]] = []
+    if csv_path and os.path.exists(csv_path):
+        records.extend(_load_csv(csv_path))
+        return records
+
+    if os.path.isdir(RUNS_DIR):
+        for run_name in sorted(os.listdir(RUNS_DIR)):
+            run_eval_csv = os.path.join(RUNS_DIR, run_name, "eval_progress.csv")
+            if os.path.isfile(run_eval_csv):
+                records.extend(_load_csv(run_eval_csv))
+
+    if not records and os.path.isfile(LEGACY_CSV_PATH):
+        records.extend(_load_csv(LEGACY_CSV_PATH))
+
     return records
 
 
@@ -241,7 +261,7 @@ def generate_html(matrix, scenarios, algorithms, steps) -> str:
     return "\n".join(html_lines)
 
 
-def generate_tables(csv_path: str = CSV_PATH) -> None:
+def generate_tables(csv_path: str = None) -> None:
     os.makedirs(RESULTS_DIR, exist_ok=True)
     records = load_win_rate_data(csv_path)
     matrix, scenarios, algorithms, steps = build_comparison_matrices(records)
