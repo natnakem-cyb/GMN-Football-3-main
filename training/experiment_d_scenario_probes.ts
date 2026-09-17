@@ -1,6 +1,6 @@
 import { GameEngine } from '../src/engine/GameEngine';
 import { ACADEMY_SCENARIOS } from '../src/scenarios/ScenarioRegistry';
-import { ActionType, AgentAction } from '../src/types/football';
+import { ActionType, AgentAction, Player } from '../src/types/football';
 import { RuleBasedAgent } from '../src/agents/RuleBasedAgent';
 import { mapDiscreteAction } from '../src/engine/ActionMapping';
 import { Vec2 } from '../src/engine/Vector';
@@ -53,7 +53,6 @@ const DETERMINISTIC_SEED = 12345;
 const PROBE_EPISODES = 100;
 
 // Exact event type strings from src/types/football.ts MatchEvent['type']
-const EVENT_PASS = 'pass';
 const EVENT_PASS_COMPLETED = 'pass_completed';
 const EVENT_SHOT = 'shot';
 const EVENT_GOAL = 'goal';
@@ -62,13 +61,10 @@ const EVENT_SHOT_BLOCKED = 'shot_blocked';
 const EVENT_SHOT_MISSED = 'shot_missed';
 
 // Action indices from src/engine/ActionMapping.ts
-const ACTION_LONG_PASS = 9;
-const ACTION_HIGH_PASS = 10;
 const ACTION_SHORT_PASS = 11;
 const ACTION_SHOT = 12;
 const ACTION_TACKLE = 16;
 
-const PASS_ACTION_INDICES = new Set([ACTION_LONG_PASS, ACTION_HIGH_PASS, ACTION_SHORT_PASS]);
 const SHOT_EVENT_TYPES = new Set([EVENT_SHOT, EVENT_SHOT_SAVED, EVENT_SHOT_BLOCKED, EVENT_SHOT_MISSED]);
 
 // ---------------------------------------------------------------------------
@@ -84,10 +80,6 @@ function isShotAction(action: AgentAction): boolean {
 
 function leftPlayers(engine: GameEngine) {
   return engine.players.filter((p) => p.team === 'left');
-}
-
-function rightPlayers(engine: GameEngine) {
-  return engine.players.filter((p) => p.team === 'right');
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +177,7 @@ class DeterministicFeasibilityController {
     // Non-controlled left players: simple support run
     for (const p of engine.players) {
       if (p.team === 'left' && p.id !== this.controlledId) {
-        actionMap.set(p.id, this.supportRun(p, engine));
+        actionMap.set(p.id, this.supportRun(p));
       }
     }
 
@@ -214,8 +206,7 @@ class DeterministicFeasibilityController {
     return actionMap;
   }
 
-  private supportRun(player: Player, engine: GameEngine): AgentAction {
-    const ballPos = engine.ball.position;
+  private supportRun(player: Player): AgentAction {
     const forwardX = player.team === 'left' ? 0.15 : -0.15;
     const targetX = Math.max(-0.9, Math.min(0.9, player.position.x + forwardX));
     const targetY = Math.max(PITCH.minY + 0.05, Math.min(PITCH.maxY - 0.05, player.position.y * 0.8));
@@ -680,7 +671,6 @@ function runForcedPassShotProbe(): ProbeResult[] {
               }
             }
 
-            const beforeEvents = engine.events.length;
             const passRes = engine.step(forcedMap, 1 / 60);
 
             // Observe for pass completion within next 50 ticks (pass may take
@@ -1160,7 +1150,7 @@ function runReturnOrderingCheck(): ReturnOrderResult[] {
 // ---------------------------------------------------------------------------
 // Step 5: Write Outputs
 // ---------------------------------------------------------------------------
-function writeResults(results: ProbeResult[], filename: string): void {
+function writeResults(results: ProbeResult[], _filename: string): void {
   const path = `experiment_d_results_${Date.now()}.json`;
   fs.writeFileSync(path, JSON.stringify(results, null, 2));
   console.log(`\n[OUTPUT] Wrote ${path}`);
@@ -1205,7 +1195,7 @@ function main(): void {
     ...consistencyResults,
     ...forcedResults,
     ...returnOrderResults,
-  ];
+  ] as ProbeResult[];
   writeResults(allResults, 'experiment_d_results.json');
 
   console.log('\n==================================================');

@@ -23,7 +23,7 @@ interface TickLog {
   ballVx?: number;
   ballVy?: number;
   ballVz?: number;
-  nearestTeammateId?: string;
+  nearestTeammateId?: string | null;
   nearestTeammateDist?: number;
   ballToNearestTeammateDist?: number;
   teammatePositions?: Record<string, { x: number; y: number }>;
@@ -46,9 +46,9 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 
 function nearestTeammate(playerId: string, engine: GameEngine) {
   const player = engine.players.find((p) => p.id === playerId);
-  if (!player) return { id: null, dist: Infinity };
+  if (!player) return { id: null as string | null, dist: Infinity };
   const mates = engine.players.filter((p) => p.team === player.team && p.id !== player.id && !p.isGoalkeeper);
-  let best = { id: null, dist: Infinity };
+  let best: { id: string | null; dist: number } = { id: null, dist: Infinity };
   for (const m of mates) {
     const d = dist(player.position, m.position);
     if (d < best.dist) best = { id: m.id, dist: d };
@@ -59,7 +59,7 @@ function nearestTeammate(playerId: string, engine: GameEngine) {
 function ballToNearestTeammate(engine: GameEngine) {
   const ballPos = { x: engine.ball.position.x, y: engine.ball.position.y };
   const mates = engine.players.filter((p) => p.team === 'left' && !p.isGoalkeeper);
-  let best = { id: null, dist: Infinity };
+  let best: { id: string | null; dist: number } = { id: null, dist: Infinity };
   for (const m of mates) {
     const d = dist(ballPos, m.position);
     if (d < best.dist) best = { id: m.id, dist: d };
@@ -178,9 +178,9 @@ function runForensics(episodes = 20): void {
             if (p.id !== player.id) forcedMap.set(p.id, { type: ActionType.IDLE });
           }
 
-          const beforeEvents = engine.events.length;
-          const passRes = engine.step(forcedMap, 1 / 60);
-          const newEvents = engine.events.slice(beforeEvents);
+          const _beforeEvents = engine.events.length;
+          engine.step(forcedMap, 1 / 60);
+          const newEvents = engine.events.slice(_beforeEvents);
           const completed = newEvents.some((e) => e.type === 'pass_completed' && e.team === 'left');
           if (completed) passCompleted++;
 
