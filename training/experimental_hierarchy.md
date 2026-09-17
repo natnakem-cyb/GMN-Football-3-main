@@ -5,7 +5,7 @@
 | Label | Name | Freeze / settings | Scope | Status |
 |-------|------|-------------------|-------|--------|
 | **A** | Frozen post-strip reference | Post-strip reward implementation, `E=1/β=0.03`, 100k timesteps | Reference baseline | Done |
-| **B** | Horizon extension | Same freeze as A | 200k–500k timesteps | Blocked until D resolves structural issues |
+| **B** | Horizon extension | Same freeze as A | 200k–500k timesteps | Conditionally unblocked after D exits; requires B brief documenting clampPassDirection scope and confirming no reward/strip edits |
 | **C** | Controlled exploration ablation | Fixed horizon (100k), isolate exploration bonus `E` | Compare `(E=0, β=0)` vs `(E=1, β=0.03)` | Done |
 | **D** | Targeted investigation | No training; probe-only repairs on frozen engine | Diagnose and fix action masking / execution-path issues before any further experiment | In progress |
 

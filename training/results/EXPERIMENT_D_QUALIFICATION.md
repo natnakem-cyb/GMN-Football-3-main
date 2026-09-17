@@ -240,7 +240,13 @@ After updating the deterministic scripted controller to use the clamped pass dir
 
 ### Next steps
 - Propagate clamped pass direction to any other scripted controllers or adapters used in training/evaluation.
-- Consider Experiment B (horizon extension) now that primary case is QUALIFIED.
+- **Experiment B is conditionally unblocked.** Before treating B as fully free, the following caveats must be addressed in the B brief:
+  1. **Clamp scope:** `clampPassDirection` currently lives in the scripted/probe layer only. If it is moved into the env/action-processing layer, that is a real action-space change and must be documented in scenario cards.
+  2. **Probe protocol vs training MDP:** The forced-PASS probe makes non-passing teammates sprint toward the ball. This improves measured completion but does not reflect the training MDP, where teammates are other policy heads (or a shared policy), not “always run to ball.”
+  3. **Code diff audit:** Confirm `train_mappo.py` / `gmn_pettingzoo.py` contain no reward, strip, or exploration edits beyond wiring/logging/clamp documentation.
+  4. **SHOT conditional rate:** Re-state the post-repair SHOT conditional rate explicitly so C is not PASS-only.
+  5. **B brief must state:** what changed in the action/env path (`clampPassDirection` scope) so results remain interpretable against Baseline A.
+- Optional sanity: 1–2 seed smoke at 100k with post-repair env to confirm the training stack uses the same action encoding.
 
 ### Explicit constraints honored
 - No engine modifications
