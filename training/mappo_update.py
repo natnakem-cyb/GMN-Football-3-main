@@ -26,6 +26,7 @@ def ppo_update(
     value_coef: float = 0.5,
     entropy_coef: float = 0.01,
     max_grad_norm: float = 0.5,
+    onball_football_entropy_bonus: float = 0.0,
 ) -> Dict[str, float]:
     """
     Performs PPO policy and value updates for MAPPO.
@@ -111,6 +112,31 @@ def ppo_update(
             new_logprobs = dist.log_prob(actions_t[batch_idx])
             entropy = dist.entropy().mean()
 
+            # Targeted on-ball football entropy bonus (Form A): add extra entropy
+            # from the marginal distribution over legal PASS/SHOT actions only.
+            # This does not change the base reward, GAE, or mask logic.
+            football_entropy_bonus = 0.0
+            if onball_football_entropy_bonus > 0.0 and batch_masks is not None:
+                pass_shot_legal = batch_masks[:, 9:13].any(dim=-1)  # indices 9,10,11,12
+                if pass_shot_legal.any():
+                    # Use the already-computed distribution; extract marginal over PASS/SHOT.
+                    # Do NOT re-run actor with a restricted mask — that can trigger the
+                    # fail-closed all-illegal check in states where PASS/SHOT are not legal.
+                    football_probs = dist.probs.detach().clone()
+                    # Zero out non-football actions and renormalize only for rows where
+                    # football is legal; rows without legal football actions get 0 bonus.
+                    football_mask = batch_masks[:, 9:13].float()  # (batch, 4)
+                    marginal = football_probs[:, 9:13] * football_mask
+                    marginal_sum = marginal.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+                    marginal = marginal / marginal_sum
+                    # Entropy of the marginal, averaged over rows with legal football
+                    legal_marginal = marginal[pass_shot_legal]
+                    football_entropy = -torch.sum(
+                        legal_marginal * torch.log(legal_marginal.clamp(min=1e-8)),
+                        dim=-1
+                    ).mean()
+                    football_entropy_bonus = float(onball_football_entropy_bonus) * float(football_entropy.item())
+
             ratio = torch.exp(new_logprobs - old_logprobs_t[batch_idx])
             surr1 = ratio * advantages_t[batch_idx]
             surr2 = torch.clamp(ratio, 1.0 - clip_range, 1.0 + clip_range) * advantages_t[batch_idx]
@@ -133,7 +159,7 @@ def ppo_update(
             # (state value vs per-agent value) — that is a semantic redesign, not
             # a one-line fix, so it is deferred (documented, not applied).
 
-            loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
+            loss = policy_loss + value_coef * value_loss - entropy_coef * entropy - football_entropy_bonus
 
             actor_opt.zero_grad()
             critic_opt.zero_grad()

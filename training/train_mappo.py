@@ -61,6 +61,10 @@ def run_mappo_training(
     exploration_beta: float = 0.03,
     mixscript_override_prob: float = 0.0,
     mixscript_end_step: int = 0,
+    exploration_ablation_bonus: float = 0.0,
+    exploration_ablation_phase1_steps: int = 15000,
+    exploration_ablation_total_steps: int = 30000,
+    exploration_ablation_checkpoint_interval: int = 5000,
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -460,6 +464,17 @@ def run_mappo_training(
         # 3. PPO Update Step
         # Linear entropy schedule: decays from 0.01 to 0.005 over the full training run.
         entropy_coef = 0.01 - (0.01 - 0.005) * min(total_steps_elapsed / timesteps, 1.0)
+
+        # Exploration ablation (Form A): targeted on-ball football entropy bonus.
+        # Phase 1 (0 -> exploration_ablation_phase1_steps): bonus active.
+        # Phase 2 (phase1 -> exploration_ablation_total_steps): bonus OFF.
+        # After total_steps, bonus stays OFF.
+        current_football_bonus = 0.0
+        if exploration_ablation_bonus > 0.0 and total_steps_elapsed < exploration_ablation_total_steps:
+            if total_steps_elapsed < exploration_ablation_phase1_steps:
+                current_football_bonus = exploration_ablation_bonus
+            # else Phase 2: bonus is 0.0
+
         metrics = ppo_update(
             actor=actor,
             critic=critic,
@@ -474,6 +489,7 @@ def run_mappo_training(
             value_coef=0.5,
             entropy_coef=entropy_coef,
             max_grad_norm=0.5,
+            onball_football_entropy_bonus=current_football_bonus,
         )
         actor_scheduler.step()
         critic_scheduler.step()
@@ -600,6 +616,7 @@ def run_mappo_training(
                 )
 
             metric_label = "Possession Retention" if is_rondo_scenario else "Goal Rate"
+            _expl_bonus_str = f" | ExplBonus: {current_football_bonus:.2f}" if exploration_ablation_bonus > 0.0 else ""
             print(
                 f"   [Step {total_steps_elapsed:7d} / {timesteps}] Update {update_idx:4d}/{n_updates} | "
                 f"Completed Episodes: {len(episode_rewards):4d} | "
@@ -607,7 +624,8 @@ def run_mappo_training(
                 f"{metric_label}: {goal_pct:5.1f}% | "
                 f"Val Loss: {metrics['value_loss']:.5f} | "
                 f"Entropy: {metrics['entropy']:.4f} | "
-                f"EntropyCoef: {entropy_coef:.5f} | LR: {float(actor_opt.param_groups[0]['lr']):.6f}",
+                f"EntropyCoef: {entropy_coef:.5f} | LR: {float(actor_opt.param_groups[0]['lr']):.6f}"
+                f"{_expl_bonus_str}",
                 flush=True,
             )
 
@@ -677,6 +695,35 @@ def run_mappo_training(
                 import traceback as _traceback
                 print(f"[Notice] MAPPO milestone eval notice: {e}")
                 print("[DEBUG] Full traceback:\n" + _traceback.format_exc(), flush=True)
+
+        # Exploration ablation checkpoints: save at fixed intervals through both phases.
+        if exploration_ablation_bonus > 0.0 and exploration_ablation_checkpoint_interval > 0:
+            _ablation_steps = [exploration_ablation_checkpoint_interval * k for k in range(1, exploration_ablation_total_steps // exploration_ablation_checkpoint_interval + 1)]
+            for _ckpt_step in _ablation_steps:
+                if total_steps_elapsed >= _ckpt_step and not getattr(env, f"_expl_ablation_saved_{_ckpt_step}", False):
+                    setattr(env, f"_expl_ablation_saved_{_ckpt_step}", True)
+                    _ablation_ckpt_name = os.path.join(
+                        models_dir,
+                        f"mappo_{scenario}_seed{seed}_expl_ablation_{_ckpt_step}.pt",
+                    )
+                    torch.save(
+                        {
+                            "actor": actor.state_dict(),
+                            "critic": critic.state_dict(),
+                            "actor_opt": actor_opt.state_dict(),
+                            "critic_opt": critic_opt.state_dict(),
+                            "obs_dim": obs_dim,
+                            "global_state_dim": global_state_dim,
+                            "action_dim": action_dim,
+                            "timesteps": total_steps_elapsed,
+                        },
+                        _ablation_ckpt_name,
+                    )
+                    print(
+                        f"   [EXPL-ABLATION] Checkpoint saved: {_ablation_ckpt_name} "
+                        f"(step {total_steps_elapsed}, bonus={current_football_bonus:.2f})",
+                        flush=True,
+                    )
 
         # Mix-script-end checkpoint: save exactly at mixscript_end_step so we can
         # evaluate policy behavior immediately after the crutch is removed.
@@ -989,6 +1036,10 @@ if __name__ == "__main__":
     parser.add_argument("--exploration-beta", type=float, default=0.03, help="Exploration bonus beta (used only when exploration is enabled)")
     parser.add_argument("--mixscript-override-prob", type=float, default=0.0, help="Mix-script override probability (0 disables mix-script)")
     parser.add_argument("--mixscript-end-step", type=int, default=0, help="Global step at which mix-script turns off (0 disables mix-script)")
+    parser.add_argument("--exploration-ablation-bonus", type=float, default=0.0, help="Targeted on-ball football entropy bonus coefficient (0 disables ablation)")
+    parser.add_argument("--exploration-ablation-phase1-steps", type=int, default=15000, help="Phase 1 length: bonus active from step 0 to this many steps")
+    parser.add_argument("--exploration-ablation-total-steps", type=int, default=30000, help="Total training steps for ablation run (Phase 1 + Phase 2 tail)")
+    parser.add_argument("--exploration-ablation-checkpoint-interval", type=int, default=5000, help="Checkpoint save interval during ablation (steps)")
     args = parser.parse_args()
 
     if not args.enable_exploration:
@@ -999,7 +1050,7 @@ if __name__ == "__main__":
         pass
 
     run_mappo_training(
-        timesteps=args.timesteps,
+        timesteps=args.exploration_ablation_total_steps if args.exploration_ablation_bonus > 0.0 else args.timesteps,
         checkpoint_name=args.checkpoint_name,
         scenario=args.scenario,
         seed=args.seed,
@@ -1019,6 +1070,10 @@ if __name__ == "__main__":
         exploration_beta=args.exploration_beta,
         mixscript_override_prob=args.mixscript_override_prob,
         mixscript_end_step=args.mixscript_end_step,
+        exploration_ablation_bonus=args.exploration_ablation_bonus,
+        exploration_ablation_phase1_steps=args.exploration_ablation_phase1_steps,
+        exploration_ablation_total_steps=args.exploration_ablation_total_steps,
+        exploration_ablation_checkpoint_interval=args.exploration_ablation_checkpoint_interval,
     )
 
 
