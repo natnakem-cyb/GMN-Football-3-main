@@ -59,6 +59,8 @@ def run_mappo_training(
     models_dir: str = None,
     enable_exploration: bool = True,
     exploration_beta: float = 0.03,
+    mixscript_override_prob: float = 0.0,
+    mixscript_end_step: int = 0,
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -204,15 +206,18 @@ def run_mappo_training(
             )
         env = envs[0]
 
-    print(
-        f"   Shot clock: truncates={env.shot_clock_truncates} "
-        f"t_max={env.shot_clock_t_max} (episodes are not capped by the clock)",
-        flush=True,
+    print(f"   Shot clock: truncates={env.shot_clock_truncates} "
+          f"t_max={env.shot_clock_t_max} (episodes are not capped by the clock)",
+          flush=True,
     )
-    print(
-        f"   Exploration: enable_exploration_bonus={enable_exploration} "
-        f"exploration_beta={exploration_beta}",
-        flush=True,
+    print(f"   Exploration: enable_exploration_bonus={enable_exploration} "
+          f"exploration_beta={exploration_beta}",
+          flush=True,
+    )
+    if mixscript_override_prob > 0.0:
+        print(f"   Mix-script: override_prob={mixscript_override_prob:.2f} "
+              f"end_step={mixscript_end_step}",
+              flush=True,
     )
 
     # Continuous forensic logging: per-episode JSONL trace for the entire run.
@@ -383,14 +388,34 @@ def run_mappo_training(
             buffer = collect_rollout_batched(
                 env, actor, critic, num_steps=n_steps, batch_size=n_envs,
                 terminal_jsonl_path=_terminal_jsonl_path,
+                mixscript_override_prob=mixscript_override_prob,
+                mixscript_end_step=mixscript_end_step,
+                global_step=total_steps_elapsed,
             )
             total_steps_elapsed += n_steps * n_envs
         else:
             buffer = collect_rollout(
                 env, actor, critic, num_steps=n_steps,
                 terminal_jsonl_path=_terminal_jsonl_path,
+                mixscript_override_prob=mixscript_override_prob,
+                mixscript_end_step=mixscript_end_step,
+                global_step=total_steps_elapsed,
             )
             total_steps_elapsed += n_steps
+
+        # Log mix-script override statistics if active.
+        if mixscript_override_prob > 0.0 and total_steps_elapsed <= mixscript_end_step:
+            _ms_stats = buffer.get("mixscript_stats", {})
+            if _ms_stats.get("overrides", 0) > 0:
+                _pass_rate = _ms_stats.get("pass_success", 0) / max(_ms_stats.get("pass_overrides", 1), 1)
+                _shot_rate = _ms_stats.get("shot_success", 0) / max(_ms_stats.get("shot_overrides", 1), 1)
+                print(
+                    f"   [MIXSCRIPT] step={total_steps_elapsed} | "
+                    f"overrides={_ms_stats['overrides']} | "
+                    f"pass={_ms_stats['pass_overrides']} (succ={_ms_stats['pass_success']}, {_pass_rate*100:.1f}%) | "
+                    f"shot={_ms_stats['shot_overrides']} (succ={_ms_stats['shot_success']}, {_shot_rate*100:.1f}%)",
+                    flush=True,
+                )
 
         # Record completed episodes
         for ep_info in buffer.get("completed_episodes", []):
@@ -652,6 +677,34 @@ def run_mappo_training(
                 import traceback as _traceback
                 print(f"[Notice] MAPPO milestone eval notice: {e}")
                 print("[DEBUG] Full traceback:\n" + _traceback.format_exc(), flush=True)
+
+        # Mix-script-end checkpoint: save exactly at mixscript_end_step so we can
+        # evaluate policy behavior immediately after the crutch is removed.
+        if mixscript_override_prob > 0.0 and mixscript_end_step > 0:
+            if total_steps_elapsed >= mixscript_end_step and not getattr(env, "_mixscript_end_saved", False):
+                env._mixscript_end_saved = True
+                mixscript_end_ckpt = os.path.join(
+                    models_dir,
+                    f"mappo_{scenario}_seed{seed}_mixscript_{mixscript_end_step}.pt",
+                )
+                torch.save(
+                    {
+                        "actor": actor.state_dict(),
+                        "critic": critic.state_dict(),
+                        "actor_opt": actor_opt.state_dict(),
+                        "critic_opt": critic_opt.state_dict(),
+                        "obs_dim": obs_dim,
+                        "global_state_dim": global_state_dim,
+                        "action_dim": action_dim,
+                        "timesteps": total_steps_elapsed,
+                    },
+                    mixscript_end_ckpt,
+                )
+                print(
+                    f"   [MIXSCRIPT-END] Checkpoint saved: {mixscript_end_ckpt} "
+                    f"(step {total_steps_elapsed})",
+                    flush=True,
+                )
 
     duration = time.time() - start_time
     steps_this_run = total_steps_elapsed - total_steps_elapsed_at_start
@@ -934,6 +987,8 @@ if __name__ == "__main__":
     parser.add_argument("--enable-exploration", action="store_true", default=True, help="Enable exploration bonus for finishing scenarios")
     parser.add_argument("--no-exploration", action="store_false", dest="enable_exploration", help="Disable exploration bonus for finishing scenarios")
     parser.add_argument("--exploration-beta", type=float, default=0.03, help="Exploration bonus beta (used only when exploration is enabled)")
+    parser.add_argument("--mixscript-override-prob", type=float, default=0.0, help="Mix-script override probability (0 disables mix-script)")
+    parser.add_argument("--mixscript-end-step", type=int, default=0, help="Global step at which mix-script turns off (0 disables mix-script)")
     args = parser.parse_args()
 
     if not args.enable_exploration:
@@ -962,6 +1017,8 @@ if __name__ == "__main__":
         models_dir=args.models_dir,
         enable_exploration=args.enable_exploration,
         exploration_beta=args.exploration_beta,
+        mixscript_override_prob=args.mixscript_override_prob,
+        mixscript_end_step=args.mixscript_end_step,
     )
 
 

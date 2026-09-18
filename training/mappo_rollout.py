@@ -100,6 +100,9 @@ def collect_rollout(
     critic: CentralizedCritic,
     num_steps: int = 256,
     terminal_jsonl_path: Optional[str] = None,
+    mixscript_override_prob: float = 0.0,
+    mixscript_end_step: int = 0,
+    global_step: int = 0,
 ) -> Dict[str, Any]:
     """
     Collects a multi-agent rollout from the PettingZoo environment.
@@ -116,6 +119,13 @@ def collect_rollout(
     - truncated: shape (num_steps,) bool — time-limit truncations only
     - next_local_obs: shape (num_agents, obs_dim) float32 — joint observation after the last rollout step
     - completed_episodes: list of dicts with {"reward": float, "length": int, "goal": int}
+    - mixscript_stats: dict with override/success counts when mix-script is active
+
+    mixscript_override_prob: if > 0, during the mix-script window (global_step <
+        mixscript_end_step), each on-ball tick is overridden to a scripted PASS
+        or SHOT with this probability. 0 disables mix-script.
+    mixscript_end_step: global timestep at which mix-script turns off.
+    global_step: current global timestep (used to determine whether mix-script is active).
     """
     buffer: Dict[str, list] = {
         "local_obs": [],      # per-agent, shape (num_steps, num_agents, obs_dim)
@@ -129,8 +139,17 @@ def collect_rollout(
         "dones": [],          # shape (num_steps,) — genuine terminations only (not truncations)
         "terminated": [],     # shape (num_steps,) — genuine terminations only
         "truncated": [],      # shape (num_steps,) — time-limit truncations only
+        "mixscript_overridden": [],  # shape (num_steps,) — bool: was a mix-script override applied
+        "mixscript_action": [],      # shape (num_steps,) — int: overridden action, or -1
     }
     completed_episodes = []
+    mixscript_stats = {
+        "overrides": 0,
+        "pass_overrides": 0,
+        "shot_overrides": 0,
+        "pass_success": 0,
+        "shot_success": 0,
+    }
 
     # Retrieve or initialize persistent rollout state on env
     if not hasattr(env, "_mappo_obs") or env._mappo_obs is None:
@@ -180,6 +199,67 @@ def collect_rollout(
 
         action_dict = {a: int(actions[i].item()) for i, a in enumerate(current_agents)}
 
+        # ---- Mix-script: bounded behavior-policy override ----
+        _mixscript_overridden = False
+        _mixscript_action = None
+        if (
+            mixscript_override_prob > 0.0
+            and global_step < mixscript_end_step
+        ):
+            # Determine if left team (controlled agents) has the ball.
+            # We use the observation ownership slice [94:97] = [no-one, left, right].
+            _left_has_ball = False
+            for a in current_agents:
+                _obs_vec = obs_dict[a]
+                if hasattr(_obs_vec, "__len__") and len(_obs_vec) >= 97 and float(_obs_vec[95]) == 1.0:
+                    _left_has_ball = True
+                    break
+
+            if _left_has_ball and np.random.rand() < mixscript_override_prob:
+                # Collect agents with legal PASS (9,10,11) or SHOT (12).
+                _pass_legal = []
+                _shot_legal = []
+                for i, a in enumerate(current_agents):
+                    _mask_row = mask_matrix[i]
+                    if _mask_row[9] or _mask_row[10] or _mask_row[11]:
+                        _pass_legal.append(i)
+                    if _mask_row[12]:
+                        _shot_legal.append(i)
+
+                if _pass_legal or _shot_legal:
+                    # Choose action type: 60% PASS, 40% SHOT when both are legal.
+                    if _pass_legal and _shot_legal:
+                        _choose_pass = np.random.rand() < 0.60
+                    elif _pass_legal:
+                        _choose_pass = True
+                    else:
+                        _choose_pass = False
+
+                    if _choose_pass:
+                        _target_idx = _pass_legal[np.random.randint(0, len(_pass_legal))]
+                        _scripted_action = 11  # SHORT_PASS (production nearest-teammate resolution)
+                    else:
+                        _target_idx = _shot_legal[np.random.randint(0, len(_shot_legal))]
+                        _scripted_action = 12  # SHOT
+
+                    # Override the selected agent's action.
+                    _target_agent = current_agents[_target_idx]
+                    action_dict[_target_agent] = _scripted_action
+                    _mixscript_overridden = True
+                    _mixscript_action = _scripted_action
+
+                    # Recompute logprob for the overridden action so the surrogate
+                    # objective remains approximately on-policy for this transition.
+                    with torch.no_grad():
+                        _override_dist = actor(
+                            local_obs_t[_target_idx:_target_idx + 1],
+                            torch.tensor(mask_matrix[_target_idx:_target_idx + 1], dtype=torch.bool),
+                        )
+                        logprobs[_target_idx] = _override_dist.log_prob(
+                            torch.tensor([_scripted_action], dtype=torch.long)
+                        ).item()
+        # ---- End mix-script override ----
+
         # Step 2/3: capture reward-before-terminal strictly before the final tick
         reward_before_terminal = float(env._mappo_ep_rew)
 
@@ -227,6 +307,22 @@ def collect_rollout(
         buffer["dones"].append(bool(terminated))
         buffer["terminated"].append(bool(terminated))
         buffer["truncated"].append(bool(truncated))
+        buffer["mixscript_overridden"].append(_mixscript_overridden)
+        buffer["mixscript_action"].append(_mixscript_action if _mixscript_overridden else -1)
+
+        # Track mix-script success: check event code on override tick.
+        if _mixscript_overridden:
+            mixscript_stats["overrides"] += 1
+            if _mixscript_action == 11:
+                mixscript_stats["pass_overrides"] += 1
+                _ev_code = getattr(env, "_last_frame_event_code", -1)
+                if _ev_code in (5, 14):  # "pass" or "pass_completed"
+                    mixscript_stats["pass_success"] += 1
+            elif _mixscript_action == 12:
+                mixscript_stats["shot_overrides"] += 1
+                _ev_code = getattr(env, "_last_frame_event_code", -1)
+                if _ev_code == 2:  # "shot"
+                    mixscript_stats["shot_success"] += 1
 
         if done:
             # Step 2: capture comprehensive terminal transition record
@@ -299,9 +395,12 @@ def collect_rollout(
         "dones": np.array(buffer["dones"], dtype=np.bool_),
         "terminated": np.array(buffer["terminated"], dtype=np.bool_),
         "truncated": np.array(buffer["truncated"], dtype=np.bool_),
+        "mixscript_overridden": np.array(buffer["mixscript_overridden"], dtype=np.bool_),
+        "mixscript_action": np.array(buffer["mixscript_action"], dtype=np.int64),
         "next_local_obs": np.stack([unwrap_obs(obs_dict)[a] for a in agent_order], axis=0).astype(np.float32),
         "agent_order": agent_order,
         "completed_episodes": completed_episodes,
+        "mixscript_stats": mixscript_stats,
     }
 
     # Explicit shape assertions
@@ -337,6 +436,12 @@ def collect_rollout(
     )
     assert res_buffer["next_local_obs"].shape == (num_agents, obs_dim), (
         f"next_local_obs shape mismatch: expected {(num_agents, obs_dim)}, got {res_buffer['next_local_obs'].shape}"
+    )
+    assert res_buffer["mixscript_overridden"].shape == (num_steps,), (
+        f"mixscript_overridden shape mismatch: expected {(num_steps,)}, got {res_buffer['mixscript_overridden'].shape}"
+    )
+    assert res_buffer["mixscript_action"].shape == (num_steps,), (
+        f"mixscript_action shape mismatch: expected {(num_steps,)}, got {res_buffer['mixscript_action'].shape}"
     )
 
     return res_buffer
@@ -629,6 +734,9 @@ def collect_rollout_batched(
     num_steps: int = 256,
     batch_size: int = 2,
     terminal_jsonl_path: Optional[str] = None,
+    mixscript_override_prob: float = 0.0,
+    mixscript_end_step: int = 0,
+    global_step: int = 0,
 ) -> Dict[str, Any]:
     """
     Vectorized rollout collection using the bridge's batched step protocol.
@@ -636,6 +744,10 @@ def collect_rollout_batched(
     Unlike ``collect_rollout_parallel``, this sends one stacked binary frame per
     step instead of N sequential round-trips. The returned buffer layout is
     identical so ``ppo_update`` is unchanged.
+
+    mixscript_override_prob / mixscript_end_step / global_step: accepted for API
+        compatibility with collect_rollout; mix-script is NOT implemented in the
+        batched path (use n_envs=1 for mix-script experiments).
     """
     buffers: Dict[str, list] = {
         "local_obs": [],
