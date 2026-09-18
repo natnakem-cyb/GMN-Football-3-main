@@ -150,6 +150,29 @@ export class GMNBridgeService {
     return null;
   }
 
+  /** Instrumentation-only: resolve the effective PASS direction actually used by
+   *  the engine for the controlled player. Returns null when no PASS was executed
+   *  this step. This does not modify any production behavior. */
+  private static resolvePassDirection(
+    actionMap: Map<string, AgentAction>,
+    engine: GameEngine,
+  ): { x: number; y: number } | null {
+    const controlledPlayer =
+      engine.players.find((p) => p.id === engine.controlledPlayerId) ||
+      engine.players.find((p) => p.team === 'left');
+    if (!controlledPlayer) return null;
+    const action = actionMap.get(controlledPlayer.id);
+    if (!action) return null;
+    const passTypes = new Set(['SHORT_PASS', 'LONG_PASS', 'HIGH_PASS']);
+    if (!passTypes.has(action.type)) return null;
+    const dir =
+      action.direction ||
+      (controlledPlayer.stickyDirection
+        ? { ...controlledPlayer.stickyDirection }
+        : Vec2.fromAngle(controlledPlayer.heading));
+    return { x: dir.x, y: dir.y };
+  }
+
   /** Mirror a 127-dim left-team observation so a right-team player can use the same model. */
   private static mirrorObservationForRightTeam(obs: number[]): number[] {
     if (obs.length !== OBSERVATION_DIM) return obs;
@@ -371,6 +394,7 @@ export class GMNBridgeService {
         );
       }
       const stepResult = engine.step(actionMap, 1 / 60);
+      const resolvedPassDirection = GMNBridgeService.resolvePassDirection(actionMap, engine);
       const observations = controllableIds.map((id) =>
         ObservationEncoder.encode(
           engine.players,
@@ -394,6 +418,7 @@ export class GMNBridgeService {
           event: stepResult.info.event,
           checkpointReward: stepResult.info.checkpointReward,
           ballDistanceToGoal: stepResult.info.ballDistanceToGoal,
+          resolved_pass_direction: resolvedPassDirection,
           ground_truth: {
             possession_left_pct: engine.stats.possession.left,
             completed_passes_left: engine.stats.completedPasses.left,
@@ -408,6 +433,7 @@ export class GMNBridgeService {
                   return owner ? { agent_id: owner.id, team: owner.team } : null;
                 })()
               : null,
+            last_kicked_by: engine.ball.lastKickedBy,
           },
         },
         controllableIds,
@@ -532,6 +558,7 @@ export class GMNBridgeService {
 
     // 3. Execute deterministic physics tick (1/60s)
     const result = this.engine.step(actionMap, 1 / 60);
+    const resolvedPassDirection = GMNBridgeService.resolvePassDirection(actionMap, this.engine);
 
     // 4. Compute action masks for the next decision step (post-possession state).
     const controllableIds = [this.engine.controlledPlayerId].filter((id): id is string => id != null);
@@ -550,6 +577,7 @@ export class GMNBridgeService {
         event: result.info.event,
         checkpointReward: result.info.checkpointReward,
         ballDistanceToGoal: result.info.ballDistanceToGoal,
+        resolved_pass_direction: resolvedPassDirection,
         ground_truth: {
           possession_left_pct: this.engine.stats.possession.left,
           completed_passes_left: this.engine.stats.completedPasses.left,
@@ -566,6 +594,7 @@ export class GMNBridgeService {
                   : null;
               })()
             : null,
+          last_kicked_by: this.engine.ball.lastKickedBy,
         },
       },
     };
@@ -627,6 +656,7 @@ export class GMNBridgeService {
 
     // 3. Execute deterministic physics tick (1/60s)
     const result = this.engine.step(actionMap, 1 / 60);
+    const resolvedPassDirection = GMNBridgeService.resolvePassDirection(actionMap, this.engine);
 
     // 4. Re-encode one observation per controlled agent from the
     // already-updated post-step state — do not step the engine again
@@ -653,6 +683,7 @@ export class GMNBridgeService {
         event: result.info.event,
         checkpointReward: result.info.checkpointReward,
         ballDistanceToGoal: result.info.ballDistanceToGoal,
+        resolved_pass_direction: resolvedPassDirection,
         ground_truth: {
           possession_left_pct: this.engine.stats.possession.left,
           completed_passes_left: this.engine.stats.completedPasses.left,
@@ -1239,6 +1270,10 @@ wss.on('connection', (ws: WebSocket, req) => {
             ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
           }
 
+          if (stepResult.info?.resolved_pass_direction) {
+            ws.send(JSON.stringify({ type: 'PASS_DIAGNOSTIC', data: stepResult.info.resolved_pass_direction }));
+          }
+
           const ownerId = bridge['engine'].ball.ownerId as string | null;
           const controlledPlayerId = bridge['engine'].controlledPlayerId as string;
           const ballOwnerAgentIdx = (ownerId && ownerId === controlledPlayerId) ? 0 : 255;
@@ -1311,12 +1346,16 @@ wss.on('connection', (ws: WebSocket, req) => {
              ws.send(JSON.stringify(episodeStats));
              }
  
-             if (debugState) {
-               const components = computeRewardComponents(multiResult);
-               ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
-             }
+              if (debugState) {
+                const components = computeRewardComponents(multiResult);
+                ws.send(JSON.stringify({ type: 'REWARD_COMPONENTS', data: components }));
+              }
 
-             const defenderReward = (bridge['engine'].getActiveScenarioHandler() as any)?.getLastDefenderReward?.() ?? 0;
+              if (multiResult.info?.resolved_pass_direction) {
+                ws.send(JSON.stringify({ type: 'PASS_DIAGNOSTIC', data: multiResult.info.resolved_pass_direction }));
+              }
+
+              const defenderReward = (bridge['engine'].getActiveScenarioHandler() as any)?.getLastDefenderReward?.() ?? 0;
              const isRondo = bridge['engine'].activeScenario?.id === 'academy_rondo_4v1';
              ws.send(encodeMultiStepBinary(multiResult, isRondo, defenderReward), { binary: true });
           }

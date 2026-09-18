@@ -1271,11 +1271,11 @@ class GMNMultiAgentEnv(ParallelEnv):
             return True
         return False
 
-    def _recv_step_response(self, num_agents: int) -> Tuple[bytes, Optional[Dict[str, Any]], float]:
+    def _recv_step_response(self, num_agents: int) -> Tuple[bytes, Optional[Dict[str, Any]], float, Optional[Dict[str, Any]], Optional[Dict[str, float]]]:
         """Receive a binary step response, skipping unsolicited broadcast frames ON the shared WS.
         
         Also collects any EPISODE_STATS JSON frames that arrive alongside the binary response.
-        Returns (binary_data, episode_stats, defender_reward).
+        Returns (binary_data, episode_stats, defender_reward, reward_components, pass_direction).
         """
         obs_bytes = OBSERVATION_DIM * 4
         is_rondo = self.scenario == "academy_rondo_4v1"
@@ -1285,6 +1285,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         episode_stats: Optional[Dict[str, Any]] = None
         defender_reward = 0.0
         reward_components: Optional[Dict[str, Any]] = None
+        pass_direction: Optional[Dict[str, float]] = None
         for _ in range(60):
             data = self._recv_frame("step")
             if isinstance(data, (bytes, bytearray)) and len(data) == expected_len:
@@ -1325,8 +1326,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                     )
                 if self.debug_rewards and reward_components is None:
                     reward_components = {}
-                return bytes(data), episode_stats, defender_reward, reward_components
-            # Collect EPISODE_STATS and REWARD_COMPONENTS JSON frames
+                return bytes(data), episode_stats, defender_reward, reward_components, pass_direction
+            # Collect EPISODE_STATS, REWARD_COMPONENTS, and PASS_DIAGNOSTIC JSON frames
             if isinstance(data, str):
                 try:
                     parsed = json.loads(data)
@@ -1336,6 +1337,9 @@ class GMNMultiAgentEnv(ParallelEnv):
                             continue
                         if parsed.get("type") == "REWARD_COMPONENTS":
                             reward_components = parsed.get("data")
+                            continue
+                        if parsed.get("type") == "PASS_DIAGNOSTIC":
+                            pass_direction = parsed.get("data")
                             continue
                 except (json.JSONDecodeError, AttributeError):
                     pass
@@ -1744,7 +1748,7 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         try:
             self.ws_client.send(bytes(action_bytes))
-            data, episode_stats, defender_reward, reward_components = self._recv_step_response(num_agents)
+            data, episode_stats, defender_reward, reward_components, pass_direction = self._recv_step_response(num_agents)
         except Exception as e:
             # Log bridge errors for forensic debugging
             if getattr(self, "_forensic_debug", False):
@@ -1763,7 +1767,7 @@ class GMNMultiAgentEnv(ParallelEnv):
                 )
             self._connect_ws()
             self.ws_client.send(bytes(action_bytes))
-            data, episode_stats, defender_reward, reward_components = self._recv_step_response(num_agents)
+            data, episode_stats, defender_reward, reward_components, pass_direction = self._recv_step_response(num_agents)
 
         if isinstance(data, str):
             raise RuntimeError(f"[GMN-PettingZoo] Bridge sent text error: {data}")
@@ -1944,6 +1948,8 @@ class GMNMultiAgentEnv(ParallelEnv):
                 rewards[agent] = shared_reward
             infos[agent] = dict(shared_info)
             infos[agent]["action_mask"] = action_masks[agent]
+            if pass_direction is not None:
+                infos[agent]["resolved_pass_direction"] = pass_direction
             observations[agent] = {
                 "observation": obs,
                 "action_mask": action_masks[agent],

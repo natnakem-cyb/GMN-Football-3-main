@@ -1,0 +1,36 @@
+{
+  "run_id": "pass_diag_2026-09-18",
+  "git_head": "b0b6a3835972",
+  "scenario": "academy_3_vs_1_with_keeper_onball",
+  "deterministic": true,
+  "base_seed": 500000,
+  "episode_count_per_seed": 20,
+  "checkpoint_paths": {
+    "123": "training/models/mappo_academy_3_vs_1_with_keeper_seed123_50176.pt",
+    "42": "training/models/mappo_academy_3_vs_1_with_keeper_seed42_50176.pt",
+    "7": "training/models/mappo_academy_3_vs_1_with_keeper_seed7_50176.pt",
+    "999": "training/models/mappo_academy_3_vs_1_with_keeper_seed999_50176.pt"
+  },
+  "checkpoint_sha256": {
+    "123": "629a928805cec6169a84d931f25c1f997912006fa9ccd33ef56efcfc56966896",
+    "42": "ca8bef84972a47757a61b006d7da10d935f4abe71feed0656151593848eeeaf2",
+    "7": "38b32f4cbd902ba7659d2e36bcf4d7582ed84613ad409e9843dadfd6d23fbad6",
+    "999": "a1c5eacf57438573abb1fa5d3bc08e2dcb1727b39fb3ff969d4f7ed15c597365"
+  },
+  "checkpoint_timesteps": 50176,
+  "force_action": "PASS",
+  "force_tick": 0,
+  "K": 1,
+  "teammate_scripting": false,
+  "direction_override": false,
+  "clampPassDirection": false,
+  "reward_modified": false,
+  "production_code_behavior_changed": false,
+  "valid_forced_passes": 80,
+  "seeds": [
+    123,
+    42,
+    7,
+    999
+  ]
+}
