@@ -1,0 +1,5 @@
+seed,episodes,valid_t0_count,total_ticks,policy_pass_count,policy_shot_count,policy_tackle_count,policy_dribble_count,pass_events,pass_completed_events,shot_events,goal_events,checkpoint_sha256,checkpoint_timesteps
+7,20,20,834,1,1,119,0,0,0,1,0,38b32f4cbd902ba7659d2e36bcf4d7582ed84613ad409e9843dadfd6d23fbad6,50176
+42,20,20,903,0,0,54,0,0,0,0,0,ca8bef84972a47757a61b006d7da10d935f4abe71feed0656151593848eeeaf2,50176
+123,20,20,869,1,1,0,55,1,0,0,0,629a928805cec6169a84d931f25c1f997912006fa9ccd33ef56efcfc56966896,50176
+999,20,20,810,0,1,0,0,0,0,0,0,a1c5eacf57438573abb1fa5d3bc08e2dcb1727b39fb3ff969d4f7ed15c597365,50176

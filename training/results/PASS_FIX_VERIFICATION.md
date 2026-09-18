@@ -79,3 +79,23 @@ done
 ## Pass/fail judgment
 
 **PASS.** Completion rate rose from 2.5% (2/80) to 26.25% (21/80), exceeding the ≥ 25% threshold. Median angular error fell from ~40° to 0.13°, confirming the nearest-teammate aim fix is mechanically effective. The remaining failures are dominated by distance/availability tail cases and seed variance, not by aiming error.
+
+## Phase A — Frozen PASS semantics (intentional production behaviour)
+
+This section documents the nearest-teammate discrete-PASS semantics as the intentional, frozen production path.
+
+**Rule (production code, `src/engine/GameEngine.ts` `resolvePassDirection`):**
+1. If `action.direction` is explicitly provided → use it (highest priority).
+2. Otherwise → aim at the nearest same-team teammate by Euclidean distance to the ball.
+3. If no teammates exist → fall back to `player.stickyDirection`, then `Vec2.fromAngle(player.heading)`.
+
+**Bridge diagnostic mirror:** `training/bridge_server.ts` `GMNBridgeService.resolvePassDirection` follows the same logic for instrumentation only; it does not modify production behaviour.
+
+**Option (b) status:** Passing-lane / obstruction-aware aiming is **deferred and not implemented**. It remains out of scope unless future diagnostics show that nearest-teammate aim is insufficient.
+
+**Verification record:**
+- Pre-fix completion: 2.5% (2/80), median angular error ~40°
+- Post-fix completion: 26.25% (21/80), median angular error 0.13°
+- Frozen-π re-eval (see `FROZEN_PI_POST_PASS_FIX.md`): pure π still selects PASS/SHOT at negligible rates; paralysis is independent of PASS mechanics.
+
+**No runtime behaviour was changed in this documentation phase.** The production code path is identical to the verified fix on HEAD `5a9dfdd`.
