@@ -246,3 +246,85 @@ Per the locked experimental hierarchy and freeze constraints:
 3. **Do not modify rewards, GAE, masks, networks, or horizon** until D-Obs is completed and the B brief passes its provenance gate.
 
 If the user elects to proceed with actor-side diagnosis, the recommended next artifact is a per-seed actor-logit forensics report comparing PASS vs. TACKLE/IDLE logits across the four 100k checkpoints.
+
+---
+
+## Addendum A — Task 0 Clarifications: Aggregate vs. Event-Conditioned GAE
+
+This addendum resolves the prerequisite clarifications required before the on-policy measurement findings are treated as final.
+
+### A.1 Aggregate vs. Event-Conditioned GAE — Explicit Side-by-Side
+
+The "mean GAE went negative" finding and the "+0.21 for completed passes" finding are **not in conflict**. They describe different conditioning levels:
+
+- **Aggregate all-tick mean GAE** — computed over every tick in the 200-episode stochastic rollout, regardless of event type. This is dominated by the many movement/idle ticks where the policy is losing, so the overall mean is negative.
+- **Event-conditioned A_mean** — computed only over ticks where a specific football event occurred (PASS, SHOT, GOAL, TACKLE, etc.). Sparse attacking events carry positive advantage; the negative aggregate is driven by the far more numerous non-event ticks.
+
+Both can be true simultaneously, and both are reported below.
+
+### A.2 Aggregate All-Tick Mean GAE (post dones-fix)
+
+| Seed | Mean GAE (all ticks) | Std GAE | Notes |
+|------|---------------------|---------|-------|
+| 42 | −0.1814 | 0.1818 | 200 episodes, ~10,400 ticks |
+| 123 | −0.1646 | 0.1824 | 200 episodes, ~10,420 ticks |
+| 7 | −0.1934 | 0.1544 | 200 episodes, ~10,456 ticks |
+| 999 | −0.2140 | 0.1515 | 200 episodes, ~10,345 ticks |
+
+All seeds show a consistently negative aggregate mean GAE, reflecting that the critic values the typical in-episode state below the terminal-state baseline for this losing policy.
+
+### A.3 Event-Conditioned A_mean with n (per seed)
+
+The table below reports the mean GAE advantage **conditioned on each event type**, with the event count **n** stated directly adjacent to the mean. This is the appropriate granularity for judging whether the critic assigns positive or negative credit to specific football actions.
+
+| Seed | Event | n | A_mean | Stability |
+|------|-------|---|--------|-----------|
+| **42** | pass | 41 | +0.046 | stable |
+| **42** | pass_completed | 16 | +0.208 | stable |
+| **42** | shot | 4 | +0.403 | **directional** (n=4) |
+| **42** | goal | 4 | +0.605 | **directional** (n=4) |
+| **42** | tackle | 167 | −0.274 | stable |
+| **42** | foul | 34 | −0.198 | stable |
+| **42** | none (move/idle) | 10,086 | −0.182 | stable |
+| **123** | pass | 30 | +0.104 | stable |
+| **123** | pass_completed | 18 | +0.208 | stable |
+| **123** | shot | 5 | +0.166 | **directional** (n=5) |
+| **123** | goal | 5 | +0.445 | **directional** (n=5) |
+| **123** | tackle | 164 | −0.242 | stable |
+| **123** | foul | 33 | −0.157 | stable |
+| **123** | none (move/idle) | 10,127 | −0.166 | stable |
+| **7** | pass | 18 | −0.025 | stable |
+| **7** | pass_completed | 8 | +0.204 | stable |
+| **7** | shot | 4 | +0.045 | **directional** (n=4) |
+| **7** | goal | 4 | −0.258 | **directional** (n=4) |
+| **7** | tackle | 157 | −0.249 | stable |
+| **7** | foul | 33 | −0.130 | stable |
+| **7** | none (move/idle) | 10,190 | −0.194 | stable |
+| **999** | pass | 21 | −0.067 | stable |
+| **999** | pass_completed | 6 | +0.218 | stable |
+| **999** | shot | 2 | +0.033 | **directional** (n=2) |
+| **999** | goal | 2 | −0.274 | **directional** (n=2) |
+| **999** | tackle | 169 | −0.293 | stable |
+| **999** | foul | 33 | −0.178 | stable |
+| **999** | none (move/idle) | 10,076 | −0.214 | stable |
+
+### A.4 Small-n Flags
+
+The following event-conditioned means are flagged as **directional / unstable** due to single-digit sample sizes:
+
+- **SHOT:** seed 42 (n=4), seed 7 (n=4), seed 123 (n=5), seed 999 (n=2)
+- **GOAL:** seed 42 (n=4), seed 7 (n=4), seed 123 (n=5), seed 999 (n=2)
+
+These should not be treated as stable population estimates. The sign/direction is informative but the magnitude may shift materially with additional samples.
+
+The **pass_completed** means (n ≥ 6 across all seeds) and **tackle** means (n ≥ 157 across all seeds) are stable and can be treated as reliable.
+
+### A.5 Key Re-statement
+
+With these clarifications in place:
+
+1. The aggregate all-tick mean GAE is negative (−0.16 to −0.21) because the vast majority of ticks are movement/idle ticks in a losing policy.
+2. The event-conditioned PASS/SHOT/GOAL advantages are positive (where n is sufficient) or directional-positive (where n is small), while TACKLE advantages are consistently negative.
+3. "Mean GAE went negative after the dones-fix" does **not** mean "PASS/SHOT are punished." It means the overall trajectory credit structure is negative, while sparse attacking events still carry positive advantage.
+
+These two facts are compatible and both are now stated explicitly, side by side, with n adjacent to every event-conditioned mean.

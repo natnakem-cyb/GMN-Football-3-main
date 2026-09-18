@@ -1,0 +1,52 @@
+{
+  "timestamp_iso": "2026-09-18T20:35:25.720027Z",
+  "checkpoint_50k": "training/models/mappo_academy_3_vs_1_with_keeper_seed42_freshtrain_50176.pt",
+  "base_name": "mappo_academy_3_vs_1_with_keeper_seed42",
+  "intermediate_checkpoints": 6,
+  "distances": [
+    {
+      "step": 5000,
+      "path": "training/models\\mappo_academy_3_vs_1_with_keeper_seed42_expl_ablation_5000.pt",
+      "l2_distance": 1.875363727133527,
+      "n_params": 20673,
+      "relative_distance": 0.013043188159610667
+    },
+    {
+      "step": 10000,
+      "path": "training/models\\mappo_academy_3_vs_1_with_keeper_seed42_expl_ablation_10000.pt",
+      "l2_distance": 1.828263758251417,
+      "n_params": 20673,
+      "relative_distance": 0.012715607036251641
+    },
+    {
+      "step": 15000,
+      "path": "training/models\\mappo_academy_3_vs_1_with_keeper_seed42_expl_ablation_15000.pt",
+      "l2_distance": 1.8423797483478066,
+      "n_params": 20673,
+      "relative_distance": 0.012813783999057589
+    },
+    {
+      "step": 20000,
+      "path": "training/models\\mappo_academy_3_vs_1_with_keeper_seed42_expl_ablation_20000.pt",
+      "l2_distance": 1.8821962458365953,
+      "n_params": 20673,
+      "relative_distance": 0.013090708449013083
+    },
+    {
+      "step": 25000,
+      "path": "training/models\\mappo_academy_3_vs_1_with_keeper_seed42_expl_ablation_25000.pt",
+      "l2_distance": 1.8913818993176457,
+      "n_params": 20673,
+      "relative_distance": 0.013154594832752333
+    },
+    {
+      "step": 30000,
+      "path": "training/models\\mappo_academy_3_vs_1_with_keeper_seed42_expl_ablation_30000.pt",
+      "l2_distance": 1.8936851024136452,
+      "n_params": 20673,
+      "relative_distance": 0.013170613651350705
+    }
+  ],
+  "max_l2_distance": 1.8936851024136452,
+  "mean_l2_distance": 1.868878413550106
+}

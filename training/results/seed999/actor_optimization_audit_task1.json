@@ -1,0 +1,65 @@
+{
+  "timestamp_iso": "2026-09-18T20:33:59.285244Z",
+  "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed999_freshtrain_50176.pt",
+  "num_episodes": 20,
+  "base_seed": 700000,
+  "total_ticks": 941,
+  "num_agents": 3,
+  "total_transitions": 2823,
+  "advantage_normalization": {
+    "mean": 0.027545172721147537,
+    "std": 0.20243191719055176,
+    "note": "ppo_update normalizes flat_advantages = (A - mean) / (std + 1e-8)"
+  },
+  "reward_alignment": {
+    "max_abs_diff_shared_vs_per_agent_mean": 0.0,
+    "mean_abs_diff": 0.0,
+    "note": "If >0, per-agent rewards differ from shared reward, causing probe/train advantage mismatch"
+  },
+  "disconnect_found": false,
+  "disconnect_flags": [],
+  "per_family_summary": [
+    {
+      "action_family": "TACKLE",
+      "n": 6,
+      "probe_A_shared_mean": 0.06407663909097512,
+      "train_A_per_agent_mean": 0.10613468723992507,
+      "train_A_normalized_mean": 0.38822688659032184
+    },
+    {
+      "action_family": "PASS",
+      "n": 2,
+      "probe_A_shared_mean": -0.019765282049775124,
+      "train_A_per_agent_mean": -0.019765282049775124,
+      "train_A_normalized_mean": -0.23371043056249619
+    },
+    {
+      "action_family": "SHOT",
+      "n": 1,
+      "probe_A_shared_mean": 0.210078626871109,
+      "train_A_per_agent_mean": 0.210078626871109,
+      "train_A_normalized_mean": 0.901702880859375
+    },
+    {
+      "action_family": "MOVE",
+      "n": 2290,
+      "probe_A_shared_mean": 0.02215090470899946,
+      "train_A_per_agent_mean": 0.021774419039837595,
+      "train_A_normalized_mean": -0.02850713598517514
+    },
+    {
+      "action_family": "IDLE",
+      "n": 502,
+      "probe_A_shared_mean": 0.04832718803397049,
+      "train_A_per_agent_mean": 0.04927240692234906,
+      "train_A_normalized_mean": 0.10733106148251113
+    },
+    {
+      "action_family": "OTHER",
+      "n": 22,
+      "probe_A_shared_mean": 0.10087339309128848,
+      "train_A_per_agent_mean": 0.10702285915084014,
+      "train_A_normalized_mean": 0.3926143774932081
+    }
+  ]
+}

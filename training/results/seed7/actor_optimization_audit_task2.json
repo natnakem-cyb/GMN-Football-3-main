@@ -1,0 +1,62 @@
+{
+  "timestamp_iso": "2026-09-18T20:34:42.758223Z",
+  "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed7_freshtrain_50176.pt",
+  "action_index_alignment": {
+    "TACKLE": {
+      "expected_idx": 16,
+      "probe_idx": 16,
+      "match": true
+    },
+    "SHOT": {
+      "expected_idx": 12,
+      "probe_idx": 12,
+      "match": true
+    },
+    "LONG_PASS": {
+      "expected_idx": 9,
+      "probe_idx": 9,
+      "match": true
+    },
+    "HIGH_PASS": {
+      "expected_idx": 10,
+      "probe_idx": 10,
+      "match": true
+    },
+    "SHORT_PASS": {
+      "expected_idx": 11,
+      "probe_idx": 11,
+      "match": true
+    },
+    "DRIBBLE": {
+      "expected_idx": 17,
+      "probe_idx": 17,
+      "match": true
+    },
+    "SPRINT": {
+      "expected_idx": 13,
+      "probe_idx": 13,
+      "match": true
+    },
+    "IDLE": {
+      "expected_idx": 0,
+      "probe_idx": 0,
+      "match": true
+    }
+  },
+  "all_indices_match": true,
+  "mask_gradient_check": {
+    "total_illegal_logits_set_to_inf": 1479,
+    "total_illegal_positions_checked": 1479,
+    "fraction_illegal_with_inf_logits": 1.0,
+    "gradient_mass_on_illegal_in_ppo_loss": 0.3678204268217087,
+    "max_gradient_on_illegal_single_action": 0.22656406462192535,
+    "illegal_grad_nonzero_count": 3,
+    "steps_with_illegal_actions": 50
+  },
+  "mask_consistency_check": {
+    "total_steps_checked": 30,
+    "mask_mismatch_count": 0,
+    "masks_consistent": true
+  },
+  "task2_pass": true
+}

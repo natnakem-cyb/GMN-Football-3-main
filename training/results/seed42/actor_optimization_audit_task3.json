@@ -1,0 +1,75 @@
+{
+  "timestamp_iso": "2026-09-18T20:29:16.700438Z",
+  "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed42_freshtrain_50176.pt",
+  "num_episodes": 50,
+  "base_seed": 600000,
+  "total_transitions": 7371,
+  "ppo_metrics": {
+    "policy_loss": -8.079533775647482e-06,
+    "value_loss": 0.06185820822914442,
+    "entropy": 2.1055684884389243,
+    "approx_kl": 0.0005377301403125164
+  },
+  "per_family_summary": [
+    {
+      "action_family": "TACKLE",
+      "n": 3,
+      "advantage_mean": 0.15220417579015097,
+      "advantage_std": 0.01593893366670835,
+      "old_logprob_mean": -2.7554262479146323,
+      "ratio_mean": 0.9617626812899558,
+      "clip_fraction": 0.0,
+      "logit_grad_norm_mean": 0.0014589634956791997
+    },
+    {
+      "action_family": "PASS",
+      "n": 6,
+      "advantage_mean": 0.13191569782793522,
+      "advantage_std": 0.09757709716946177,
+      "old_logprob_mean": -2.7463868459065757,
+      "ratio_mean": 1.0216229435242106,
+      "clip_fraction": 0.0,
+      "logit_grad_norm_mean": 0.00048741415957920253
+    },
+    {
+      "action_family": "SHOT",
+      "n": 3,
+      "advantage_mean": 0.4529084265232086,
+      "advantage_std": 0.13723717903320717,
+      "old_logprob_mean": -3.324403444925944,
+      "ratio_mean": 0.9973858366899134,
+      "clip_fraction": 0.0,
+      "logit_grad_norm_mean": 0.0044858925975859165
+    },
+    {
+      "action_family": "MOVE",
+      "n": 6059,
+      "advantage_mean": 0.025411159042956454,
+      "advantage_std": 0.25178460294617305,
+      "old_logprob_mean": -2.193166612654083,
+      "ratio_mean": 0.9905808708064225,
+      "clip_fraction": 0.0006601749463607857,
+      "logit_grad_norm_mean": 0.02625342866676065
+    },
+    {
+      "action_family": "IDLE",
+      "n": 1229,
+      "advantage_mean": 0.043553188100473865,
+      "advantage_std": 0.22552938228119834,
+      "old_logprob_mean": -1.6713791976040995,
+      "ratio_mean": 1.0412831493978072,
+      "clip_fraction": 0.011391375101708706,
+      "logit_grad_norm_mean": 0.027559584006667137
+    },
+    {
+      "action_family": "OTHER",
+      "n": 71,
+      "advantage_mean": 0.13418913931703905,
+      "advantage_std": 0.11299234992597337,
+      "old_logprob_mean": -2.3505210708564435,
+      "ratio_mean": 0.986918560562504,
+      "clip_fraction": 0.0,
+      "logit_grad_norm_mean": 0.0006647194511483384
+    }
+  ]
+}

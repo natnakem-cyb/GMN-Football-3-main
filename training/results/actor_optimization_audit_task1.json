@@ -1,0 +1,58 @@
+{
+  "timestamp_iso": "2026-09-18T19:54:43.400892Z",
+  "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed123_freshtrain_50176.pt",
+  "num_episodes": 50,
+  "base_seed": 700000,
+  "total_ticks": 2532,
+  "num_agents": 3,
+  "total_transitions": 7596,
+  "advantage_normalization": {
+    "mean": 0.00885915569961071,
+    "std": 0.18892252445220947,
+    "note": "ppo_update normalizes flat_advantages = (A - mean) / (std + 1e-8)"
+  },
+  "reward_alignment": {
+    "max_abs_diff_shared_vs_per_agent_mean": 0.0,
+    "mean_abs_diff": 0.0,
+    "note": "If >0, per-agent rewards differ from shared reward, causing probe/train advantage mismatch"
+  },
+  "disconnect_found": false,
+  "disconnect_flags": [],
+  "per_family_summary": [
+    {
+      "action_family": "TACKLE",
+      "n": 11,
+      "probe_A_shared_mean": 0.1365391309796409,
+      "train_A_per_agent_mean": 0.18412979268892246,
+      "train_A_normalized_mean": 0.9277380867437883
+    },
+    {
+      "action_family": "PASS",
+      "n": 6,
+      "probe_A_shared_mean": 0.15060351214682063,
+      "train_A_per_agent_mean": 0.1376262999450167,
+      "train_A_normalized_mean": 0.6815869932373365
+    },
+    {
+      "action_family": "MOVE",
+      "n": 6604,
+      "probe_A_shared_mean": 0.005648426158991961,
+      "train_A_per_agent_mean": 0.005722475869173967,
+      "train_A_normalized_mean": -0.016603002119704325
+    },
+    {
+      "action_family": "IDLE",
+      "n": 919,
+      "probe_A_shared_mean": 0.020453063593782135,
+      "train_A_per_agent_mean": 0.01902120946769697,
+      "train_A_normalized_mean": 0.05378951704670737
+    },
+    {
+      "action_family": "OTHER",
+      "n": 56,
+      "probe_A_shared_mean": 0.15696468862837978,
+      "train_A_per_agent_mean": 0.16377182055397757,
+      "train_A_normalized_mean": 0.8199797863406795
+    }
+  ]
+}
