@@ -1,0 +1,2 @@
+[DEBUG eval_progress] eval_metrics={'goal_rate_pct': 0.0, 'mean_reward': -0.7377573172318275, 'std_reward': 0.15089325464820647, 'shots_per_ep': 0.06666666666666667, 'non_scoring_episode_rate_pct': 100.0, 'turnovers_conceded_per_ep': 0.0, 'possession_retention_time': nan, 'completed_pass_chains': nan, 'ground_truth_possession_left_pct': None, 'ground_truth_pass_accuracy': None, 'ground_truth_shot_accuracy': None}
+[DEBUG eval_progress] row goal_rate_pct type=<class 'str'> value='0.00'

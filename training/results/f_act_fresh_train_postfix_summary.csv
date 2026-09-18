@@ -1,0 +1,5 @@
+seed,episodes,valid_t0_count,total_ticks,policy_pass_count,policy_shot_count,policy_tackle_count,pass_events,pass_completed_events,shot_events,goal_events
+42,20,20,1020,6,0,0,0,0,0,0
+123,20,20,1020,36,1,31,16,0,0,0
+7,20,20,1020,0,0,7,4,0,0,0
+999,20,20,1020,1,1,38,1,0,0,0

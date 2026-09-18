@@ -1,0 +1,86 @@
+{
+  "run_id": "fresh_train_mu_onball_2026-09-18",
+  "git_head": "05c95eb",
+  "scenario": "academy_3_vs_1_with_keeper_onball",
+  "arm": "ONBALL-pi",
+  "deterministic": true,
+  "base_seed": 42,
+  "episodes_per_seed": 20,
+  "seeds": [
+    42,
+    123,
+    7,
+    999
+  ],
+  "checkpoint_paths": {
+    "42": "training/models/mappo_academy_3_vs_1_with_keeper_seed42_freshtrain_50176.pt",
+    "123": "training/models/mappo_academy_3_vs_1_with_keeper_seed123_freshtrain_50176.pt",
+    "7": "training/models/mappo_academy_3_vs_1_with_keeper_seed7_freshtrain_50176.pt",
+    "999": "training/models/mappo_academy_3_vs_1_with_keeper_seed999_freshtrain_50176.pt"
+  },
+  "checkpoint_sha256": {
+    "42": "95560084c042922f3460e1df57954a23e837537617bea52e0f4bdc613fb5841b",
+    "123": "0b4ac40cce77c194321594e27742fc60f046e500d49349e4a040efbb7aba7a12",
+    "7": "f6e492e5a939c20a1f9cf0a5abb6a9309e3b5f433a395f4d6440431b4cfc3434",
+    "999": "516657123b30c109cac908bee4d6bc1e2b467eb1ac25f05043b043a26cfbab83"
+  },
+  "checkpoint_timesteps": 50176,
+  "aggregate": {
+    "total_episodes": 80,
+    "valid_t0_count": 80,
+    "total_ticks": 4080,
+    "total_policy_pass": 43,
+    "total_policy_shot": 2,
+    "total_policy_tackle": 76,
+    "total_pass_events": 21,
+    "total_pass_completed_events": 0,
+    "total_shot_events": 0,
+    "total_goal_events": 0
+  },
+  "per_seed": [
+    {
+      "seed": 42,
+      "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed42_freshtrain_50176.pt",
+      "checkpoint_sha256": "95560084c042922f3460e1df57954a23e837537617bea52e0f4bdc613fb5841b",
+      "episodes": 20,
+      "valid_t0_count": 20,
+      "total_ticks": 1020,
+      "policy_pass_count": 6,
+      "policy_shot_count": 0,
+      "policy_tackle_count": 0
+    },
+    {
+      "seed": 123,
+      "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed123_freshtrain_50176.pt",
+      "checkpoint_sha256": "0b4ac40cce77c194321594e27742fc60f046e500d49349e4a040efbb7aba7a12",
+      "episodes": 20,
+      "valid_t0_count": 20,
+      "total_ticks": 1020,
+      "policy_pass_count": 36,
+      "policy_shot_count": 1,
+      "policy_tackle_count": 31
+    },
+    {
+      "seed": 7,
+      "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed7_freshtrain_50176.pt",
+      "checkpoint_sha256": "f6e492e5a939c20a1f9cf0a5abb6a9309e3b5f433a395f4d6440431b4cfc3434",
+      "episodes": 20,
+      "valid_t0_count": 20,
+      "total_ticks": 1020,
+      "policy_pass_count": 0,
+      "policy_shot_count": 0,
+      "policy_tackle_count": 7
+    },
+    {
+      "seed": 999,
+      "checkpoint": "training/models/mappo_academy_3_vs_1_with_keeper_seed999_freshtrain_50176.pt",
+      "checkpoint_sha256": "516657123b30c109cac908bee4d6bc1e2b467eb1ac25f05043b043a26cfbab83",
+      "episodes": 20,
+      "valid_t0_count": 20,
+      "total_ticks": 1020,
+      "policy_pass_count": 1,
+      "policy_shot_count": 1,
+      "policy_tackle_count": 38
+    }
+  ]
+}
