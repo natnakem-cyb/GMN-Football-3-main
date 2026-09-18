@@ -8,8 +8,8 @@
   "observation_dim": 127,
   "action_schema": "discrete19_v1",
   "action_space_size": 19,
-  "git_commit": "05c95eb2a72474ced9fd08540a2dbd19fdfe5af5",
-  "checkpoint_path": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_seed123_freshtrain_50176.pt",
+  "git_commit": "1f8b3f29c1aaf5cebf3b98a5d6b44e94da8cf61c",
+  "checkpoint_path": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_seed123_mixscript_50176.pt",
   "checkpoint_hash": "FILE_NOT_FOUND",
   "is_role_aware": false,
   "role_weights_non_zero": false,
@@ -32,7 +32,7 @@
     "obs_dim": 127,
     "action_dim": 19
   },
-  "created_at": "2026-09-18T10:05:38.647733Z",
+  "created_at": "2026-09-18T11:16:17.095730Z",
   "experiment": "mappo_academy_3_vs_1_with_keeper_onball_seed123_full",
   "output_dir": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\runs\\mappo_academy_3_vs_1_with_keeper_onball_seed123_full",
   "checkpoint_names": [
@@ -40,5 +40,17 @@
     "mappo_academy_3_vs_1_with_keeper_onball_seed123_100k.pt",
     "mappo_academy_3_vs_1_with_keeper_onball_seed123_150k.pt",
     "mappo_academy_3_vs_1_with_keeper_onball_seed123_200k.pt"
-  ]
+  ],
+  "status": "completed",
+  "completed_at": "2026-09-18T11:26:17.834854Z",
+  "quarantine_checkpoint": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_seed123_mixscript_50176.pt",
+  "clean_checkpoint": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_onball_seed123_clean.pt",
+  "quarantine_checkpoint_hash": "177e088edd71e190eb5a1bb099d514c91f4b68f76008436028a6f533cf6a6a3b",
+  "clean_checkpoint_hash": "cd103743e1121ac07f0dece4159c4682ac5b5db521d3f2b33cd7788b64b201b6",
+  "best_deterministic_goal_rate": 0.0,
+  "best_deterministic_step": 50176,
+  "best_rolling_goal_rate": 4.0,
+  "best_rolling_step": 20480,
+  "total_episodes": 209,
+  "total_timesteps": 50176
 }

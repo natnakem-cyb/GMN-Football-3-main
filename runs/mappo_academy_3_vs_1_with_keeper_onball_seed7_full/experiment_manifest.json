@@ -8,8 +8,8 @@
   "observation_dim": 127,
   "action_schema": "discrete19_v1",
   "action_space_size": 19,
-  "git_commit": "05c95eb2a72474ced9fd08540a2dbd19fdfe5af5",
-  "checkpoint_path": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_seed7_freshtrain_50176.pt",
+  "git_commit": "1f8b3f29c1aaf5cebf3b98a5d6b44e94da8cf61c",
+  "checkpoint_path": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_seed7_mixscript_50176.pt",
   "checkpoint_hash": "FILE_NOT_FOUND",
   "is_role_aware": false,
   "role_weights_non_zero": false,
@@ -32,7 +32,7 @@
     "obs_dim": 127,
     "action_dim": 19
   },
-  "created_at": "2026-09-18T10:16:17.256459Z",
+  "created_at": "2026-09-18T11:26:48.088388Z",
   "experiment": "mappo_academy_3_vs_1_with_keeper_onball_seed7_full",
   "output_dir": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\runs\\mappo_academy_3_vs_1_with_keeper_onball_seed7_full",
   "checkpoint_names": [
@@ -42,15 +42,15 @@
     "mappo_academy_3_vs_1_with_keeper_onball_seed7_200k.pt"
   ],
   "status": "completed",
-  "completed_at": "2026-09-18T10:25:54.861938Z",
-  "quarantine_checkpoint": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_seed7_freshtrain_50176.pt",
+  "completed_at": "2026-09-18T11:36:24.957012Z",
+  "quarantine_checkpoint": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_seed7_mixscript_50176.pt",
   "clean_checkpoint": "C:\\Users\\USER\\Documents\\Project\\GMN-Football-3-main\\training\\models\\mappo_academy_3_vs_1_with_keeper_onball_seed7_clean.pt",
-  "quarantine_checkpoint_hash": "f6e492e5a939c20a1f9cf0a5abb6a9309e3b5f433a395f4d6440431b4cfc3434",
-  "clean_checkpoint_hash": "548e35c7ec0114307148cdf70b4a5d8a65989aa65e5fb51961e00df0435ac9c5",
+  "quarantine_checkpoint_hash": "5c568385de3e0baa1e4325b742ee69b352357072863fabcd0cf8c7ec11b9e2f0",
+  "clean_checkpoint_hash": "eb73e0baa0ead4ac47d307643722f41b74323e4e2285896f3da766f38771a0e6",
   "best_deterministic_goal_rate": 0.0,
   "best_deterministic_step": 50176,
-  "best_rolling_goal_rate": 4.0,
-  "best_rolling_step": 20480,
-  "total_episodes": 196,
+  "best_rolling_goal_rate": 2.0,
+  "best_rolling_step": 30720,
+  "total_episodes": 200,
   "total_timesteps": 50176
 }
