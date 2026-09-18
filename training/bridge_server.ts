@@ -165,11 +165,31 @@ export class GMNBridgeService {
     if (!action) return null;
     const passTypes = new Set(['SHORT_PASS', 'LONG_PASS', 'HIGH_PASS']);
     if (!passTypes.has(action.type)) return null;
-    const dir =
-      action.direction ||
-      (controlledPlayer.stickyDirection
-        ? { ...controlledPlayer.stickyDirection }
-        : Vec2.fromAngle(controlledPlayer.heading));
+
+    if (action.direction) return { x: action.direction.x, y: action.direction.y };
+
+    const teammates = engine.players.filter(
+      (p) => p.team === controlledPlayer.team && p.id !== controlledPlayer.id
+    );
+    if (teammates.length > 0) {
+      const ballPos = { x: engine.ball.position.x, y: engine.ball.position.y };
+      let nearest = teammates[0];
+      let minDist = Vec2.distance(ballPos, nearest.position);
+      for (let i = 1; i < teammates.length; i++) {
+        const d = Vec2.distance(ballPos, teammates[i].position);
+        if (d < minDist) { minDist = d; nearest = teammates[i]; }
+      }
+      const raw = Vec2.sub(nearest.position, ballPos);
+      const len = Vec2.length(raw);
+      if (len > 1e-6) {
+        const norm = Vec2.normalize(raw);
+        return { x: norm.x, y: norm.y };
+      }
+    }
+
+    const dir = controlledPlayer.stickyDirection
+      ? { ...controlledPlayer.stickyDirection }
+      : Vec2.fromAngle(controlledPlayer.heading);
     return { x: dir.x, y: dir.y };
   }
 

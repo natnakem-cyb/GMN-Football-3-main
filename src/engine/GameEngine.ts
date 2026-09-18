@@ -739,7 +739,7 @@ export class GameEngine {
         break;
       case ActionType.SHORT_PASS:
         if (player.hasBall || this.ball.ownerId === player.id) {
-          const dir = action.direction || (player.stickyDirection ? player.stickyDirection : Vec2.fromAngle(player.heading));
+          const dir = this.resolvePassDirection(player, action);
           const power = action.power || 0.75;
           PhysicsEngine.kickBall(this.ball, player, dir, power, 0);
 
@@ -762,7 +762,7 @@ export class GameEngine {
       case ActionType.LONG_PASS:
       case ActionType.HIGH_PASS:
         if (player.hasBall || this.ball.ownerId === player.id) {
-          const dir = action.direction || (player.stickyDirection ? player.stickyDirection : Vec2.fromAngle(player.heading));
+          const dir = this.resolvePassDirection(player, action);
           const power = action.power || (action.type === ActionType.LONG_PASS ? 1.0 : 0.85);
           const loft = action.type === ActionType.LONG_PASS ? 0.35 : 0.45;
           PhysicsEngine.kickBall(this.ball, player, dir, power, loft);
@@ -951,6 +951,29 @@ export class GameEngine {
         }
         break;
     }
+  }
+
+  private resolvePassDirection(player: Player, action: AgentAction): Vector2D {
+    if (action.direction) return action.direction;
+
+    const teammates = this.players.filter(
+      (p) => p.team === player.team && p.id !== player.id
+    );
+    if (teammates.length > 0) {
+      const ballPos = { x: this.ball.position.x, y: this.ball.position.y };
+      let nearest = teammates[0];
+      let minDist = Vec2.distance(ballPos, nearest.position);
+      for (let i = 1; i < teammates.length; i++) {
+        const d = Vec2.distance(ballPos, teammates[i].position);
+        if (d < minDist) { minDist = d; nearest = teammates[i]; }
+      }
+      const raw = Vec2.sub(nearest.position, ballPos);
+      const len = Vec2.length(raw);
+      if (len > 1e-6) return Vec2.normalize(raw);
+    }
+
+    if (player.stickyDirection) return player.stickyDirection;
+    return Vec2.fromAngle(player.heading);
   }
 
   private computeOffsideReceivers(passer: Player, modeBeforeReset: GameMode): Set<string> {

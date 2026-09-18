@@ -204,6 +204,7 @@ class PassDiagnosticEvaluator:
         base_seed: int = 500000,
         post_force_window: int = POST_FORCE_WINDOW,
         bridge_port: int = 5050,
+        output_suffix: str = "",
     ):
         self.actor = actor
         self.checkpoint_path = checkpoint_path
@@ -214,6 +215,7 @@ class PassDiagnosticEvaluator:
         self.base_seed = base_seed
         self.post_force_window = post_force_window
         self.bridge_port = bridge_port
+        self.output_suffix = output_suffix
         self.run_id = f"pass_diag_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
 
     # -- episode data collection ------------------------------------------
@@ -919,7 +921,7 @@ class PassDiagnosticEvaluator:
             by_seed.setdefault(res["seed"], []).extend(res["episodes"])
 
         for seed, episodes in by_seed.items():
-            csv_path = os.path.join(output_dir, f"f_act_pass_trace_seed{seed}.csv")
+            csv_path = os.path.join(output_dir, f"f_act_pass_trace_seed{seed}{self.output_suffix}.csv")
             file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
             with open(csv_path, "a", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -959,7 +961,7 @@ class PassDiagnosticEvaluator:
             "valid_forced_passes": valid_count,
             "seeds": [res["seed"] for res in all_results],
         }
-        manifest_path = os.path.join(output_dir, "pass_diagnostic_manifest.json")
+        manifest_path = os.path.join(output_dir, f"pass_diagnostic_manifest{self.output_suffix}.json")
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, indent=2)
 
@@ -1149,6 +1151,7 @@ def main():
     parser.add_argument("--output-dir", type=str, default="training/results")
     parser.add_argument("--post-force-window", type=int, default=POST_FORCE_WINDOW)
     parser.add_argument("--diag-pass-trace", action="store_true", help="Diagnostic flag for PASS trace collection")
+    parser.add_argument("--output-suffix", type=str, default="", help="Suffix appended to output files (e.g. _postfix)")
     args = parser.parse_args()
 
     if not os.path.exists(args.checkpoint):
@@ -1178,6 +1181,7 @@ def main():
         deterministic=args.deterministic,
         base_seed=args.base_seed,
         post_force_window=args.post_force_window,
+        output_suffix=args.output_suffix,
     )
 
     seeds = [args.seed]
