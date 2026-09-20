@@ -516,13 +516,10 @@ def run_mappo_training(
         # the multiplier actually shifted G_PASS/G_SHOT as intended.
         if actor_loss_reweight_M != 1.0 and current_actor_reweight_M > 1.0:
             try:
-                from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
-                from training.mappo_networks import ACTION_NAMES
                 T, num_agents, _ = buffer["local_obs"].shape
                 flat_actions = buffer["actions"].reshape(-1)
                 flat_advantages = advantages.reshape(-1)
-                action_families = {"MOVE": 0, "IDLE": 0, "TACKLE": 0, "PASS": 0, "SHOT": 0, "OTHER": 0}
-                family_grad_shares = {k: 0.0 for k in action_families}
+                family_grad_shares = {"MOVE": 0.0, "IDLE": 0.0, "TACKLE": 0.0, "PASS": 0.0, "SHOT": 0.0, "OTHER": 0.0}
 
                 # Compute per-action gradient shares using the final actor layer.
                 actor.train()
@@ -782,11 +779,11 @@ def run_mappo_training(
                         },
                         _ablation_ckpt_name,
                     )
-                     print(
-                         f"   [EXPL-ABLATION] Checkpoint saved: {_ablation_ckpt_name} "
-                         f"(step {total_steps_elapsed}, bonus={current_football_bonus:.2f})",
-                         flush=True,
-                     )
+                    print(
+                        f"   [EXPL-ABLATION] Checkpoint saved: {_ablation_ckpt_name} "
+                        f"(step {total_steps_elapsed}, bonus={current_football_bonus:.2f})",
+                        flush=True,
+                    )
 
         # Actor-loss reweighting checkpoints: save at fixed intervals through both phases.
         if actor_loss_reweight_M != 1.0 and actor_loss_reweight_checkpoint_interval > 0:
