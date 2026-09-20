@@ -100,6 +100,8 @@ def ppo_update(
 
     n_samples = T * num_agents
     metrics = {"policy_loss": [], "value_loss": [], "entropy": [], "approx_kl": []}
+    surrogate_loss_share_M = []
+    surrogate_loss_share_M1 = []
 
     for _ in range(n_epochs):
         indices = np.random.permutation(n_samples)
@@ -139,21 +141,45 @@ def ppo_update(
                     football_entropy_bonus = float(onball_football_entropy_bonus) * float(football_entropy.item())
 
             ratio = torch.exp(new_logprobs - old_logprobs_t[batch_idx])
-            surr1 = ratio * advantages_t[batch_idx]
-            surr2 = torch.clamp(ratio, 1.0 - clip_range, 1.0 + clip_range) * advantages_t[batch_idx]
+            surr1_base = ratio * advantages_t[batch_idx]
+            surr2_base = torch.clamp(ratio, 1.0 - clip_range, 1.0 + clip_range) * advantages_t[batch_idx]
+            surr1 = surr1_base.clone()
+            surr2 = surr2_base.clone()
 
             # Actor-loss reweighting for legal PASS/SHOT transitions (M = 1.0 = no reweighting).
             # This is an actor-only multiplier; the critic loss below is unaffected.
+            # FIX: gate on the action ACTUALLY SELECTED being PASS (9,10,11) or SHOT (12),
+            # not just on PASS/SHOT being legal at the state. The original buggy gate fired
+            # on nearly all on-ball transitions because PASS/SHOT are legal at >=99% of
+            # on-ball frames, upweighting the wrong transitions.
+            is_pass_shot_batch = None
             if actor_loss_reweight_M != 1.0 and batch_masks is not None:
-                pass_shot_mask = batch_masks[:, 9:13].any(dim=-1)  # indices 9,10,11,12
                 selected_action = actions_t[batch_idx]
+                # PASS indices: 9, 10, 11; SHOT index: 12 (per ActionMapping)
+                is_pass_shot_selected = (selected_action >= 9) & (selected_action <= 12)
                 selected_legal = batch_masks.gather(1, selected_action.unsqueeze(-1)).squeeze(-1)
-                is_pass_shot = pass_shot_mask & selected_legal
+                is_pass_shot = is_pass_shot_selected & selected_legal
+                is_pass_shot_batch = is_pass_shot
                 if is_pass_shot.any():
                     surr1 = surr1 + (actor_loss_reweight_M - 1.0) * surr1 * is_pass_shot.float()
                     surr2 = surr2 + (actor_loss_reweight_M - 1.0) * surr2 * is_pass_shot.float()
 
             policy_loss = -torch.min(surr1, surr2).mean()
+
+            # Surrogate-loss share by action class (instrumentation for actor-loss reweighting).
+            # share = sum(|per-sample surrogate| for PASS/SHOT-selected-and-legal) /
+            #         sum(|per-sample surrogate| over all samples)
+            with torch.no_grad():
+                surr_per_sample_M = torch.abs(torch.min(surr1, surr2))
+                surr_per_sample_M1 = torch.abs(torch.min(surr1_base, surr2_base))
+                if is_pass_shot_batch is not None and is_pass_shot_batch.any() and surr_per_sample_M.sum() > 0:
+                    share_M = (surr_per_sample_M * is_pass_shot_batch.float()).sum() / surr_per_sample_M.sum()
+                    share_M1 = (surr_per_sample_M1 * is_pass_shot_batch.float()).sum() / surr_per_sample_M1.sum()
+                else:
+                    share_M = torch.tensor(0.0, device=surr_per_sample_M.device)
+                    share_M1 = torch.tensor(0.0, device=surr_per_sample_M1.device)
+                surrogate_loss_share_M.append(share_M.item())
+                surrogate_loss_share_M1.append(share_M1.item())
 
             # Pass 3D tensor (batch_size, num_agents, obs_dim) to CentralizedCritic
             values_pred = critic(joint_obs_t[batch_idx])
@@ -193,4 +219,7 @@ def ppo_update(
             metrics["entropy"].append(entropy.item())
             metrics["approx_kl"].append(approx_kl)
 
-    return {k: float(np.mean(v)) for k, v in metrics.items()}
+    out = {k: float(np.mean(v)) for k, v in metrics.items()}
+    out["surrogate_loss_share_M"] = float(np.mean(surrogate_loss_share_M)) if surrogate_loss_share_M else 0.0
+    out["surrogate_loss_share_M1"] = float(np.mean(surrogate_loss_share_M1)) if surrogate_loss_share_M1 else 0.0
+    return out

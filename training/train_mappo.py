@@ -511,6 +511,29 @@ def run_mappo_training(
         metrics["actor_reweight_M"] = current_actor_reweight_M
         loss_history.append(metrics)
 
+        # Actor-loss reweighting surrogate-loss share logging (Phase 1, persisted to CSV).
+        # Logs both the actual share with M applied and the M=1 counterfactual share.
+        if actor_loss_reweight_M != 1.0 and current_actor_reweight_M > 1.0:
+            try:
+                _share_csv_path = os.path.join(
+                    logs_dir,
+                    f"actor_loss_reweight_share_seed{seed}_{scenario}.csv",
+                )
+                _share_row = {
+                    "step": int(total_steps_elapsed),
+                    "update": int(update_idx),
+                    "surrogate_loss_share_M": float(metrics.get("surrogate_loss_share_M", 0.0)),
+                    "surrogate_loss_share_M1": float(metrics.get("surrogate_loss_share_M1", 0.0)),
+                }
+                _write_header = not os.path.exists(_share_csv_path)
+                with open(_share_csv_path, "a", newline="") as _f:
+                    _writer = csv.DictWriter(_f, fieldnames=["step", "update", "surrogate_loss_share_M", "surrogate_loss_share_M1"])
+                    if _write_header:
+                        _writer.writeheader()
+                    _writer.writerow(_share_row)
+            except Exception as _share_exc:
+                print(f"   [WARN] Surrogate-loss share CSV write failed: {_share_exc}", flush=True)
+
         # Actor-loss reweighting gradient-share logging (Phase 1 only).
         # Measures aggregate actor-loss contribution share by action class to confirm
         # the multiplier actually shifted G_PASS/G_SHOT as intended.
