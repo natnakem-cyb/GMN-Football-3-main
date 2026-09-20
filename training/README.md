@@ -107,6 +107,9 @@ authoritative TypeScript `GameEngine` through a long-running Node bridge
 | `eval_progress.py` | Tracks training progress across checkpoints (generates trend CSVs). | **Stable** |
 | `validate_learned_policy.py` | Validates a learned policy end-to-end (reward, episode length, goal rate). | **Stable** |
 | `export_onnx.py` | Exports a MAPPO actor checkpoint to ONNX for browser inference. | **Stable** |
+| `eval_post_reweight_logits.py` | Actor logit/π snapshot on on-ball frames (historical; its retention used the POST-step owner while reporting pre-step state — corrected by the pre-step collector below). | **Superseded (measurement)** |
+| `eval_post_reweight_logits_prestep.py` | Corrected PRE-STEP `obs[95]` on-ball measurement: retention, mask, logits, π and deterministic action all come from one pre-step state; verifies checkpoint SHA-256 against the inventory. | **Measurement-only** |
+| `verify_prestep_measurement.py` | Independent consistency checker for the pre-step measurement artifacts (re-derives every aggregate from raw frame detail). | **Measurement-only** |
 
 ---
 
@@ -206,6 +209,7 @@ See the [root README](../README.md) for the architecture overview and the
 | `test_gym_safety.py` | Gym API safety invariants. |
 | `test_reward_shape_e2e.py` | End-to-end shaped-vs-unshaped reward wire test. |
 | `test_binary_frame_parser.py` | Byte-level regression tests for standard and rondo binary frame parsing. |
+| `test_prestep_onball_temporal_alignment.py` | Synthetic gate for the pre-step `obs[95]` on-ball retention rule (Cases A–D, mask/obs/logit alignment, π-vs-frequency separation). |
 | `smoke_test_1ep.py` | Single-episode smoke test. |
 ## Network & rollout modules
 
@@ -309,5 +313,6 @@ This table registers every `.md` file under `training/` for issue tracking and r
 | 63 | `training\results\comparison_table.md` | GMN-Football-3 — Reinforcement Learning Benchmark Comparison Table | > **Methodology**: Win-Rate is defined strictly as Goal Conversion Rate (% of evaluation episodes where left team scores | — | — | fix |
 | 64 | `training\results\d_obs_pipeline_trace.md` | D-Obs Stage 1: Pipeline Trace | ``` | — | — | — |
 | 65 | `training\validation_report.md` | GMN-Football-3 Validation Report | \| Checkpoint \| SHA-256 (full) \| Timesteps \| Notes \| | — | — | bug |
+| 66 | `training\results\ONBALL_OCCUPANCY_PRESTEP_CHECK.md` | ONBALL_OCCUPANCY_PRESTEP_CHECK — Corrected Pre-Step On-Ball Measurement (50k actor-reweight checkpoints) | Measurement-only correction of the pre-step `obs[95]` on-ball gate; occupancy, legality, π and deterministic PASS+SHOT frequency with explicit `n`. | 2026-09-20 | — | defect, fix, measurement |
 
-**Total:** 65 `.md` files registered.
+**Total:** 66 `.md` files registered.
