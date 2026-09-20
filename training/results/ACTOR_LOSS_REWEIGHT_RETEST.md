@@ -1,24 +1,24 @@
 # ACTOR_LOSS_REWEIGHT_RETEST — Corrected-Gate Retest Results
 
-**Date:** 2026-09-20  
-**HEAD:** `d2452e0` (protocol), training commit `e2e4b5a`  
-**Checkpoints:** `mappo_academy_3_vs_1_with_keeper_onball_seed{42,123,7,999}_actorreweight_step{K}.pt`  
-**Scenario:** `academy_3_vs_1_with_keeper_onball`
+**⚠️ SUPERSEDED:** The behavioral tables and Task 5 verdict in this file were built from a stale CSV (`actor_reweight_eval_summary.csv`, mtime 2026-09-20 12:40:47 PM) written before retest training. **Do not cite the trajectory, Phase 2 tail, or "starvation-relief real; consolidation residual" verdict from this file.**
+
+**Official scorecard (rebuilt from verified eval):** `training/results/RETEST_REBUILT_GATES.md`  
+**Fresh eval CSV:** `training/results/actor_reweight_retest_eval_summary.csv`
 
 ---
 
-## Executive Summary
+## Executive Summary (original, void behavioral claims)
 
 The original `880091d` actor-loss reweight run used a buggy `is_pass_shot` gate that fired on all legal on-ball transitions, not just PASS/SHOT-selected ones. This retest uses the corrected gate and includes real surrogate-loss share logging from the start.
 
-**Primary finding: The corrected intervention did move PASS/SHOT-selected surrogate-loss share into the intended multi-percent band during Phase 1, but the behavioral improvement still did not consolidate for most seeds in Phase 2.**
+**Primary finding (VOID behavioral component):** The corrected intervention did move PASS/SHOT-selected surrogate-loss share into the intended multi-percent band during Phase 1, but the behavioral improvement still did not consolidate for most seeds in Phase 2.
 
-- **Phase 1 share:** Corrected M=500 share averaged 26–44% across seeds, vs. a 0.3–0.6% M=1 counterfactual. Ratio: ~76–82×.
-- **Phase 2 tail:** Only seed 999 cleared the primary criterion (2.34% vs. 1.5% target). Seeds 42, 123, 7 failed.
-- **Secondary criterion:** PASSED — seeds 42 and 123 showed both passes and shots on the tail.
-- **Guard criterion:** Seed 123 reverted below its own canonical baseline (1.62% < 1.96%).
+- **Phase 1 share:** Corrected M=500 share averaged 26–44% across seeds, vs. a 0.3–0.6% M=1 counterfactual. Ratio: ~76–82×. **(Retained — share logs are valid)**
+- **Phase 2 tail (stale, void):** Only seed 999 cleared the primary criterion (2.34% vs. 1.5% target). Seeds 42, 123, 7 failed. **(Superseded by RETEST_REBUILT_GATES.md)**
+- **Secondary criterion (stale, void):** PASSED — seeds 42 and 123 showed both passes and shots on the tail. **(Superseded: rebuilt shows 1/4 secondary)**
+- **Guard criterion:** Seed 123 reverted below its own canonical baseline (1.62% < 1.96%). **(Retained; rebuilt shows 1.67% < 1.96%)**
 
-**Verdict:** **Starvation-relief was real; consolidation is the residual problem.** The multiplier did shift aggregate actor-loss share as intended, but the learned PASS/SHOT behavior was not self-sustaining once reweighting was removed. This points to a representation-consolidation or basin-dependence issue, not a first-order gradient-sign problem.
+**Original verdict (VOID):** **Starvation-relief was real; consolidation is the residual problem.** The multiplier did shift aggregate actor-loss share as intended, but the learned PASS/SHOT behavior was not self-sustaining once reweighting was removed. This points to a representation-consolidation or basin-dependence issue, not a first-order gradient-sign problem. **(Superseded: see RETEST_REBUILT_GATES.md)**
 
 ---
 
@@ -259,7 +259,7 @@ COMMIT:                        (pending — not yet committed)
 
 ## Appendix: Numerical Summary
 
-### A.1 Phase 1 Surrogate-Loss Share Summary
+### A.1 Phase 1 Surrogate-Loss Share Summary (validated)
 
 | Seed | Mean Share M=500 | Mean Share M=1 | Ratio | Max Share M=500 | Max Share M=1 |
 |------|-----------------|---------------|-------|----------------|--------------|
@@ -268,20 +268,33 @@ COMMIT:                        (pending — not yet committed)
 | 7 | 0.4362 | 0.0057 | 76.3× | 0.8619 | 0.0181 |
 | 999 | 0.2605 | 0.0032 | 81.7× | 0.7311 | 0.0181 |
 
-### A.2 Phase 2 Tail-End Results (50k Checkpoint)
+### A.2 Phase 2 Tail-End Results (50k Checkpoint) — REBUILT
+
+> **Note:** The table below replaces the void stale table. All values are from `training/results/actor_reweight_retest_eval_summary.csv` (40-row rebuilt eval).
 
 | Seed | Goal Rate | Passes/Ep | Shots/Ep | PASS+SHOT% | Mean Reward | Baseline | Target | Primary Pass? |
 |------|-----------|-----------|----------|------------|-------------|----------|--------|---------------|
-| 42 | 0.0% | 1.14 | 0.02 | 0.76% | -0.7368 | 0.00% | 1.50% | NO |
-| 123 | 2.0% | 2.36 | 0.12 | 1.62% | -0.7095 | 1.96% | 3.46% | NO |
-| 7 | 0.0% | 0.00 | 0.00 | 0.00% | -0.6873 | 0.00% | 1.50% | NO |
-| 999 | 0.0% | 3.58 | 0.00 | 2.34% | -0.3354 | 0.00% | 1.50% | YES |
+| 42 | 0.0% | 1.14 | 0.00 | 0.75% | -0.7690 | 0.00% | 1.50% | NO |
+| 123 | 0.0% | 2.54 | 0.02 | 1.67% | -0.7348 | 1.96% | 3.46% | NO |
+| 7 | 0.0% | 1.32 | 0.00 | 0.86% | -0.7542 | 0.00% | 1.50% | NO |
+| 999 | 0.0% | 1.58 | 0.00 | 1.03% | -0.7459 | 0.00% | 1.50% | NO |
 
-### A.3 Phase 1 Trajectory (PASS+SHOT%)
+### A.3 Phase 1 Trajectory (PASS+SHOT%) — REBUILT
+
+> **Note:** The table below replaces the void stale trajectory.
 
 | Seed | 5k | 10k | 15k |
 |------|-----|-----|-----|
-| 42 | 0.00% | 0.68% | 0.65% |
-| 123 | 0.86% | 0.39% | 1.07% |
-| 7 | 0.85% | 0.00% | 0.00% |
-| 999 | 1.03% | 1.87% | 2.14% |
+| 42 | 0.75 | 0.75 | 0.75 |
+| 123 | 1.02 | 0.78 | 1.52 |
+| 7 | 0.80 | 0.76 | 0.82 |
+| 999 | 0.75 | 0.73 | 0.75 |
+
+### A.4 Rebuilt Full Trajectory (5k–50k)
+
+| Seed | 5k | 10k | 15k | 20k | 25k | 30k | 35k | 40k | 45k | 50k |
+|------|----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+| 42 | 0.75 | 0.75 | 0.75 | 0.75 | 0.78 | 0.75 | 0.75 | 0.75 | 0.75 | 0.75 |
+| 123 | 1.02 | 0.78 | 1.52 | 1.28 | 1.42 | 1.76 | 1.82 | 1.42 | 1.65 | 1.67 |
+| 7 | 0.80 | 0.76 | 0.82 | 1.05 | 0.80 | 0.90 | 0.85 | 0.99 | 0.86 | 0.86 |
+| 999 | 0.75 | 0.73 | 0.75 | 0.73 | 0.73 | 1.02 | 1.03 | 1.03 | 1.03 | 1.03 |

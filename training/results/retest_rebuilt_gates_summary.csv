@@ -1,0 +1,5 @@
+seed,final_step,checkpoint_basename,pass_shot_rate_pct,passes_per_ep,shots_per_ep,baseline,target,primary_pass,secondary_pass,guard_reverted
+42,50000,mappo_academy_3_vs_1_with_keeper_onball_seed42_actorreweight.pt,0.75,1.14,0.0,0.0,1.5,NO,NO,NO
+123,50000,mappo_academy_3_vs_1_with_keeper_onball_seed123_actorreweight.pt,1.67,2.54,0.02,1.96,3.46,NO,YES,YES
+7,50000,mappo_academy_3_vs_1_with_keeper_onball_seed7_actorreweight.pt,0.86,1.32,0.0,0.0,1.5,NO,NO,NO
+999,50000,mappo_academy_3_vs_1_with_keeper_onball_seed999_actorreweight.pt,1.03,1.58,0.0,0.0,1.5,NO,NO,NO
