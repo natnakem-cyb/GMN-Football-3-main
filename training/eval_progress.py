@@ -383,6 +383,8 @@ def evaluate_single_agent_ppo(
     std_rew = float(np.std(rewards)) if rewards else 0.0
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
+    passes_per_ep = passes / max(1, num_episodes)
+    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
@@ -547,6 +549,8 @@ def evaluate_multi_agent_ippo(
     std_rew = float(np.std(rewards)) if rewards else 0.0
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
+    passes_per_ep = passes / max(1, num_episodes)
+    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
@@ -571,6 +575,8 @@ def evaluate_multi_agent_ippo(
         "mean_reward": mean_rew,
         "std_reward": std_rew,
         "shots_per_ep": shots_per_ep,
+        "passes_per_ep": passes_per_ep,
+        "pass_shot_rate_pct": pass_shot_rate_pct,
         "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
         "possession_retention_time": possession_retention_time,
@@ -608,6 +614,7 @@ def evaluate_multi_agent_mappo(
     rewards = []
     goals = 0
     shots = 0
+    passes = 0
     turnovers_conceded_total = 0.0
     is_rondo = scenario == "academy_rondo_4v1"
     ground_truth_possession = []
@@ -654,8 +661,11 @@ def evaluate_multi_agent_mappo(
                 for i, a in enumerate(current_agents):
                     act_int = int(actions[i].item())
                     action_dict[a] = act_int
-                    if not is_rondo and act_int == 12:
-                        shots += 1
+                    if not is_rondo:
+                        if act_int == 12:
+                            shots += 1
+                        elif act_int in (9, 10, 11):
+                            passes += 1
 
                 obs_dict, rews, terms, truncs, infos = env.step(action_dict)
                 current_ep_masks = unwrap_masks(obs_dict)
@@ -733,6 +743,8 @@ def evaluate_multi_agent_mappo(
     std_rew = float(np.std(rewards)) if rewards else 0.0
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
+    passes_per_ep = passes / max(1, num_episodes)
+    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
@@ -757,6 +769,8 @@ def evaluate_multi_agent_mappo(
         "mean_reward": mean_rew,
         "std_reward": std_rew,
         "shots_per_ep": shots_per_ep,
+        "passes_per_ep": passes_per_ep,
+        "pass_shot_rate_pct": pass_shot_rate_pct,
         "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
         "possession_retention_time": possession_retention_time,
@@ -872,6 +886,8 @@ def evaluate_checkpoint_progress(
         "mean_reward": f"{eval_metrics['mean_reward']:.4f}",
         "std_reward": f"{eval_metrics['std_reward']:.4f}",
         "shots_per_ep": f"{eval_metrics['shots_per_ep']:.2f}",
+        "passes_per_ep": f"{eval_metrics['passes_per_ep']:.2f}",
+        "pass_shot_rate_pct": f"{eval_metrics['pass_shot_rate_pct']:.2f}",
         "non_scoring_episode_rate_pct": f"{eval_metrics['non_scoring_episode_rate_pct']:.2f}",
         "turnovers_conceded_per_ep": f"{eval_metrics['turnovers_conceded_per_ep']:.2f}",
         "episodes": num_episodes,
@@ -889,6 +905,7 @@ def evaluate_checkpoint_progress(
     print(
         f"[eval_progress] [OK] Milestone logged -> Goal Rate: {eval_metrics['goal_rate_pct']:.1f}% | "
         f"Mean Reward: {eval_metrics['mean_reward']:+.4f} | Shots/Ep: {eval_metrics['shots_per_ep']:.2f} | "
+        f"Passes/Ep: {eval_metrics['passes_per_ep']:.2f} | PASS+SHOT Rate: {eval_metrics['pass_shot_rate_pct']:.2f}% | "
         f"Non-Scoring Episode Rate: {eval_metrics['non_scoring_episode_rate_pct']:.1f}% | "
         f"Turnovers Conceded/Ep: {eval_metrics['turnovers_conceded_per_ep']:.2f} | "
         f"evaluation_id={evaluation_id} | checkpoint_sha256={checkpoint_sha256} | "
