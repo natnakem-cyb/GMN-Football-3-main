@@ -65,6 +65,9 @@ def run_mappo_training(
     exploration_ablation_phase1_steps: int = 15000,
     exploration_ablation_total_steps: int = 30000,
     exploration_ablation_checkpoint_interval: int = 5000,
+    actor_loss_reweight_M: float = 1.0,
+    actor_loss_reweight_phase1_steps: int = 15000,
+    actor_loss_reweight_checkpoint_interval: int = 5000,
 ) -> bool:
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -475,6 +478,13 @@ def run_mappo_training(
                 current_football_bonus = exploration_ablation_bonus
             # else Phase 2: bonus is 0.0
 
+        # Actor-loss reweighting for legal PASS/SHOT transitions (frequency-balancing ablation).
+        # Phase 1 (0 -> actor_loss_reweight_phase1_steps): M = actor_loss_reweight_M.
+        # Phase 2 (phase1 -> timesteps): M = 1.0 (no reweighting).
+        current_actor_reweight_M = 1.0
+        if actor_loss_reweight_M != 1.0 and total_steps_elapsed < actor_loss_reweight_phase1_steps:
+            current_actor_reweight_M = actor_loss_reweight_M
+
         metrics = ppo_update(
             actor=actor,
             critic=critic,
@@ -490,6 +500,7 @@ def run_mappo_training(
             entropy_coef=entropy_coef,
             max_grad_norm=0.5,
             onball_football_entropy_bonus=current_football_bonus,
+            actor_loss_reweight_M=current_actor_reweight_M,
         )
         actor_scheduler.step()
         critic_scheduler.step()
@@ -497,7 +508,59 @@ def run_mappo_training(
         metrics["update"] = update_idx
         metrics["entropy_coef"] = entropy_coef
         metrics["learning_rate"] = float(actor_opt.param_groups[0]["lr"])
+        metrics["actor_reweight_M"] = current_actor_reweight_M
         loss_history.append(metrics)
+
+        # Actor-loss reweighting gradient-share logging (Phase 1 only).
+        # Measures aggregate actor-loss contribution share by action class to confirm
+        # the multiplier actually shifted G_PASS/G_SHOT as intended.
+        if actor_loss_reweight_M != 1.0 and current_actor_reweight_M > 1.0:
+            try:
+                from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
+                from training.mappo_networks import ACTION_NAMES
+                T, num_agents, _ = buffer["local_obs"].shape
+                flat_actions = buffer["actions"].reshape(-1)
+                flat_advantages = advantages.reshape(-1)
+                action_families = {"MOVE": 0, "IDLE": 0, "TACKLE": 0, "PASS": 0, "SHOT": 0, "OTHER": 0}
+                family_grad_shares = {k: 0.0 for k in action_families}
+
+                # Compute per-action gradient shares using the final actor layer.
+                actor.train()
+                final_weight = actor.net[-1].weight
+                if final_weight.grad is not None:
+                    final_grad = final_weight.grad.detach()
+                    for t in range(T):
+                        for a in range(num_agents):
+                            idx = t * num_agents + a
+                            act_int = int(flat_actions[idx])
+                            if act_int in [1,2,3,4,5,6,7,8]:
+                                family = "MOVE"
+                            elif act_int == 0:
+                                family = "IDLE"
+                            elif act_int == 16:
+                                family = "TACKLE"
+                            elif act_int in [9,10,11]:
+                                family = "PASS"
+                            elif act_int == 12:
+                                family = "SHOT"
+                            else:
+                                family = "OTHER"
+                            logit_grad = final_grad[act_int].norm().item()
+                            adv = abs(float(flat_advantages[idx]))
+                            family_grad_shares[family] += logit_grad * adv
+
+                total_grad = sum(family_grad_shares.values())
+                if total_grad > 0:
+                    grad_shares = {k: v / total_grad for k, v in family_grad_shares.items()}
+                    metrics["grad_share_MOVE"] = grad_shares.get("MOVE", 0.0)
+                    metrics["grad_share_IDLE"] = grad_shares.get("IDLE", 0.0)
+                    metrics["grad_share_TACKLE"] = grad_shares.get("TACKLE", 0.0)
+                    metrics["grad_share_PASS"] = grad_shares.get("PASS", 0.0)
+                    metrics["grad_share_SHOT"] = grad_shares.get("SHOT", 0.0)
+                    metrics["grad_share_OTHER"] = grad_shares.get("OTHER", 0.0)
+                actor.eval()
+            except Exception as _grad_log_exc:
+                print(f"   [WARN] Gradient-share logging failed: {_grad_log_exc}", flush=True)
 
         # Diagnostics check for numerical instability
         if np.isnan(metrics["policy_loss"]) or np.isnan(metrics["value_loss"]):
@@ -719,9 +782,42 @@ def run_mappo_training(
                         },
                         _ablation_ckpt_name,
                     )
+                     print(
+                         f"   [EXPL-ABLATION] Checkpoint saved: {_ablation_ckpt_name} "
+                         f"(step {total_steps_elapsed}, bonus={current_football_bonus:.2f})",
+                         flush=True,
+                     )
+
+        # Actor-loss reweighting checkpoints: save at fixed intervals through both phases.
+        if actor_loss_reweight_M != 1.0 and actor_loss_reweight_checkpoint_interval > 0:
+            _reweight_total_steps = actor_loss_reweight_phase1_steps + (timesteps - actor_loss_reweight_phase1_steps)
+            _reweight_steps = [actor_loss_reweight_checkpoint_interval * k for k in range(1, _reweight_total_steps // actor_loss_reweight_checkpoint_interval + 1)]
+            for _ckpt_step in _reweight_steps:
+                if total_steps_elapsed >= _ckpt_step and not getattr(env, f"_actor_reweight_saved_{_ckpt_step}", False):
+                    setattr(env, f"_actor_reweight_saved_{_ckpt_step}", True)
+                    _reweight_ckpt_name = os.path.join(
+                        models_dir,
+                        f"mappo_{scenario}_seed{seed}_actorreweight_{_ckpt_step}.pt",
+                    )
+                    torch.save(
+                        {
+                            "actor": actor.state_dict(),
+                            "critic": critic.state_dict(),
+                            "actor_opt": actor_opt.state_dict(),
+                            "critic_opt": critic_opt.state_dict(),
+                            "obs_dim": obs_dim,
+                            "global_state_dim": global_state_dim,
+                            "action_dim": action_dim,
+                            "timesteps": total_steps_elapsed,
+                            "actor_loss_reweight_M": current_actor_reweight_M,
+                            "phase": "intervention" if total_steps_elapsed < actor_loss_reweight_phase1_steps else "tail",
+                        },
+                        _reweight_ckpt_name,
+                    )
                     print(
-                        f"   [EXPL-ABLATION] Checkpoint saved: {_ablation_ckpt_name} "
-                        f"(step {total_steps_elapsed}, bonus={current_football_bonus:.2f})",
+                        f"   [ACTOR-REWEIGHT] Checkpoint saved: {_reweight_ckpt_name} "
+                        f"(step {total_steps_elapsed}, M={current_actor_reweight_M:.1f}, "
+                        f"phase={'intervention' if total_steps_elapsed < actor_loss_reweight_phase1_steps else 'tail'})",
                         flush=True,
                     )
 

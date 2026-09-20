@@ -27,6 +27,7 @@ def ppo_update(
     entropy_coef: float = 0.01,
     max_grad_norm: float = 0.5,
     onball_football_entropy_bonus: float = 0.0,
+    actor_loss_reweight_M: float = 1.0,
 ) -> Dict[str, float]:
     """
     Performs PPO policy and value updates for MAPPO.
@@ -140,6 +141,18 @@ def ppo_update(
             ratio = torch.exp(new_logprobs - old_logprobs_t[batch_idx])
             surr1 = ratio * advantages_t[batch_idx]
             surr2 = torch.clamp(ratio, 1.0 - clip_range, 1.0 + clip_range) * advantages_t[batch_idx]
+
+            # Actor-loss reweighting for legal PASS/SHOT transitions (M = 1.0 = no reweighting).
+            # This is an actor-only multiplier; the critic loss below is unaffected.
+            if actor_loss_reweight_M != 1.0 and batch_masks is not None:
+                pass_shot_mask = batch_masks[:, 9:13].any(dim=-1)  # indices 9,10,11,12
+                selected_action = actions_t[batch_idx]
+                selected_legal = batch_masks.gather(1, selected_action.unsqueeze(-1)).squeeze(-1)
+                is_pass_shot = pass_shot_mask & selected_legal
+                if is_pass_shot.any():
+                    surr1 = surr1 + (actor_loss_reweight_M - 1.0) * surr1 * is_pass_shot.float()
+                    surr2 = surr2 + (actor_loss_reweight_M - 1.0) * surr2 * is_pass_shot.float()
+
             policy_loss = -torch.min(surr1, surr2).mean()
 
             # Pass 3D tensor (batch_size, num_agents, obs_dim) to CentralizedCritic
