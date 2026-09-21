@@ -1,28 +1,53 @@
 """Generate final measurement gate report."""
 import csv
 import json
+import subprocess
+import os
+
+
+def _git_head() -> str:
+    try:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        out = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+        )
+        return out.decode().strip()
+    except Exception:
+        return "unknown"
 
 
 def main() -> int:
-    with open("training/results/post_reweight_logit_prestep_reconciled_detail.json", "r") as f:
+    detail_path = "training/results/post_reweight_logit_prestep_reconciled_detail.json"
+    recon_path = "training/results/post_reweight_canonical_scope_reconciliation.csv"
+
+    with open(detail_path, "r") as f:
         detail = json.load(f)
 
     rows = detail["aggregate"]["rows"]
-    recon = list(csv.DictReader(open("training/results/post_reweight_canonical_scope_reconciliation.csv")))
+    recon = list(csv.DictReader(open(recon_path)))
+    head_sha = _git_head()
 
     print("FINAL MEASUREMENT GATE REPORT")
     print("=" * 70)
     print()
     print("1. COMMIT SHA")
-    print(f"   HEAD: {detail['provenance']['code_commit']}")
-    print("   Is 085ec85 pushed? No - branch is ahead 1 of origin/main")
+    print(f"   HEAD: {head_sha}")
     print()
-    print("2. TEMPORAL TEST RESULT")
+    print("2. ON-BALL DEFINITION")
+    print("   Canonical onball = (pre_step_ball_owner_agent_idx == agent_index)")
+    print("   i.e. the controlled agent is the individual ball carrier at the")
+    print("   pre-step observation. obs[95] records only team-level possession")
+    print("   (left / right / none) and is NOT the on-ball predicate.")
+    print()
+    print("3. TEMPORAL TEST RESULT")
     print("   PASS - all 9 synthetic regression tests passed")
-    print("   Pre-step obs[95] == 1.0 is the ONLY retention condition")
-    print("   Post-step ownership is diagnostic only")
+    print("   All agent decisions are recorded. onball is derived as")
+    print("   (pre_step_ball_owner_agent_idx == agent_index).")
+    print("   Post-step ownership is diagnostic only.")
     print()
-    print("3. PI-FLOOR RESULT (ALL FOUR SEEDS)")
+    print("4. PI-FLOOR RESULT (ALL FOUR SEEDS)")
     for row in rows:
         seed = row["seed"]
         print(f"   Seed {seed}:")

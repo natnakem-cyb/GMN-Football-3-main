@@ -2,8 +2,8 @@
 GMN-Football-3 — Canonical 3-Agent Pre-Step Measurement (MEASUREMENT ONLY).
 
 Implements the full Final Measurement Gate specification:
-  Task 0  — Freeze ownership semantics (obs[95] = team possession; pre-step ball-owner idx = agent possession)
-  Task 1  — Temporal alignment test (retain = pre-step obs[95]==1.0 only)
+  Task 0  — Freeze ownership semantics (obs[95] = team possession; pre-step ball-owner idx = individual carrier)
+  Task 1  — Temporal alignment test (all agent decisions recorded; onball = pre_step_ball_owner_agent_idx == agent_index)
   Task 2  — Hard π-floor reconciliation
   Task 3  — Canonical 7650-decision scope (50 eps × 51 ticks × 3 agents)
   Task 4  — All-three-agent pre-step collection
@@ -90,6 +90,12 @@ CHECKPOINT_TEMPLATE = (
 INVENTORY_RELATIVE_PATH = os.path.join(
     "training", "results", "retest_checkpoint_inventory.csv"
 )
+
+# ---------------------------------------------------------------------------
+# Reconciliation tolerance
+# ---------------------------------------------------------------------------
+RECONCILIATION_TOLERANCE_PP = 0.05           # percentage points
+RECONCILIATION_TOLERANCE_ABS = 0.05 / 100.0  # absolute rate units
 
 FLOAT_TOL = 1e-6
 INVALID_LITERAL_RE = __import__("re").compile(r"[:,\[]\s*-?(?:Infinity|NaN)\b")
@@ -743,7 +749,7 @@ def _aggregate_seed(
     if rebuilt_rate_pct is not None:
         expected_rate = rebuilt_rate_pct / 100.0
         actual_rate = canonical["n_pass_shot"] / max(1, n_total)
-        rebuilt_match = abs(actual_rate - expected_rate) <= 0.001  # 0.1pp tolerance
+        rebuilt_match = abs(actual_rate - expected_rate) <= RECONCILIATION_TOLERANCE_ABS
         delta_pp = (canonical["canonical_rate_pct"] - rebuilt_rate_pct)
 
     return {

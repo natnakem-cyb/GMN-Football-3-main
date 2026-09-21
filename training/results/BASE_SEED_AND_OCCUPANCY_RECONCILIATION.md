@@ -91,17 +91,29 @@ These trajectory differences alter how often the left team has the ball at pre-s
 
 ### 2.3 Summary
 
-The 17 → 74 → 13 swing decomposes as:
+The 17 → 74 → 13 transition history (occupancy counts for the corresponding seed):
 
 ```
-17 (old post-step, base_seed=700000)
-  ↓ fix measurement method (post-step → pre-step)
-74 (corrected pre-step, base_seed=700000)
-  ↓ change base_seed (700000 → 500000, canonical)
-13 (corrected pre-step, base_seed=500000) ← CANONICAL
+17  = post-step agent-0 ownership under base_seed=700000
+     (old collector: ball_owner_agent_idx == 0 after the step)
+
+74  = pre-step agent-0 team-possession under base_seed=700000
+     (085ec85 collector: retained when agent-0's obs[95] == 1.0)
+
+13  = all-three-agent pre-step individual-carrier ownership
+     under base_seed=500000
+     (canonical collector: onball = (pre_step_ball_owner_agent_idx == agent_index);
+      aggregate across agents 0/1/2)
 ```
 
-Both changes are orthogonal: the method fix changes **which frames are retained**, while the base seed change changes **which trajectories are evaluated**.
+**Causal analysis**
+
+- **17 → 74** is explained by the temporal/measurement-method change (post-step agent-specific → pre-step team-possession).
+- **74 → 13** cannot be attributed solely to the base-seed change (700000 → 500000). Two variables changed simultaneously:
+  1. base seed
+  2. measurement population (agent-0 / team-possession frames → all-agent / individual-carrier frames)
+
+The values 74 and 13 are therefore not directly comparable. The pure effect of the seed change alone remains unresolved.
 
 ---
 
@@ -115,7 +127,7 @@ The final canonical measurement was performed under:
 - **Episodes:** 50 per seed
 - **Base seed:** 500,000
 - **Deterministic:** argmax
-- **Measurement method:** Pre-step obs[95] team possession
+- **Measurement method:** Canonical on-ball definition: `onball = (pre_step_ball_owner_agent_idx == agent_index)` — the controlled agent is the individual ball carrier at the pre-step observation. `obs[95]` records only team-level possession (left / right / none) and is NOT used as the on-ball predicate for the published `n_onball` counts.
 
 ### 3.1 On-Ball Frame Counts
 
@@ -125,6 +137,8 @@ The final canonical measurement was performed under:
 | 123 | `seed123_actorreweight_49920.pt` | **96** | 1.255% | 79 | 82.23% |
 | 7 | `seed7_actorreweight_49920.pt` | **18** | 0.235% | 17 | 94.44% |
 | 999 | `seed999_actorreweight_49920.pt` | **42** | 0.549% | 30 | 71.43% |
+
+**Definition of `n_onball`:** number of agent-decision frames in which `pre_step_ball_owner_agent_idx == that agent's index` (per-agent denominator = 2,550 ticks; aggregate denominator = 7,650 agent-decisions across 3 agents).
 
 **Note:** `n_onball` counts **all-agent** on-ball frames across the full 7650-decision scope (50 episodes × 51 ticks × 3 agents = 7,650 decisions). The per-agent breakdown is:
 
@@ -197,13 +211,11 @@ All π-floor inequalities hold:
 
 ### 4.2 Verification
 
-Two independent verification scripts validate the canonical artifacts:
+The authoritative verification script for this close-out is **`training/verify_canonical_artifacts.py`**. It validates JSON structure, frame counts, checkpoint SHAs, temporal alignment, π-floor, and canonical rate consistency against the reconciled artifacts. **PASSED** (exit 0).
 
-1. **`training/verify_prestep_measurement.py`** — Recomputes all aggregates from raw frame records using an independent softmax implementation. **PASSED** (exit 0).
+The historical verifier **`training/verify_prestep_measurement.py`** is quarantined (see `training/results/VERIFIER_STATUS.md`). It validates the 085ec85-era artifacts and must not be used as the canonical close-out validator.
 
-2. **`training/verify_canonical_artifacts.py`** — Validates JSON structure, frame counts, checkpoint SHAs, temporal alignment, π-floor, and canonical rate consistency. **PASSED** (exit 0).
-
-3. **`training/generate_final_report.py`** — Generates human-readable gate report. **All gates passed.**
+`training/generate_final_report.py` generates a human-readable gate report. **All gates passed.**
 
 ### 4.3 Checkpoint Inventory
 
@@ -220,7 +232,7 @@ All measurements use the **fresh-training 50k checkpoints** verified against `tr
 
 ## 5. Historical vs Canonical Comparison
 
-| Seed | Historical `n_onball` (post-step, base_seed=700000) | Canonical `n_onball` (pre-step, base_seed=500000) | Change |
+| Seed | Historical `n_onball` (post-step agent-0 ownership, base_seed=700000) | Canonical `n_onball` (pre-step individual carrier, base_seed=500000) | Change |
 |------|---------------------------------------------------|--------------------------------------------------|--------|
 | 42 | 17 | 13 | -4 (-23.5%) |
 | 123 | 27 | 96 | +69 (+255.6%) |
@@ -244,9 +256,9 @@ This ranking shift is an arithmetic consequence of both the method fix and the b
 
 1. **Canonical base_seed = 500,000.** This is locked in `CANONICAL_METRICS_CONTRACT.md` and `training/eval_actor_reweight.py`. The script default in `training/eval_canonical_three_agent_measurement.py` has been corrected to match.
 
-2. **Seed 42 `n_onball` swing 17 → 74 → 13** is fully explained by two orthogonal changes:
-   - **17 → 74:** Measurement method fix from post-step ball ownership to pre-step team possession (commit `085ec85`).
-   - **74 → 13:** Base seed change from 700,000 to 500,000 (canonical).
+2. **Seed 42 `n_onball` swing 17 → 74 → 13** involves two independent changes that cannot be disentangled into single-cause steps:
+   - **17 → 74:** Measurement-method change (post-step agent-specific ownership → pre-step team-possession filter) plus an expansion from agent-0-only to all-agent scope in the 085ec85 artifacts.
+   - **74 → 13:** Two variables changed simultaneously: (1) base seed 700,000 → 500,000, and (2) measurement population switched from agent-0/team-possession frames to all-agent/individual-carrier frames. The pure effect of the seed change alone is unresolved.
 
 3. **Canonical `n_onball` values under base_seed=500000:**
    - Seed 42: **13**
@@ -278,8 +290,8 @@ The following reports and artifacts from this investigation thread are supersede
 From this reconciliation, the only permitted conclusions are:
 
 - The canonical base_seed is 500,000.
-- The canonical on-ball measurement uses pre-step team possession (`obs[95] == 1.0`).
-- The seed 42 `n_onball` swing is explained by the measurement-method fix and base-seed change.
+- The canonical on-ball definition is `pre_step_ball_owner_agent_idx == agent_index` (individual carrier). `obs[95]` records team-level possession only and is not the on-ball predicate.
+- The seed 42 `n_onball` transition 17 → 74 → 13 is explained by a measurement-method change and a simultaneous base-seed + measurement-population change; the pure seed effect is unresolved.
 - The canonical `n_onball` values are as listed in Section 3.1.
 - The canonical scope reconciliation table (Section 3.2) shows all four seeds match the rebuilt rates within ±0.05 pp.
 

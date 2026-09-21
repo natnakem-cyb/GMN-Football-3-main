@@ -1,13 +1,35 @@
-"""Independent verification for canonical 3-agent reconciled artifacts."""
+"""Independent verification for canonical 3-agent reconciled artifacts.
+
+Authoritative verifier for the canonical close-out (commit 2d4b6dd and later).
+Validates the reconciled artifacts against the standardized tolerance of ±0.05 pp.
+"""
 import csv
 import json
 import math
+
+RECONCILIATION_TOLERANCE_PP = 0.05
 
 
 def main() -> int:
     detail_path = "training/results/post_reweight_logit_prestep_reconciled_detail.json"
     summary_path = "training/results/post_reweight_logit_prestep_reconciled_summary.csv"
     recon_path = "training/results/post_reweight_canonical_scope_reconciliation.csv"
+
+    # Guard against accidentally validating 085ec85-era artifacts
+    historical_markers = [
+        "post_reweight_logit_prestep_detail.json",
+        "post_reweight_logit_prestep_summary.csv",
+        "onball_occupancy_summary.csv",
+        "onball_occupancy_prestep_summary.csv",
+    ]
+    for marker in historical_markers:
+        if marker in detail_path or marker in summary_path or marker in recon_path:
+            print(f"ERROR: {marker} is a historical 085ec85-era artifact.")
+            print("Use verify_canonical_artifacts.py with the reconciled artifact names:")
+            print(f"  detail : {detail_path}")
+            print(f"  summary: {summary_path}")
+            print(f"  recon  : {recon_path}")
+            return 1
 
     print("=== INDEPENDENT VERIFICATION: CANONICAL 3-AGENT ARTIFACTS ===")
 
@@ -122,8 +144,8 @@ def main() -> int:
         if rebuilt_rate is not None:
             actual_rate = row["canonical_rate_pct"]
             delta = abs(actual_rate - rebuilt_rate)
-            # Allow 0.5pp tolerance for measurement variance
-            assert delta <= 0.5, f"seed {seed} delta {delta:.3f}pp exceeds tolerance"
+            # Allow 0.05pp tolerance for measurement variance
+            assert delta <= RECONCILIATION_TOLERANCE_PP, f"seed {seed} delta {delta:.3f}pp exceeds tolerance"
     print("PASS: canonical rates within tolerance of rebuilt CSV")
 
     print()

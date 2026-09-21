@@ -1,27 +1,22 @@
 """
-GMN-Football-3 — Independent consistency check for the PRE-STEP on-ball artifacts.
+HISTORICAL VERIFIER — DO NOT USE FOR CANONICAL CLOSE-OUT
+========================================================
 
-Reads ``training/results/post_reweight_logit_prestep_detail.json`` and
-recomputes every aggregate reported in the summary/occupancy CSVs straight from
-the raw per-frame records. The pi_* recomputation deliberately uses its own
-softmax implementation instead of importing ``training.prestep_onball``, so this
-is an independent path rather than a re-run of the collector's own helper.
+This script validates the 085ec85-era artifacts
+(post_reweight_logit_prestep_detail.json etc.).
 
-Checks performed
-----------------
-1. detail JSON parses and contains no literal Infinity / NaN.
-2. checkpoint SHA-256 fields are non-empty and match the committed inventory.
-3. row counts match the expected number of checkpoints (4).
-4. every retained frame has obs95 == 1.0 (pre-step retention invariant).
-5. n_ticks reconciles between the per-episode records and the aggregate row.
-6. n_onball / P(on-ball) recompute from raw frames.
-7. legality counts/rates recompute from the raw ``action_mask`` vector.
-8. pi_PASS / pi_SHOT / pi_PASS+SHOT recompute from raw logits + mask.
-9. deterministic action == argmax of the recomputed probabilities.
-10. behavioural PASS+SHOT selection count recomputes and stays distinct from pi.
-11. summary + occupancy CSVs equal the recomputed values (within float tolerance).
+The authoritative verifier for commit 2d4b6dd and later is
+``training/verify_canonical_artifacts.py``.
 
-Exit code 0 = all checks pass; non-zero = at least one check failed.
+Reasons this script is non-canonical:
+  * It expects artifacts produced under base_seed=700000 (agent-0-only scope).
+  * The canonical close-out uses base_seed=500000 and all-three-agent scope.
+  * Its field-name expectations (onball_source, bare obs95) do not match the
+    reconciled artifact schema (pre_step_ball_owner_agent_idx, agent_has_ball,
+    onball).
+
+If you are validating the canonical close-out, run verify_canonical_artifacts.py
+instead.
 """
 
 from __future__ import annotations
