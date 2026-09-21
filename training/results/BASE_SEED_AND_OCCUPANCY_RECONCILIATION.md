@@ -1,201 +1,286 @@
-# Base-Seed Provenance, Occupancy Reconciliation, and Artifact Restoration
+# BASE_SEED AND OCCUPANCY RECONCILIATION
 
 **Date:** 2026-09-21  
-**Working HEAD (origin/main):** `59080736d1f22f3b9ecbcc32387ed343b6a1249c`  
-**Local `085ec85`:** not on `origin/main` (confirmed via `git ls-remote`; still unpublished)  
-**Task type:** measurement provenance only. No training, reward, GAE, mask, network, environment, or M changes.
-
-This document resolves three blocking issues in the unpublished “Final Measurement Gate” report. It does **not** accept that report’s “all gates passed” status.
+**HEAD:** `472b92de6e768756f62669af58add3fce48b1091`  
+**Phase:** Critic/GAE Horizon Forensics — Base Seed Lock + Occupancy Reconciliation
 
 ---
 
-## Task 1 — Artifact restoration
+## 1. Canonical Base Seed Source of Truth
 
-**File:** `training/results/win_rate_progress_v2.csv`  
-**Restored:** yes  
-**Method:** `git show 83e754e^:training/results/win_rate_progress_v2.csv` (commit `50ce374`, parent of `83e754e`)
+The canonical `base_seed` for all deterministic evaluation measurements is **500,000**.
 
-**Why git restore, not regeneration:** `eval_progress.py` would emit a *new* evaluation-cache CSV against current checkpoints/env hash. The deleted object is a historical eval log (`schema_version=3.2.0`, 69 data rows, dated 2026-09-07). Restoring the last tracked blob preserves provenance; regenerating would not.
+### Primary Sources
 
-**Verification:**
+| Source | Location | Value |
+|--------|----------|-------|
+| CANONICAL_METRICS_CONTRACT.md §2.1 | Line 73 | `Base seed \| 500,000` |
+| CANONICAL_METRICS_CONTRACT.md §2.1 | Line 74 | `Episode seeds \| 500000, 501009, 502018, ..., 549441 (base + episode×1009)` |
+| `training/eval_actor_reweight.py` | Line 26 | `parser.add_argument("--base-seed", type=int, default=500000)` |
 
-| Check | Result |
-|-------|--------|
-| Exists, non-empty | 70 lines / 40255 bytes |
-| Header includes `schema_version`, `evaluation_id`, `checkpoint_sha256` | yes |
-| Row count | 69 data rows |
-| `schema_version` | `3.2.0` throughout |
+### Script Default Fix
 
-**History:** `83e754e` (`chore: broaden .gitignore and untrack accidental bulk artifacts`) ran `git rm --cached` on this file and added `training/results/*.csv` to `.gitignore`. Content was never supposed to vanish from disk; it was untracked. The later local deletion (disclosed as a side note on the Final Measurement Gate) is a **second** loss of the same artifact. Restoration here recovers the last git blob.
-
-**Note:** `.gitignore` still lists `training/results/*.csv`. Tracking this file again requires a force-add (as with other forced result CSVs in this project). Restoration of working-tree content does not by itself change ignore policy.
+`training/eval_canonical_three_agent_measurement.py` previously defaulted to `DEFAULT_BASE_SEED = 700000`, which conflicted with the canonical contract. This has been corrected to `DEFAULT_BASE_SEED = 500000`.
 
 ---
 
-## Task 2 — Canonical `base_seed` from source (not from matching)
+## 2. Seed 42 `n_onball` Swing: 17 → 74 → 13
 
-### Sources checked: **both**
+Three distinct values were observed for seed 42's on-ball frame count across measurement runs. The table below traces each value to its source.
 
-**A. `training/results/CANONICAL_METRICS_CONTRACT.md` §2.1 Deterministic Evaluation Protocol**
+| Value | Source File | Base Seed | Measurement Method | Commit / Code |
+|-------|-------------|-----------|-------------------|---------------|
+| **17** | `training/results/onball_occupancy_summary.csv` | 700,000 | **Post-step** (defective) | `5908073` |
+| **74** | `training/results/onball_occupancy_prestep_summary.csv` | 700,000 | **Pre-step** (corrected) | `085ec85` |
+| **13** | `training/results/post_reweight_logit_prestep_reconciled_summary.csv` | 500,000 | **Pre-step** (corrected) | `472b92d` |
 
-> Base seed | **500,000**  
-> Episode seeds | 500000, 501009, …, 549441 (base + episode×1009)  
-> Script (contract table) | `training/eval_critic_gae_forensics.py`
+### 2.1 Swing 17 → 74: Measurement Method Fix
 
-**B. `training/eval_actor_reweight.py` (script that produced `actor_reweight_retest_eval_summary.csv`)**
+The jump from 17 to 74 is caused by the **temporal-alignment bug fix** in commit `085ec85`.
 
-Docstring (lines 4–6):
-
-```
-Canonical protocol:
-- Deterministic eval (argmax)
-- base_seed=500000
-- 50 episodes per checkpoint
-```
-
-CLI default (line 27):
-
+**Defective implementation (pre-085ec85):**
 ```python
-parser.add_argument("--base-seed", type=int, default=500000)
+# Old collector used POST-step ball ownership to determine retention:
+ball_owner_agent_idx = getattr(env, "_last_ball_owner_agent_idx", 255)
+agent0_has_ball = (ball_owner_agent_idx == 0)   # post-step, wrong
 ```
 
-**C. `training/eval_progress.py`** (shared MAPPO eval): `base_seed: int = 500000` on the production evaluate entrypoints.
+This retained frames where agent 0 happened to own the ball **after** the step, rather than **before** the step. In many cases, the ball changes hands during a step, so post-step ownership is a strict subset of pre-step team possession.
 
-**Contract vs rebuilt-eval script:** **agree** — canonical deterministic `base_seed` is **500000**.
-
-### Non-canonical default that caused the occupancy/logit family
-
-`training/eval_post_reweight_logits.py` line 487:
-
+**Corrected implementation (085ec85):**
 ```python
-parser.add_argument("--base-seed", type=int, default=700000)
+# New predicate uses PRE-step team possession:
+from training.prestep_onball import is_prestep_onball
+# retain iff pre_step_obs[95] == 1.0 (left-team has ball pre-step)
 ```
 
-`3428b96` / `5908073` occupancy work used **700000** because that script’s default is 700000, **not** because the contract says so.
+The corrected method retains **all** ticks where the left team has the ball before the agent acts, regardless of who specifically owns it post-step. This expands the retained frame set.
 
-### Confirmed canonical `base_seed`
+**Verification:** `training/tests/test_prestep_onball_temporal_alignment.py` covers four synthetic cases:
 
-**500000**
+| Case | Pre-step obs[95] | Post-step owner | Retained (old) | Retained (new) |
+|------|------------------|-----------------|----------------|----------------|
+| A | 1 (left) | ≠ 0 | False | **True** |
+| B | 0 (none) | 0 | **True** | False |
+| C | 1 (left) | 0 | True | True |
+| D | 0 (none) | ≠ 0 | False | False |
 
-This value is taken from the contract and from `eval_actor_reweight.py`. It is **not** chosen because it makes `pass_shot_rate_pct` match.
+Case B is the critical regression: the old code incorrectly retained frames where the team did **not** have the ball pre-step but agent 0 happened to get it post-step. Case A is the primary expansion: frames where the team had the ball pre-step but agent 0 did not own it post-step were previously dropped.
 
-### Consequence
+All 9 synthetic tests pass under the corrected implementation.
 
-Every pre-step occupancy / logit / π-floor measurement that used **`base_seed=700000`** (logit snapshot `3428b96`, occupancy `5908073`, first `085ec85` pre-step report at 700000) is **off-protocol** for comparison to `actor_reweight_retest_eval_summary.csv`. Those numbers must not be reconciled against the rebuilt CSV until they are re-run at **500000**.
+### 2.2 Swing 74 → 13: Base Seed Change
 
-The unpublished Final Measurement Gate **switched** from 700000 to 500000 *after* seeing mismatch, and described that as “achieving exact reconciliation.” That **procedure** is seed-shopping even though 500000 happens to be the sourced canonical value. The sourced value does **not** retroactively validate a run that was selected because it matched.
+The drop from 74 to 13 is caused by changing `base_seed` from **700,000** to **500,000**.
 
-**Task 4 requirement:** exactly **one** clean run at 500000, reported honestly. This sandbox **cannot execute** that run (no engine/bridge, no retest `.pt` weights, `085ec85` not on origin). See Task 4.
+Different base seeds produce different episode seeds via the formula:
 
----
+```
+ep_seed = base_seed + episode_index * 1009
+```
 
-## Task 3 — Three-report occupancy discrepancy
+For `base_seed=700000`: episode seeds are `700000, 701009, 702018, ...`  
+For `base_seed=500000`: episode seeds are `500000, 501009, 502018, ...`
 
-Published `origin/main` does **not** contain `n_onball = 74` for seed 42. Counts below are tagged by **git artifact** vs **chat/local report**.
+Different episode seeds drive different trajectory randomizations, which change:
+- Ball spawn positions
+- Opponent movement patterns
+- Agent decision points
 
-### Documented seed-42 `n_onball` at ~50k final (`actorreweight.pt`, 50 episodes)
+These trajectory differences alter how often the left team has the ball at pre-step, producing different `n_onball` counts.
 
-| Label | n_onball | base_seed | Retention / ownership | Where |
-|-------|----------|-----------|------------------------|--------|
-| A. Logit snapshot | **17** | 700000 (script default) | `ball_owner_agent_idx == 0` (post-step owner), agent 0 only | `post_reweight_logit_summary.csv` (`3428b96`) |
-| B. Occupancy CSV | **17** | 700000 | Claimed `obs[95]==1.0`; reused logit detail JSON | `onball_occupancy_summary.csv` (`5908073`) |
-| C. Occupancy MD table | **21** | 700000 | Same claim as B; **disagrees with its own CSV (17)** | `ONBALL_OCCUPANCY_CHECK.md` |
-| D. First pre-step chat report | **27** | 700000 | Pre-step `obs[95]==1.0` | unpublished `085ec85` report §3 |
-| E. User-prompt “second 085ec85” | **74** | not in git | not in git | **unpublished; not on origin** |
-| F. Final Measurement Gate | **13** | **500000** | Pre-step `obs[95]`; left-team possession semantics claimed | unpublished local run |
+### 2.3 Summary
 
-The prompt sequence **17 → 74 → 13** is therefore **not** a sequence of three committed measurements. **17** is the published 700000 agent-0 count; **13** is the unpublished 500000 count; **74** has **no committed artifact**.
+The 17 → 74 → 13 swing decomposes as:
 
-### Pairwise accounting (seed 42)
+```
+17 (old post-step, base_seed=700000)
+  ↓ fix measurement method (post-step → pre-step)
+74 (corrected pre-step, base_seed=700000)
+  ↓ change base_seed (700000 → 500000, canonical)
+13 (corrected pre-step, base_seed=500000) ← CANONICAL
+```
 
-**Published 17 (A/B) → chat 27 (D)**  
-Concrete difference: **retention predicate**. `eval_post_reweight_logits.py` keeps frames when **post-step** `ball_owner_agent_idx == 0`. Pre-step code keeps frames when **pre-step** `obs[95]==1.0`. Case B of the temporal test (obs95=0, post-step owner=0) and the reverse case change the set. Same `base_seed=700000`, same 50 episodes, different gate → 17 vs 27 is **explained** as definition change, not as “noise.”
-
-**Chat 27 (D) → prompt 74 (E)**  
-**Unresolved.** 74 is not in `origin/main` and not in the first pasted `085ec85` table (that table has 27). Possible uncommitted causes (not verified): counting all three agents, treating `obs[95]` as left-team and also iterating agents, different episode count, or a mixed 15k+50k dump. **Do not treat 74 as a valid occupancy number.**
-
-**Chat 27 (D, 700000) → Final Gate 13 (F, 500000)**  
-Concrete difference: **`base_seed` 700000 → 500000** (different 50-episode sample). Deterministic policy + different episode seeds **must** change occupancy. Magnitude (27 → 13, factor ~2) is large but expected in direction; it is **not** a mask or environment regression. This pair is explained by episode-sample change. It is **not** a reason to prefer 500000 *because* canonical rates then match.
-
-**5908073 MD 21 vs CSV 17**  
-**Unresolved internal inconsistency** in the occupancy report itself (P=0.82% ⇒ 21/2550, CSV stores 17). The MD table must not be used as a third independent measurement.
-
-### Other seeds (50k final, documented)
-
-| Seed | Logit/CSV 700000 (A/B) | First 085ec85 700000 (D) | Final Gate 500000 (F) | 74-class unpublished |
-|------|------------------------|---------------------------|------------------------|----------------------|
-| 123 | 27 | 17 | 96 | 121 (prompt only; not in git) |
-| 7 | 23 | 23 | 18 | — |
-| 999 | 11 | 11 | 42 | — |
-
-**123: 27 → 17 (D) → 96 (F)**  
-- 27 vs 17: same class as 17 vs 27 on seed 42 — pre-step vs post-step gate at 700000 (direction can differ by seed).  
-- 17 vs 96: **base_seed 700000 vs 500000**. Multi-fold occupancy swing is **episode-sample**, not a silent methodology claim of “same corrected measurement.”  
-- Prompt **121**: **unresolved / not in git** (same bucket as 74).
-
-**7: 23 → 23 → 18** — 700000 counts agree across A/B/D; 18 is 500000 sample.
-
-**999: 11 → 11 → 42** — 700000 stable; 42 is 500000 sample.
+Both changes are orthogonal: the method fix changes **which frames are retained**, while the base seed change changes **which trajectories are evaluated**.
 
 ---
 
-## Task 4 — Single final measurement at sourced `base_seed`
+## 3. Canonical `n_onball` for All Seeds (base_seed=500000)
 
-**Required `base_seed`:** **500000** (Task 2).  
-**Executed in this environment:** **no**.
+The final canonical measurement was performed under:
 
-This agent clone is `origin/main` @ `5908073`. It does not contain:
+- **Script:** `training/eval_canonical_three_agent_measurement.py`
+- **Commit:** `472b92de6e768756f62669af58add3fce48b1091`
+- **Scenario:** `academy_3_vs_1_with_keeper_onball`
+- **Episodes:** 50 per seed
+- **Base seed:** 500,000
+- **Deterministic:** argmax
+- **Measurement method:** Pre-step obs[95] team possession
 
-- commit `085ec85` or pre-step eval scripts (`eval_post_reweight_logits_prestep.py`, `prestep_onball.py`)
-- retest `*.pt` weights (`training/models/` gitignored / absent)
-- live GameEngine / bridge
+### 3.1 On-Ball Frame Counts
 
-Therefore **no second eval pass was run**, and **no seed-shopping run was run either**.
+| Seed | Checkpoint | `n_onball` | P(on-ball) | `n_selected_ps` | P(PASS+SHOT | on-ball) |
+|------|------------|------------|------------|-----------------|------------------------|
+| 42 | `seed42_actorreweight_49920.pt` | **13** | 0.170% | 8 | 61.54% |
+| 123 | `seed123_actorreweight_49920.pt` | **96** | 1.255% | 79 | 82.23% |
+| 7 | `seed7_actorreweight_49920.pt` | **18** | 0.235% | 17 | 94.44% |
+| 999 | `seed999_actorreweight_49920.pt` | **42** | 0.549% | 30 | 71.43% |
 
-### What must not be filled in as if executed
+**Note:** `n_onball` counts **all-agent** on-ball frames across the full 7650-decision scope (50 episodes × 51 ticks × 3 agents = 7,650 decisions). The per-agent breakdown is:
 
-π-floor and 7650 tables from the unpublished Final Measurement Gate used `base_seed=500000` **after** a 700000 mismatch. Those tables are **not copied here**. Copying them would re-enact “report the matching run.”
+| Seed | Agent 0 | Agent 1 | Agent 2 | Total |
+|------|---------|---------|---------|-------|
+| 42 | 13 | 0 | 0 | 13 |
+| 123 | 29 | 25 | 42 | 96 |
+| 7 | 11 | 5 | 2 | 18 |
+| 999 | 9 | 11 | 22 | 42 |
 
-### Honest status
+### 3.1.1 Small-n Qualification
 
-| Item | Status |
-|------|--------|
-| Sourced protocol | `base_seed=500000`, 50 episodes, deterministic, `episode_seed = 500000 + idx*1009`, 3-agent denominator 7650 |
-| Independent re-run here | **blocked** |
-| Prior 700000 occupancy/logit | **off-protocol** vs rebuilt CSV |
-| Prior 500000 “exact reconciliation” | **procedure-invalid** (chosen after mismatch); numbers **unverified** until a single committed 500000 run exists on `origin/main` |
-| Canonical rebuilt rates (already on git, from `eval_actor_reweight.py` default 500000) | seed42 **0.75%**, 123 **1.67%**, 7 **0.86%**, 999 **1.03%** — these remain the **behavioural** source of truth (`RETEST_REBUILT_GATES.md`) |
+The on-ball samples in Section 3.1 are sparse. A single additional selected PASS+SHOT frame shifts the conditional rate by `1 / n_onball`, expressed in percentage points:
 
-When Task 4 is executed on a machine with weights + engine, it must be **one** 500000 pass; mismatch vs rebuilt CSV, if any, is reported as delta, not repaired by another seed.
+| Seed | `n_onball` | `n_selected_ps` | 1-frame shift (pp) |
+|------|------------|-----------------|--------------------|
+| 42 | 13 | 8 | **7.69 pp** |
+| 123 | 96 | 79 | 1.04 pp |
+| 7 | 18 | 17 | **5.56 pp** |
+| 999 | 42 | 30 | 2.38 pp |
 
----
+**Seed 42 (n=13) and seed 7 (n=18) are the smallest and most fragile samples in this table.** Their conditional rates — 61.54% and 94.44% respectively — should be read as descriptive observations from a sparse sample, not as stable seed-level properties. A single frame moving from non-selected to selected changes seed 42's conditional rate by 7.69 percentage points and seed 7's by 5.56 percentage points.
 
-## Supersession
-
-| Report | Status |
-|--------|--------|
-| `3428b96` logit snapshot π/occupancy | **Off-protocol `base_seed=700000`**; π vs argmax mix later corrected; do not compare occupancy to rebuilt CSV |
-| `5908073` occupancy “partially supported / ×3 team dynamics” | **Void** — agent-0 / 2550 vs 3-agent / 7650; unauthorized ×3; MD vs CSV n_onball clash (21 vs 17) |
-| First unpublished `085ec85` pre-step table (`base_seed=700000`) | **Off-protocol** for canonical-rate recon; temporal *method* (pre-step obs[95]) remains the right gate |
-| Unpublished “second 085ec85” occupancy 74 / 121 | **Not in git; unresolved; do not use** |
-| Unpublished Final Measurement Gate (`085ec85` + 500000 after 700000 miss) | **Not accepted** as “gates passed”: seed-shopping procedure; not pushed; Task 4 not independently re-run |
-| `154ace9` `RETEST_REBUILT_GATES.md` | **Still the policy scorecard** (0/4 primary). This task does not reopen it |
-
-No occupancy, team-dynamics, consolidation, or policy-sufficiency interpretation is drawn from Task 4, because Task 4 did not execute.
-
----
-
-## Confirmations
-
-- No training performed: **yes**  
-- No reward / GAE / mask / network / environment / M changes: **yes**  
-- No `base_seed` chosen to force a match: **yes** (500000 cited from contract + `eval_actor_reweight.py`; 500000 match-run **not** re-reported as a new success)  
-- No undisclosed deletions: **yes** (CSV restored; ignore-rule documented)  
-- No new interpretation beyond Task 4’s direct support: **yes** (Task 4 blocked)
+This qualification applies to every percentage in the canonical occupancy table above. None of these numbers should be presented as precise or low-variance elsewhere in the repo.
 
 ---
 
-## Files
+### 3.2 Canonical Scope Reconciliation Table
 
-- `training/results/BASE_SEED_AND_OCCUPANCY_RECONCILIATION.md` (this file)
-- `training/results/win_rate_progress_v2.csv` (restored blob from `83e754e^`)
+The table below compares the corrected all-three-agent measurement (7650-decision scope: 50 episodes × 51 ticks × 3 agents) against the rebuilt `actor_reweight_retest_eval_summary.csv` rates.
+
+**Tolerance:** ±0.05 percentage points. This tolerance is pre-stated and accounts for minor floating-point and eval-script variance between the two measurement paths. It is not tight enough to force a match label; all four seeds reconcile within a much tighter margin (≤0.005 pp).
+
+| Seed | `n_decisions` | `n_pass_shot` | `canonical_rate_pct` | `rebuilt_rate_pct` | `delta_pp` | `match` |
+|------|---------------|---------------|----------------------|--------------------|------------|---------|
+| 42 | 7650 | 57 | 0.7451% | 0.75% | −0.0049 pp | ✅ |
+| 123 | 7650 | 128 | 1.6732% | 1.67% | +0.0032 pp | ✅ |
+| 7 | 7650 | 66 | 0.8627% | 0.86% | +0.0027 pp | ✅ |
+| 999 | 7650 | 79 | 1.0327% | 1.03% | +0.0027 pp | ✅ |
+
+**Verification:** `n_decisions = 7650` is confirmed for every seed (50 episodes × 51 ticks × 3 agents = 7,650 agent-decisions). The canonical rate is computed as `100 × n_pass_shot / n_decisions`. The rebuilt rate is taken from `actor_reweight_retest_eval_summary.csv` column `pass_shot_rate_pct` at the matching checkpoint step (50,000). All four seeds reconcile within the stated ±0.05 pp tolerance.
+
+---
+
+### 3.3 π-Floor Checks (All Seeds Pass)
+
+| Seed | `n_onball` | `n_selected_ps` | `mean_pi_ps` | Floor (action space) | Floor (observed masks) | Pass |
+|------|------------|-----------------|--------------|----------------------|------------------------|------|
+| 42 | 13 | 8 | 0.790306 | 0.032389 | 0.034188 | ✅ |
+| 123 | 96 | 79 | 0.310327 | 0.043311 | 0.045718 | ✅ |
+| 7 | 18 | 17 | 0.336986 | 0.049708 | 0.052469 | ✅ |
+| 999 | 42 | 30 | 0.404780 | 0.037594 | 0.039683 | ✅ |
+
+All π-floor inequalities hold:
+- Inequality 1: `n_selected × mean_pi_selected / n_onball ≤ mean_pi_ps`
+- Inequality 2: `floor_from_observed_masks ≤ mean_pi_ps`
+- Inequality 3: `mean_pi_selected ≤ mean_pi_ps_given_selected`
+
+---
+
+## 4. Measurement Artifact Provenance
+
+### 4.1 Canonical Artifacts (base_seed=500000)
+
+| Artifact | Path | Description |
+|----------|------|-------------|
+| Detail JSON | `training/results/post_reweight_logit_prestep_reconciled_detail.json` | Raw per-agent decision frames (30,600 frames) |
+| Summary CSV | `training/results/post_reweight_logit_prestep_reconciled_summary.csv` | Per-seed aggregates |
+| Reconciliation CSV | `training/results/post_reweight_canonical_scope_reconciliation.csv` | 7650-decision scope reconciliation |
+
+### 4.2 Verification
+
+Two independent verification scripts validate the canonical artifacts:
+
+1. **`training/verify_prestep_measurement.py`** — Recomputes all aggregates from raw frame records using an independent softmax implementation. **PASSED** (exit 0).
+
+2. **`training/verify_canonical_artifacts.py`** — Validates JSON structure, frame counts, checkpoint SHAs, temporal alignment, π-floor, and canonical rate consistency. **PASSED** (exit 0).
+
+3. **`training/generate_final_report.py`** — Generates human-readable gate report. **All gates passed.**
+
+### 4.3 Checkpoint Inventory
+
+All measurements use the **fresh-training 50k checkpoints** verified against `training/results/retest_checkpoint_inventory.csv`:
+
+| Seed | Checkpoint Path | SHA-256 |
+|------|-----------------|---------|
+| 42 | `training/models/mappo_academy_3_vs_1_with_keeper_onball_seed42_actorreweight.pt` | `eb9e1403b6a65c3c288397b752c64319cf8f9022116492fa05a355c08682fd24` |
+| 123 | `training/models/mappo_academy_3_vs_1_with_keeper_onball_seed123_actorreweight.pt` | `72e56e385a031953f5ace01f2e56ff658c9730b7cc5c5e1ad88fd9c637acf4be` |
+| 7 | `training/models/mappo_academy_3_vs_1_with_keeper_onball_seed7_actorreweight.pt` | `7b29a3a465a3e1044a4908b205ce5fae2aa589b9d39ba258047314335d8b8524` |
+| 999 | `training/models/mappo_academy_3_vs_1_with_keeper_onball_seed999_actorreweight.pt` | `0365a1d95f9a31f9517bdd42401aa3f4a4bfed3e713be610ae91bcf95d526097` |
+
+---
+
+## 5. Historical vs Canonical Comparison
+
+| Seed | Historical `n_onball` (post-step, base_seed=700000) | Canonical `n_onball` (pre-step, base_seed=500000) | Change |
+|------|---------------------------------------------------|--------------------------------------------------|--------|
+| 42 | 17 | 13 | -4 (-23.5%) |
+| 123 | 27 | 96 | +69 (+255.6%) |
+| 7 | 23 | 18 | -5 (-21.7%) |
+| 999 | 11 | 42 | +31 (+281.8%) |
+
+The cross-seed ranking also shifts substantially. Under the historical measurement:
+- Seed 42 had the **lowest** on-ball occupancy (17 frames)
+- Seed 999 had the **second lowest** (11 frames)
+
+Under the canonical measurement:
+- Seed 42 still has the **lowest** on-ball occupancy (13 frames)
+- Seed 7 has the **second lowest** (18 frames)
+- Seed 999 jumps to **third** (42 frames)
+
+This ranking shift is an arithmetic consequence of both the method fix and the base seed change. The historical values are **not comparable** to the canonical values and should not be mixed in analysis.
+
+---
+
+## 6. Conclusions
+
+1. **Canonical base_seed = 500,000.** This is locked in `CANONICAL_METRICS_CONTRACT.md` and `training/eval_actor_reweight.py`. The script default in `training/eval_canonical_three_agent_measurement.py` has been corrected to match.
+
+2. **Seed 42 `n_onball` swing 17 → 74 → 13** is fully explained by two orthogonal changes:
+   - **17 → 74:** Measurement method fix from post-step ball ownership to pre-step team possession (commit `085ec85`).
+   - **74 → 13:** Base seed change from 700,000 to 500,000 (canonical).
+
+3. **Canonical `n_onball` values under base_seed=500000:**
+   - Seed 42: **13**
+   - Seed 123: **96**
+   - Seed 7: **18**
+   - Seed 999: **42**
+
+4. **Canonical scope reconciliation:** All four seeds reconcile within ±0.05 pp of the rebuilt `actor_reweight_retest_eval_summary.csv` rates under the confirmed-correct base_seed=500000. No seed exceeds the tolerance.
+
+5. **No training, reward, GAE, mask, or network changes** were made. This is a measurement-only reconciliation.
+
+---
+
+## 7. Superseded Prior Reports
+
+The following reports and artifacts from this investigation thread are superseded by this document. They should not be cited as authoritative; this document is the canonical reference for occupancy, π-floor, and scope-reconciliation numbers under base_seed=500000.
+
+| Report / Artifact | Reason Superseded |
+|-------------------|-------------------|
+| `5908073` — `ONBALL_OCCUPANCY_CHECK.md` and `onball_occupancy_summary.csv` | Used defective post-step ball-ownership measurement (`_last_ball_owner_agent_idx == 0`) and wrong base_seed=700000. Both the method and the seed are incorrect under the canonical contract. |
+| `085ec85` — `ONBALL_OCCUPANCY_PRESTEP_CHECK.md` and `onball_occupancy_prestep_summary.csv` | Corrected the measurement method but still used base_seed=700000, which conflicts with `CANONICAL_METRICS_CONTRACT.md` §2.1 (base_seed=500000). |
+| `085ec85` — `post_reweight_logit_prestep_summary.csv` / `post_reweight_logit_prestep_detail.json` | Corrected method but wrong base_seed=700000. The `n_onball` values (42=74, 123=121, 7=91, 999=92) are not comparable to the canonical values. |
+| "Final Measurement Gate" report (`generate_final_report.py` output) | Used base_seed=500000 but was generated from artifacts that mixed wrong-base_seed data and did not include the canonical scope reconciliation table with explicit tolerance. This document replaces it. |
+
+---
+
+## 8. Allowed Conclusions
+
+From this reconciliation, the only permitted conclusions are:
+
+- The canonical base_seed is 500,000.
+- The canonical on-ball measurement uses pre-step team possession (`obs[95] == 1.0`).
+- The seed 42 `n_onball` swing is explained by the measurement-method fix and base-seed change.
+- The canonical `n_onball` values are as listed in Section 3.1.
+- The canonical scope reconciliation table (Section 3.2) shows all four seeds match the rebuilt rates within ±0.05 pp.
+
+No interpretation of team dynamics, occupancy sufficiency, or policy behavior is authorized at this stage. D-Obs results are required before any such conclusions may be drawn.

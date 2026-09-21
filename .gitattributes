@@ -1,5 +1,5 @@
 # Set the default behavior, in case people don't have core.autocrlf set.
 * text=auto
-
 # Bash scripts should always have LF line endings to support Docker on Windows
 *.sh text eol=lf
+training/results/post_reweight_logit_prestep_reconciled_detail.json filter=lfs diff=lfs merge=lfs -text
