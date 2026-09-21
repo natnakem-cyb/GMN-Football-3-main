@@ -1,7 +1,7 @@
 # DEFINITION-CORRECTION IMPACT AUDIT
 
 **Date:** 2026-09-21  
-**HEAD:** `d4ed87099a0897102e59f163b27663ced3b45695`  
+**HEAD:** `63b4b7ae50cf236f7b5441e32448bfac59fd36a4`
 **Purpose:** Determine whether `d4ed870`'s canonical on-ball definition correction was a pure documentation fix (Branch A) or a silent second redefinition requiring recomputation (Branch B).
 
 ---
