@@ -1410,17 +1410,6 @@ class GMNMultiAgentEnv(ParallelEnv):
             self.ws_client.send(json.dumps(payload))
             data = self._recv_reset_response()
 
-        # OCCUPANCY-EXP: capture true ball owner at reset from bridge response
-        reset_ball_owner = data.get("info", {}).get("current_ball_owner")
-        if reset_ball_owner and isinstance(reset_ball_owner, dict):
-            owner_id = reset_ball_owner.get("agent_id")
-            if owner_id and owner_id in self.agents:
-                self._last_ball_owner_agent_idx = self.agents.index(owner_id)
-            else:
-                self._last_ball_owner_agent_idx = 255
-        else:
-            self._last_ball_owner_agent_idx = 255
-
         info_data = data.get("info", {})
         controllable_ids = info_data.get("controllableAgentIds", [])
         if not controllable_ids:
@@ -1430,6 +1419,19 @@ class GMNMultiAgentEnv(ParallelEnv):
 
         self.possible_agents = list(controllable_ids)
         self.agents = list(self.possible_agents)
+
+        # OCCUPANCY-EXP: capture true ball owner at reset from bridge response
+        # MUST happen after self.agents is populated so owner_id can be mapped
+        # to the correct controlled-agent index.
+        reset_ball_owner = data.get("info", {}).get("current_ball_owner")
+        if reset_ball_owner and isinstance(reset_ball_owner, dict):
+            owner_id = reset_ball_owner.get("agent_id")
+            if owner_id and owner_id in self.agents:
+                self._last_ball_owner_agent_idx = self.agents.index(owner_id)
+            else:
+                self._last_ball_owner_agent_idx = 255
+        else:
+            self._last_ball_owner_agent_idx = 255
 
         # Observations list from reset response
         raw_obs_list = data.get("observations", [])
