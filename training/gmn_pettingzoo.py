@@ -1573,17 +1573,32 @@ class GMNMultiAgentEnv(ParallelEnv):
         env_state: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         """
-        Deduplicate PASS_COMPLETED events to ensure exactly one logical event per physical pass.
+        Deduplicate PASS_COMPLETED events so a single genuine pass completion
+        produces exactly one logical event (and therefore one payment).
 
-        The engine emits a 'pass_completed' event when the receiver gains possession.
-        Separately, _resolve_pending_pass_state emits PASS_COMPLETED when ball ownership
-        changes from passer to a different left-team player. These can refer to the same
-        physical pass, causing double payment.
+        Two independent detection paths can both fire on the same tick for the
+        same physical completion:
 
-        Canonicalization key: (tick, passer_id, receiver_id, event_type='PASS_COMPLETED').
-        We use the env_state's ep_len as tick, and extract passer/receiver from events.
+        1. GameEngine emits an explicit 'pass_completed' event_code when the
+           receiver gains possession; _build_shaper_events maps this to a
+           PASS_COMPLETED dict whose agent_id is the *receiver*.
+        2. _resolve_pending_pass_state detects ownership change
+           (owner_id != pending_pass["agent_id"]) and emits PASS_COMPLETED
+           whose agent_id is the *passer*.
+
+        Because the two events carry different agent_ids (passer vs receiver)
+        and pending_pass has already been cleared by the time this function
+        runs, a key that incorporates agent_id never collides. The robust
+        and minimal fix is therefore to keep at most one PASS_COMPLETED per
+        tick: a single physical completion occupies one tick, so any second
+        PASS_COMPLETED on that same tick is a duplicate detection of the
+        same event.
+
+        Other event types are passed through unchanged. Detection capability
+        of both paths is preserved; only the assembled step_events list is
+        collapsed for payment consumers.
         """
-        seen: set = set()
+        seen_ticks: set = set()
         canonical: List[Dict[str, Any]] = []
 
         current_tick = env_state.get("ep_len", 0)
@@ -1598,23 +1613,14 @@ class GMNMultiAgentEnv(ParallelEnv):
                 canonical.append(event)
                 continue
 
-            # Extract identity: agent_id is the RECEIVER (who now has the ball)
-            receiver = event.get("agent_id")
-            # Passer is not directly in the event; infer from pending_pass state if available
-            # The pending_pass stores the passer_id. Use that as the canonical passer.
-            passer = None
-            pending = env_state.get("pending_pass")
-            if pending and isinstance(pending, dict):
-                passer = pending.get("agent_id")
-
-            # Build a stable key for this physical pass
-            key = (current_tick, passer, receiver, "PASS_COMPLETED")
-
-            if key in seen:
-                # Duplicate - skip this event
+            # One PASS_COMPLETED per tick is sufficient for a single physical
+            # pass. Prefer the first event encountered (resolve events are
+            # prepended, so the passer-attributed event is kept when both fire).
+            key = (current_tick, "PASS_COMPLETED")
+            if key in seen_ticks:
                 continue
 
-            seen.add(key)
+            seen_ticks.add(key)
             canonical.append(event)
 
         return canonical
