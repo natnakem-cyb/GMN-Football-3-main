@@ -96,3 +96,23 @@ def test_end_to_end_payment_once_via_adapter():
     assert out["left_0"] == pytest.approx(0.105)
     # Non-event agent receives only dense possession - step cost = +0.005
     assert out["left_1"] == pytest.approx(0.005)
+
+
+def test_two_different_legitimate_passes_yield_two_events():
+    """Two distinct same-tick passes with pending_pass present yield two events.
+
+    When pending_pass is present (a new pass was just initiated), multiple
+    PASS_COMPLETED events on the same tick represent different physical passes,
+    not duplicate detections of the same pass. The pending-pass-aware key
+    (tick, passer_id, receiver_id, "PASS_COMPLETED") preserves all distinct
+    (passer, receiver) pairs.
+    """
+    events = [
+        {"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_1"},
+        {"type": "PASS_COMPLETED", "team": "left", "agent_id": "left_2"},
+    ]
+    result = GMNMultiAgentEnv._canonicalize_pass_events(
+        events, {"ep_len": 42, "pending_pass": {"agent_id": "left_0"}}
+    )
+    survived = [e for e in result if e.get("type") == "PASS_COMPLETED"]
+    assert len(survived) == 2

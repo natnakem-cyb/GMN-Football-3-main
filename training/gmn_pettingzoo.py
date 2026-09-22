@@ -1586,42 +1586,66 @@ class GMNMultiAgentEnv(ParallelEnv):
            (owner_id != pending_pass["agent_id"]) and emits PASS_COMPLETED
            whose agent_id is the *passer*.
 
-        Because the two events carry different agent_ids (passer vs receiver)
-        and pending_pass has already been cleared by the time this function
-        runs, a key that incorporates agent_id never collides. The robust
-        and minimal fix is therefore to keep at most one PASS_COMPLETED per
-        tick: a single physical completion occupies one tick, so any second
-        PASS_COMPLETED on that same tick is a duplicate detection of the
-        same event.
-
-        Other event types are passed through unchanged. Detection capability
-        of both paths is preserved; only the assembled step_events list is
-        collapsed for payment consumers.
+        Canonicalization key: (tick, passer_id, receiver_id, event_type='PASS_COMPLETED').
+        passer_id is taken from env_state["pending_pass"]["agent_id"] when available;
+        receiver_id is the event's agent_id. When pending_pass is None (the resolved
+        pass has already been cleared), any multiple PASS_COMPLETED events on the
+        same tick are the same physical pass detected by both paths and are collapsed
+        to one. When pending_pass is present, a new pass was just initiated, so
+        multiple PASS_COMPLETED events are engine events for different passes and
+        are preserved.
         """
-        seen_ticks: set = set()
         canonical: List[Dict[str, Any]] = []
 
         current_tick = env_state.get("ep_len", 0)
+        pending = env_state.get("pending_pass")
+        passer_id = pending.get("agent_id") if isinstance(pending, dict) else None
 
-        for event in step_events:
-            if not isinstance(event, dict):
+        # Collect PASS_COMPLETED events for this tick
+        pass_events = [
+            e for e in step_events
+            if isinstance(e, dict) and e.get("type") == "PASS_COMPLETED"
+        ]
+
+        if len(pass_events) <= 1:
+            # No collision possible
+            return list(step_events)
+
+        if passer_id is not None:
+            # Use (tick, passer, receiver) key so different passes on the
+            # same tick are preserved.
+            seen: set = set()
+            for event in step_events:
+                if not isinstance(event, dict):
+                    canonical.append(event)
+                    continue
+
+                etype = event.get("type")
+                if etype != "PASS_COMPLETED":
+                    canonical.append(event)
+                    continue
+
+                receiver_id = event.get("agent_id")
+                key = (current_tick, passer_id, receiver_id, "PASS_COMPLETED")
+                if key in seen:
+                    continue
+
+                seen.add(key)
                 canonical.append(event)
-                continue
-
-            etype = event.get("type")
-            if etype != "PASS_COMPLETED":
-                canonical.append(event)
-                continue
-
-            # One PASS_COMPLETED per tick is sufficient for a single physical
-            # pass. Prefer the first event encountered (resolve events are
-            # prepended, so the passer-attributed event is kept when both fire).
-            key = (current_tick, "PASS_COMPLETED")
-            if key in seen_ticks:
-                continue
-
-            seen_ticks.add(key)
-            canonical.append(event)
+        else:
+            # pending_pass is None: the resolved pass has already been
+            # cleared, so any multiple PASS_COMPLETED events on this tick
+            # are the same physical pass detected by both paths (passer +
+            # receiver). Keep only the first event (the resolve event is
+            # prepended, so passer attribution is preserved).
+            kept_pass = False
+            for event in step_events:
+                if isinstance(event, dict) and event.get("type") == "PASS_COMPLETED":
+                    if not kept_pass:
+                        canonical.append(event)
+                        kept_pass = True
+                else:
+                    canonical.append(event)
 
         return canonical
 
