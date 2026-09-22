@@ -363,7 +363,7 @@ The "reward signal now correctly single-paid" claim is **false** for total pass 
 ## GIT PROVENANCE
 
 - HEAD (before): `9d0d7ad46c67c5213ce0fb6b0f07371e80411e6f`
-- HEAD (after): `1e66373470cc7a1e8d172cd17df5ba6a4560d539`
+- HEAD (after): `c75dc072c876549b6b7a38e4ee7e101e3b16fb97`
 - Pushed to origin/main: yes
 - Fresh-clone verified: no (see note below)
 
