@@ -304,6 +304,6 @@ Policies trained under the double-payment regime learned against a different rew
 ## GIT PROVENANCE
 
 - HEAD (before): `9d0d7ad46c67c5213ce0fb6b0f07371e80411e6f`
-- HEAD (after): `1c2fcf3`
+- HEAD (after): `fc29677aca627581b235c46b4191101bd8857d90`
 - Pushed to origin/main: yes
 - Fresh-clone verified: yes (local HEAD = origin/main)
