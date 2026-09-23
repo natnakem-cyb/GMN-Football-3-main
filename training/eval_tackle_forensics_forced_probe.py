@@ -1,14 +1,9 @@
 """
-Forced-tackle probe for Experiment D.
+GMN-Football-3 — Forced Tackle Probe (measurement only)
 
-Measures the reward/event consequences of a tackle when the policy itself
-never selects tackle. Forces action 16 (SLIDING) on off-ball left agents
-for a configurable number of ticks, while letting on-ball agents act normally.
-
-Outputs:
-  training/models/tackle_forensics_forced_probe_<ckpt>.json
-
-This is measurement-only. It does not change production code.
+Forces SLIDING (action 16) on off-ball left agents for every tick,
+recording the resulting reward/event deltas. Does not modify production
+code. Outputs a separate JSON from the policy-eval run.
 """
 
 import argparse
@@ -16,7 +11,6 @@ import hashlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import numpy as np
@@ -29,7 +23,17 @@ from training.mappo_networks import SharedActor
 from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
 from training.reward_adapters import AttackingDrillRewardAdapter
 
+ACTION_NAMES = [
+    "IDLE", "LEFT", "RIGHT", "UP", "DOWN",
+    "UP_LEFT", "UP_RIGHT", "DOWN_LEFT", "DOWN_RIGHT",
+    "SHORT_PASS", "LONG_PASS", "HIGH_PASS",
+    "SHOT", "SPRINT",
+    "RELEASE_DIRECTION", "RELEASE_SPRINT",
+    "SLIDING", "DRIBBLE", "RELEASE_DRIBBLE"
+]
 TACKLE_ACTION = 16
+SHOT_ACTIONS = {12}
+PASS_ACTIONS = {9, 10, 11}
 
 
 def sha256_of(path: str) -> str:
@@ -50,35 +54,27 @@ class InstrumentedAdapter(AttackingDrillRewardAdapter):
     def compute_shaped_rewards(self, base_rewards, step_events, info_ground_truth, active_agents, actions=None, tick=0, max_ticks=None):
         self._current_tick = tick
         base_snapshot = {a: float(base_rewards.get(a, 0.0)) for a in active_agents if not a.startswith("right_")}
-
-        # Call super() exactly once
         result = super().compute_shaped_rewards(
             base_rewards, step_events, info_ground_truth, active_agents,
             actions=actions, tick=tick, max_ticks=max_ticks,
         )
-
         delta = {a: float(result.get(a, 0.0)) - base_snapshot.get(a, 0.0) for a in base_snapshot}
-
         self.tick_log.append({
             "tick": tick,
             "base_rewards": base_snapshot,
             "shaped_rewards": {a: float(result.get(a, 0.0)) for a in base_snapshot},
             "delta": delta,
-            "step_events": [
-                {"type": e.get("type"), "team": e.get("team"), "agent_id": e.get("agent_id")}
-                for e in step_events
-            ],
+            "step_events": step_events,
             "info_ground_truth": info_ground_truth,
             "actions": actions,
         })
         return result
 
 
-def run_forced_tackle_probe(
+def evaluate_forced_tackle_probe(
     checkpoint_path: str,
     scenario: str = "academy_3_vs_1_with_keeper",
-    num_episodes: int = 5,
-    force_ticks: int = 20,
+    num_episodes: int = 10,
     base_seed: int = 500000,
     bridge_port: int = 5050,
 ) -> Dict[str, Any]:
@@ -88,11 +84,10 @@ def run_forced_tackle_probe(
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     print("=" * 60)
-    print("FORCED-TACKLE PROBE")
+    print("FORCED TACKLE PROBE")
     print(f"Checkpoint : {checkpoint_path}")
     print(f"Scenario   : {scenario}")
     print(f"Episodes   : {num_episodes}")
-    print(f"Force ticks: {force_ticks} (off-ball left agents forced to SLIDING)")
     print("=" * 60)
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -145,9 +140,8 @@ def run_forced_tackle_probe(
             ep_tick_log: List[Dict[str, Any]] = []
             ep_reward = 0.0
             ep_length = 0
-            goal_scored = 0
-            tackle_actions = 0
-            forced_tackle_ticks = 0
+            tackle_ticks = []
+            action_counts = [0] * 19
             last_info = {}
 
             while True:
@@ -157,21 +151,21 @@ def run_forced_tackle_probe(
 
                 with torch.no_grad():
                     dist = actor(torch.from_numpy(local_obs).float(), torch.tensor(mask_matrix, dtype=torch.bool))
-                    actions_tensor = dist.logits.argmax(dim=-1)
+                    policy_actions = dist.logits.argmax(dim=-1)
 
                 action_dict = {}
                 for i, a in enumerate(current_agents):
-                    act_int = int(actions_tensor[i].item())
-                    # Force tackle on off-ball left agents for the first N ticks
-                    if (a.startswith("left_") and a in current_ep_masks and
-                            current_ep_masks[a] is not None and
-                            current_ep_masks[a][TACKLE_ACTION] == 1 and
-                            ep_length < force_ticks):
-                        act_int = TACKLE_ACTION
-                        forced_tackle_ticks += 1
+                    # Force TACKLE (16) on off-ball left agents
+                    if a.startswith("left_") and a in current_ep_masks and current_ep_masks[a] is not None:
+                        mask = current_ep_masks[a]
+                        if len(mask) > TACKLE_ACTION and mask[TACKLE_ACTION] == 1:
+                            act_int = TACKLE_ACTION
+                        else:
+                            act_int = int(policy_actions[i].item())
+                    else:
+                        act_int = int(policy_actions[i].item())
                     action_dict[a] = act_int
-                    if act_int == TACKLE_ACTION:
-                        tackle_actions += 1
+                    action_counts[act_int] += 1
 
                 obs_dict, rewards, terms, truncs, infos = env.step(action_dict)
                 obs_dict = unwrap_obs(obs_dict)
@@ -190,16 +184,16 @@ def run_forced_tackle_probe(
                         last_info = inf
                         break
 
-                # Capture tick data
                 tick_data = {
                     "tick": ep_length - 1,
                     "actions": action_dict,
-                    "forced_tackle": ep_length - 1 < force_ticks,
+                    "action_counts": action_counts.copy(),
                     "shared_reward": shared_rew,
                     "event_code": last_info.get("event_code"),
                     "event_type": last_info.get("event", {}).get("type") if isinstance(last_info.get("event"), dict) else None,
                     "ball_owner": last_info.get("ball_owner_agent_idx"),
                     "score": last_info.get("score", {}),
+                    "forced_tackle": any(v == TACKLE_ACTION for v in action_dict.values()),
                 }
 
                 if isinstance(env.reward_adapter, InstrumentedAdapter) and env.reward_adapter.tick_log:
@@ -211,108 +205,76 @@ def run_forced_tackle_probe(
                         {"type": e.get("type"), "team": e.get("team"), "agent_id": e.get("agent_id")}
                         for e in last_tick_log["step_events"]
                     ]
+                    if tick_data["forced_tackle"]:
+                        tackle_ticks.append(tick_data)
 
                 ep_tick_log.append(tick_data)
 
                 if done:
                     break
 
-            score_left = last_info.get("score", {}).get("left", 0)
-            is_goal = score_left > 0
-
             episode_summary = {
                 "episode": ep,
                 "seed": ep_seed,
-                "goal": int(is_goal),
-                "tackle_actions": tackle_actions,
-                "forced_tackle_ticks": forced_tackle_ticks,
+                "goal": int(last_info.get("score", {}).get("left", 0) > 0),
+                "tackle_actions": sum(1 for t in ep_tick_log if t.get("forced_tackle")),
+                "shot_actions": sum(1 for t in ep_tick_log if any(v == 12 for v in t.get("actions", {}).values())),
+                "pass_actions": sum(1 for t in ep_tick_log if any(v in (9, 10, 11) for v in t.get("actions", {}).values())),
                 "total_reward": ep_reward,
                 "length": ep_length,
+                "action_distribution": {ACTION_NAMES[i]: action_counts[i] for i in range(19)},
+                "tackle_ticks": tackle_ticks,
                 "tick_log": ep_tick_log,
             }
             episodes_data.append(episode_summary)
 
             print(f"Ep {ep+1:3d}/{num_episodes} | seed={ep_seed} | "
-                  f"Goal={is_goal} | Tackles={tackle_actions} (forced={forced_tackle_ticks}) | "
+                  f"Goal={episode_summary['goal']} | Tackles={episode_summary['tackle_actions']} | "
+                  f"Shots={episode_summary['shot_actions']} | Passes={episode_summary['pass_actions']} | "
                   f"Reward={ep_reward:+.3f}")
 
     finally:
         env.close()
 
     # Aggregate metrics
-    tackle_ticks = [t for ep in episodes_data for t in ep["tick_log"] if t.get("forced_tackle")]
+    tackle_ticks_all = [t for ep in episodes_data for t in ep.get("tackle_ticks", [])]
 
     summary = {
         "checkpoint": checkpoint_path,
         "checkpoint_sha256": sha256_of(checkpoint_path),
         "scenario": scenario,
         "num_episodes": num_episodes,
-        "force_ticks": force_ticks,
         "deterministic": True,
-        "timestamp_iso": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "timestamp_iso": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat().replace("+00:00", "Z"),
         "git_commit": __import__("subprocess").check_output(["git", "rev-parse", "HEAD"], cwd=os.path.dirname(__file__)).decode().strip(),
+        "probe_type": "forced_tackle_offball_left",
         "overall": {
             "goal_rate_pct": 100.0 * sum(1 for ep in episodes_data if ep["goal"]) / max(len(episodes_data), 1),
             "mean_tackles_per_ep": float(np.mean([ep["tackle_actions"] for ep in episodes_data])) if episodes_data else 0.0,
+            "mean_shots_per_ep": float(np.mean([ep["shot_actions"] for ep in episodes_data])) if episodes_data else 0.0,
+            "mean_passes_per_ep": float(np.mean([ep["pass_actions"] for ep in episodes_data])) if episodes_data else 0.0,
             "mean_reward": float(np.mean([ep["total_reward"] for ep in episodes_data])) if episodes_data else 0.0,
         },
-        "tackle_tick_analysis": {
-            "total_tackle_ticks": len(tackle_ticks),
-            "event_code_histogram": {},
-            "step_events_contain_turnover_conceded_team_right": 0,
-            "mean_delta_on_tackle_ticks": 0.0,
-            "mean_delta_on_non_tackle_offball_ticks": 0.0,
-        },
+        "tackle_tick_events": tackle_ticks_all,
         "episodes": episodes_data,
     }
-
-    # Analyze tackle ticks
-    if tackle_ticks:
-        event_codes = {}
-        turnover_count = 0
-        tackle_deltas = []
-        non_tackle_deltas = []
-
-        for ep in episodes_data:
-            for t in ep["tick_log"]:
-                if t.get("forced_tackle"):
-                    ec = t.get("event_code")
-                    if ec is not None:
-                        event_codes[ec] = event_codes.get(ec, 0) + 1
-                    events = t.get("step_events", [])
-                    for e in events:
-                        if e.get("type") == "TURNOVER_CONCEDED" and e.get("team") == "right":
-                            turnover_count += 1
-                    # Sum delta across left agents
-                    delta_sum = sum(t.get("adapter_delta", {}).get(a, 0.0) for a in t.get("adapter_delta", {}))
-                    tackle_deltas.append(delta_sum)
-                else:
-                    delta_sum = sum(t.get("adapter_delta", {}).get(a, 0.0) for a in t.get("adapter_delta", {}))
-                    non_tackle_deltas.append(delta_sum)
-
-        summary["tackle_tick_analysis"]["event_code_histogram"] = event_codes
-        summary["tackle_tick_analysis"]["step_events_contain_turnover_conceded_team_right"] = turnover_count
-        summary["tackle_tick_analysis"]["mean_delta_on_tackle_ticks"] = float(np.mean(tackle_deltas)) if tackle_deltas else 0.0
-        summary["tackle_tick_analysis"]["mean_delta_on_non_tackle_offball_ticks"] = float(np.mean(non_tackle_deltas)) if non_tackle_deltas else 0.0
 
     return summary
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Forced-tackle probe for Experiment D")
+    parser = argparse.ArgumentParser(description="Forced Tackle Probe")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to MAPPO checkpoint")
     parser.add_argument("--scenario", type=str, default="academy_3_vs_1_with_keeper")
-    parser.add_argument("--num-episodes", type=int, default=5)
-    parser.add_argument("--force-ticks", type=int, default=20)
+    parser.add_argument("--num-episodes", type=int, default=10)
     parser.add_argument("--base-seed", type=int, default=500000)
     parser.add_argument("--output-dir", type=str, default="training/models")
     args = parser.parse_args()
 
-    summary = run_forced_tackle_probe(
+    summary = evaluate_forced_tackle_probe(
         checkpoint_path=args.checkpoint,
         scenario=args.scenario,
         num_episodes=args.num_episodes,
-        force_ticks=args.force_ticks,
         base_seed=args.base_seed,
     )
 
@@ -320,7 +282,7 @@ def main():
     json_path = os.path.join(args.output_dir, f"tackle_forensics_forced_probe_{ckpt_name}.json")
     with open(json_path, "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"\nForced-probe results saved to: {json_path}")
+    print(f"\nForced probe results saved to: {json_path}")
 
 
 if __name__ == "__main__":
