@@ -354,7 +354,7 @@ def run_mappo_training(
                 direction = transition["type"] if transition else "change"
                 rate = transition["success_rate"] if transition else 0.0
                 print(
-                    f"\n   [Curriculum] {direction.capitalize()} → {new_stage} "
+                    f"\n   [Curriculum] {direction.capitalize()} -> {new_stage} "
                     f"(episode {scheduler.total_episodes}, window success rate: {rate:.1%})\n",
                     flush=True,
                 )
