@@ -1,0 +1,1234 @@
+{
+  "checkpoint": "training/models/mappo_ac3v1_seed7_200k_B",
+  "checkpoint_sha256": "73581605c65bd7d298be848b23de1d29ced52c4680147957a17825dcd3726eaf",
+  "scenario": "academy_3_vs_1_with_keeper",
+  "num_episodes": 2,
+  "force_ticks": 20,
+  "deterministic": true,
+  "timestamp_iso": "2026-09-23T15:25:55.709808Z",
+  "git_commit": "007ffc59c9caf50919d1682ead6f761ce8b729cd",
+  "overall": {
+    "goal_rate_pct": 0.0,
+    "mean_tackles_per_ep": 3.0,
+    "mean_reward": -0.09099148850857061
+  },
+  "tackle_tick_analysis": {
+    "total_tackle_ticks": 36,
+    "event_code_histogram": {},
+    "step_events_contain_turnover_conceded_team_right": 0,
+    "mean_delta_on_tackle_ticks": -0.015165248084761765,
+    "mean_delta_on_non_tackle_offball_ticks": 0.0
+  },
+  "episodes": [
+    {
+      "episode": 0,
+      "seed": 500000,
+      "goal": 0,
+      "tackle_actions": 3,
+      "forced_tackle_ticks": 3,
+      "total_reward": -0.0816287783030141,
+      "length": 16,
+      "tick_log": [
+        {
+          "tick": 0,
+          "actions": {
+            "left_1": 16,
+            "left_2": 16,
+            "left_3": 16
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005,
+            "left_2": -0.005,
+            "left_3": -0.005
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005,
+            "left_2": -0.005,
+            "left_3": -0.005
+          },
+          "step_events": []
+        },
+        {
+          "tick": 1,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.004658099433872364,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.004658099433872364,
+            "left_2": -0.004658099433872364,
+            "left_3": -0.004658099433872364
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.004658099433872364,
+            "left_2": -0.004658099433872364,
+            "left_3": -0.004658099433872364
+          },
+          "step_events": []
+        },
+        {
+          "tick": 2,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.004895700579830552,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.004895700579830552,
+            "left_2": -0.004895700579830552,
+            "left_3": -0.004895700579830552
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.004895700579830552,
+            "left_2": -0.004895700579830552,
+            "left_3": -0.004895700579830552
+          },
+          "step_events": []
+        },
+        {
+          "tick": 3,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005133918459676739,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005133918459676739,
+            "left_2": -0.005133918459676739,
+            "left_3": -0.005133918459676739
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005133918459676739,
+            "left_2": -0.005133918459676739,
+            "left_3": -0.005133918459676739
+          },
+          "step_events": []
+        },
+        {
+          "tick": 4,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005230648173050069,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005230648173050069,
+            "left_2": -0.005230648173050069,
+            "left_3": -0.005230648173050069
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005230648173050069,
+            "left_2": -0.005230648173050069,
+            "left_3": -0.005230648173050069
+          },
+          "step_events": []
+        },
+        {
+          "tick": 5,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.00524349842050023,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.00524349842050023,
+            "left_2": -0.00524349842050023,
+            "left_3": -0.00524349842050023
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.00524349842050023,
+            "left_2": -0.00524349842050023,
+            "left_3": -0.00524349842050023
+          },
+          "step_events": []
+        },
+        {
+          "tick": 6,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005230184131235103,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005230184131235103,
+            "left_2": -0.005230184131235103,
+            "left_3": -0.005230184131235103
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005230184131235103,
+            "left_2": -0.005230184131235103,
+            "left_3": -0.005230184131235103
+          },
+          "step_events": []
+        },
+        {
+          "tick": 7,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005209806711547935,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005209806711547935,
+            "left_2": -0.005209806711547935,
+            "left_3": -0.005209806711547935
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005209806711547935,
+            "left_2": -0.005209806711547935,
+            "left_3": -0.005209806711547935
+          },
+          "step_events": []
+        },
+        {
+          "tick": 8,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005188340608011025,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005188340608011025,
+            "left_2": -0.005188340608011025,
+            "left_3": -0.005188340608011025
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005188340608011025,
+            "left_2": -0.005188340608011025,
+            "left_3": -0.005188340608011025
+          },
+          "step_events": []
+        },
+        {
+          "tick": 9,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005167811549617058,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005167811549617058,
+            "left_2": -0.005167811549617058,
+            "left_3": -0.005167811549617058
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005167811549617058,
+            "left_2": -0.005167811549617058,
+            "left_3": -0.005167811549617058
+          },
+          "step_events": []
+        },
+        {
+          "tick": 10,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005148906347636092,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005148906347636092,
+            "left_2": -0.005148906347636092,
+            "left_3": -0.005148906347636092
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005148906347636092,
+            "left_2": -0.005148906347636092,
+            "left_3": -0.005148906347636092
+          },
+          "step_events": []
+        },
+        {
+          "tick": 11,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.0051318072766657515,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.0051318072766657515,
+            "left_2": -0.0051318072766657515,
+            "left_3": -0.0051318072766657515
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.0051318072766657515,
+            "left_2": -0.0051318072766657515,
+            "left_3": -0.0051318072766657515
+          },
+          "step_events": []
+        },
+        {
+          "tick": 12,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005116488142904299,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005116488142904299,
+            "left_2": -0.005116488142904299,
+            "left_3": -0.005116488142904299
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005116488142904299,
+            "left_2": -0.005116488142904299,
+            "left_3": -0.005116488142904299
+          },
+          "step_events": []
+        },
+        {
+          "tick": 13,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.0051028420645804285,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.0051028420645804285,
+            "left_2": -0.0051028420645804285,
+            "left_3": -0.0051028420645804285
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.0051028420645804285,
+            "left_2": -0.0051028420645804285,
+            "left_3": -0.0051028420645804285
+          },
+          "step_events": []
+        },
+        {
+          "tick": 14,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005090727666053172,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005090727666053172,
+            "left_2": -0.005090727666053172,
+            "left_3": -0.005090727666053172
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005090727666053172,
+            "left_2": -0.005090727666053172,
+            "left_3": -0.005090727666053172
+          },
+          "step_events": []
+        },
+        {
+          "tick": 15,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005079998737833272,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005079998737833272,
+            "left_2": -0.005079998737833272,
+            "left_3": -0.005079998737833272
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005079998737833272,
+            "left_2": -0.005079998737833272,
+            "left_3": -0.005079998737833272
+          },
+          "step_events": []
+        }
+      ]
+    },
+    {
+      "episode": 1,
+      "seed": 501009,
+      "goal": 0,
+      "tackle_actions": 3,
+      "forced_tackle_ticks": 3,
+      "total_reward": -0.10035419871412711,
+      "length": 20,
+      "tick_log": [
+        {
+          "tick": 0,
+          "actions": {
+            "left_1": 16,
+            "left_2": 16,
+            "left_3": 16
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005,
+            "left_2": -0.005,
+            "left_3": -0.005
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005,
+            "left_2": -0.005,
+            "left_3": -0.005
+          },
+          "step_events": []
+        },
+        {
+          "tick": 1,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.004508166431053476,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.004508166431053476,
+            "left_2": -0.004508166431053476,
+            "left_3": -0.004508166431053476
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.004508166431053476,
+            "left_2": -0.004508166431053476,
+            "left_3": -0.004508166431053476
+          },
+          "step_events": []
+        },
+        {
+          "tick": 2,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.004568204140560036,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.004568204140560036,
+            "left_2": -0.004568204140560036,
+            "left_3": -0.004568204140560036
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.004568204140560036,
+            "left_2": -0.004568204140560036,
+            "left_3": -0.004568204140560036
+          },
+          "step_events": []
+        },
+        {
+          "tick": 3,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.004623401266215068,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.004623401266215068,
+            "left_2": -0.004623401266215068,
+            "left_3": -0.004623401266215068
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.004623401266215068,
+            "left_2": -0.004623401266215068,
+            "left_3": -0.004623401266215068
+          },
+          "step_events": []
+        },
+        {
+          "tick": 4,
+          "actions": {
+            "left_1": 4,
+            "left_2": 4,
+            "left_3": 4
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.004705921795100149,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.004705921795100149,
+            "left_2": -0.004705921795100149,
+            "left_3": -0.004705921795100149
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.004705921795100149,
+            "left_2": -0.004705921795100149,
+            "left_3": -0.004705921795100149
+          },
+          "step_events": []
+        },
+        {
+          "tick": 5,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005157175124286872,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005157175124286872,
+            "left_2": -0.005157175124286872,
+            "left_3": -0.005157175124286872
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005157175124286872,
+            "left_2": -0.005157175124286872,
+            "left_3": -0.005157175124286872
+          },
+          "step_events": []
+        },
+        {
+          "tick": 6,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005252066046651139,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005252066046651139,
+            "left_2": -0.005252066046651139,
+            "left_3": -0.005252066046651139
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005252066046651139,
+            "left_2": -0.005252066046651139,
+            "left_3": -0.005252066046651139
+          },
+          "step_events": []
+        },
+        {
+          "tick": 7,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005226419711578877,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005226419711578877,
+            "left_2": -0.005226419711578877,
+            "left_3": -0.005226419711578877
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005226419711578877,
+            "left_2": -0.005226419711578877,
+            "left_3": -0.005226419711578877
+          },
+          "step_events": []
+        },
+        {
+          "tick": 8,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005200228497357313,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005200228497357313,
+            "left_2": -0.005200228497357313,
+            "left_3": -0.005200228497357313
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005200228497357313,
+            "left_2": -0.005200228497357313,
+            "left_3": -0.005200228497357313
+          },
+          "step_events": []
+        },
+        {
+          "tick": 9,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005176548350704837,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005176548350704837,
+            "left_2": -0.005176548350704837,
+            "left_3": -0.005176548350704837
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005176548350704837,
+            "left_2": -0.005176548350704837,
+            "left_3": -0.005176548350704837
+          },
+          "step_events": []
+        },
+        {
+          "tick": 10,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005155518813809955,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005155518813809955,
+            "left_2": -0.005155518813809955,
+            "left_3": -0.005155518813809955
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005155518813809955,
+            "left_2": -0.005155518813809955,
+            "left_3": -0.005155518813809955
+          },
+          "step_events": []
+        },
+        {
+          "tick": 11,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.0051369373278869895,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.0051369373278869895,
+            "left_2": -0.0051369373278869895,
+            "left_3": -0.0051369373278869895
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.0051369373278869895,
+            "left_2": -0.0051369373278869895,
+            "left_3": -0.0051369373278869895
+          },
+          "step_events": []
+        },
+        {
+          "tick": 12,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005120551152441926,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005120551152441926,
+            "left_2": -0.005120551152441926,
+            "left_3": -0.005120551152441926
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005120551152441926,
+            "left_2": -0.005120551152441926,
+            "left_3": -0.005120551152441926
+          },
+          "step_events": []
+        },
+        {
+          "tick": 13,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005106112199511721,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005106112199511721,
+            "left_2": -0.005106112199511721,
+            "left_3": -0.005106112199511721
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005106112199511721,
+            "left_2": -0.005106112199511721,
+            "left_3": -0.005106112199511721
+          },
+          "step_events": []
+        },
+        {
+          "tick": 14,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005093395821904772,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005093395821904772,
+            "left_2": -0.005093395821904772,
+            "left_3": -0.005093395821904772
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005093395821904772,
+            "left_2": -0.005093395821904772,
+            "left_3": -0.005093395821904772
+          },
+          "step_events": []
+        },
+        {
+          "tick": 15,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005082199547954934,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005082199547954934,
+            "left_2": -0.005082199547954934,
+            "left_3": -0.005082199547954934
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005082199547954934,
+            "left_2": -0.005082199547954934,
+            "left_3": -0.005082199547954934
+          },
+          "step_events": []
+        },
+        {
+          "tick": 16,
+          "actions": {
+            "left_1": 5,
+            "left_2": 5,
+            "left_3": 5
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005072343944274071,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005072343944274071,
+            "left_2": -0.005072343944274071,
+            "left_3": -0.005072343944274071
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005072343944274071,
+            "left_2": -0.005072343944274071,
+            "left_3": -0.005072343944274071
+          },
+          "step_events": []
+        },
+        {
+          "tick": 17,
+          "actions": {
+            "left_1": 5,
+            "left_2": 5,
+            "left_3": 5
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005063667272582057,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005063667272582057,
+            "left_2": -0.005063667272582057,
+            "left_3": -0.005063667272582057
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005063667272582057,
+            "left_2": -0.005063667272582057,
+            "left_3": -0.005063667272582057
+          },
+          "step_events": []
+        },
+        {
+          "tick": 18,
+          "actions": {
+            "left_1": 5,
+            "left_2": 5,
+            "left_3": 5
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005056030847912078,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005056030847912078,
+            "left_2": -0.005056030847912078,
+            "left_3": -0.005056030847912078
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005056030847912078,
+            "left_2": -0.005056030847912078,
+            "left_3": -0.005056030847912078
+          },
+          "step_events": []
+        },
+        {
+          "tick": 19,
+          "actions": {
+            "left_1": 7,
+            "left_2": 7,
+            "left_3": 7
+          },
+          "forced_tackle": true,
+          "shared_reward": -0.005049310422340846,
+          "event_code": null,
+          "event_type": null,
+          "ball_owner": null,
+          "score": {
+            "left": 0,
+            "right": 0
+          },
+          "adapter_delta": {
+            "left_1": -0.005049310422340846,
+            "left_2": -0.005049310422340846,
+            "left_3": -0.005049310422340846
+          },
+          "adapter_base": {
+            "left_1": 0.0,
+            "left_2": 0.0,
+            "left_3": 0.0
+          },
+          "adapter_shaped": {
+            "left_1": -0.005049310422340846,
+            "left_2": -0.005049310422340846,
+            "left_3": -0.005049310422340846
+          },
+          "step_events": []
+        }
+      ]
+    }
+  ]
+}

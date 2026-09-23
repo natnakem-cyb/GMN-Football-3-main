@@ -1,0 +1,10 @@
+checkpoint,checkpoint_sha256,scenario,num_episodes,goal_rate_pct,mean_tackles_per_ep,mean_shots_per_ep,mean_passes_per_ep,mean_reward,tackle_heavy_count,tackle_heavy_goal_rate_pct,timestamp_iso
+training/models/mappo_ac3v1_seed123_200k_B,7624efee69555a3e8e8a1c582ef0cdb39b51d31edfd8555e559e63ceaa95e8cc,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.6660258571121582,0,0.0,2026-09-17T11:47:29.908923Z
+training/models/mappo_ac3v1_seed7_200k_B,73581605c65bd7d298be848b23de1d29ced52c4680147957a17825dcd3726eaf,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.6829619745906675,0,0.0,2026-09-17T11:47:57.020363Z
+training/models/mappo_ac3v1_seed7_200k_B,73581605c65bd7d298be848b23de1d29ced52c4680147957a17825dcd3726eaf,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.6829619745906675,0,0.0,2026-09-17T11:52:48.723241Z
+training/models/mappo_ac3v1_seed999_200k_B,c1b36f41d74975f4154923bcdec920f9f0f67f58998c59de65394dba9d0f7ebb,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.7703939299316966,0,0.0,2026-09-17T11:53:18.011423Z
+training/models/mappo_ac3v1_seed123_100k_E0,53c1e27176636bbe93e4832be919b031fc364c77c34b0b312c3316608692146a,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.7541711653412626,0,0.0,2026-09-17T12:04:55.721859Z
+training/models/mappo_ac3v1_seed42_200k_B,1d9be7e16f07d9becaa1de364510bee48b15256768fc14327e47532c856bf47b,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.1735619488740019,0,0.0,2026-09-23T15:22:42.929555Z
+training/models/mappo_ac3v1_seed123_200k_B,7624efee69555a3e8e8a1c582ef0cdb39b51d31edfd8555e559e63ceaa95e8cc,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.13300280700809824,0,0.0,2026-09-23T15:23:11.603056Z
+training/models/mappo_ac3v1_seed999_200k_B,c1b36f41d74975f4154923bcdec920f9f0f67f58998c59de65394dba9d0f7ebb,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.16813167110916027,0,0.0,2026-09-23T15:23:12.166347Z
+training/models/mappo_ac3v1_seed7_200k_B,73581605c65bd7d298be848b23de1d29ced52c4680147957a17825dcd3726eaf,academy_3_vs_1_with_keeper,10,0.0,0.0,0.0,0.0,-0.1807612993268024,0,0.0,2026-09-23T15:23:12.271255Z
