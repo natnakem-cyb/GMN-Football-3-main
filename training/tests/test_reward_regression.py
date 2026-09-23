@@ -47,7 +47,10 @@ class TestPassQuality:
         active_agents = ["left_0", "left_1"]
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
-        assert rewards["left_0"] == pytest.approx(0.30)
+        # Post-fix: r_pass=0.0 (engine owns base pass reward). With base_rewards=0.0,
+        # the adapter contributes nothing; the engine +0.15 would be the sole pass reward
+        # in production (simulated here as 0.0 base).
+        assert rewards["left_0"] == pytest.approx(0.0)
 
     def test_repetitive_pass_loop_does_not_dominate_progress(self):
         """Rapid pass cycling between two agents should not yield more reward
@@ -68,11 +71,10 @@ class TestPassQuality:
             rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
             total_reward += sum(rewards.values())
 
-        # 10 passes yield 10 * 0.30 = 3.0 total reward
-        # This should not exceed what forward progress would give over 10 steps
-        # (which depends on deltaX, but we check the pass reward is bounded)
-        assert total_reward == pytest.approx(3.0), (
-            f"Pass loop reward should be exactly 10 * 0.30 = 3.0, got {total_reward:.4f}"
+        # Post-fix: r_pass=0.0 (engine owns base pass reward). With base_rewards=0.0,
+        # the adapter contributes nothing per pass. Total remains 0.0.
+        assert total_reward == pytest.approx(0.0), (
+            f"Pass loop reward should be 0.0 (no adapter pass reward), got {total_reward:.4f}"
         )
 
 
@@ -152,7 +154,8 @@ class TestRewardOwnership:
         assert "right_0" not in rewards
         assert "right_1" not in rewards
         assert "left_0" in rewards
-        assert rewards["left_0"] == pytest.approx(0.30)
+        # Post-fix: r_pass=0.0 (engine owns base pass reward). No adapter pass bonus.
+        assert rewards["left_0"] == pytest.approx(0.0)
 
 
 class TestRewardAccounting:
@@ -173,8 +176,10 @@ class TestRewardAccounting:
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
 
-        # left_0: base 0.5 + pass 0.30 + shot 0 (chain > 0, no penalty) = 0.80
-        assert rewards["left_0"] == pytest.approx(0.80)
+        # Post-fix: r_pass=0.0 (engine owns base pass reward). Shaped reward is base
+        # + event bonuses/penalties only; adapter does not duplicate engine pass reward.
+        # left_0: base 0.5 + pass 0.0 (r_pass=0.0) + shot 0 (chain > 0, no penalty) = 0.50
+        assert rewards["left_0"] == pytest.approx(0.50)
         # left_1: base 0.0, no events = 0.0
         assert rewards["left_1"] == pytest.approx(0.0)
 

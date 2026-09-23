@@ -127,7 +127,7 @@ class CooperativeRewardShaper:
 
     def __init__(
         self,
-        reward_pass_completion: float = 0.30,
+        reward_pass_completion: float = 0.0,
         reward_assisted_goal_bonus: float = 0.50,
         penalty_solitary_shot: float = -0.30,
         penalty_ball_hogging: float = -0.02,

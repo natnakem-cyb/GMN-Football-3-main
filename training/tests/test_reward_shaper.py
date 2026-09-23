@@ -27,7 +27,8 @@ class TestCooperativeRewardShaper:
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
 
-        assert rewards["left_0"] == pytest.approx(0.30)
+        # Post-fix: r_pass=0.0 (engine owns base pass reward). No adapter pass bonus.
+        assert rewards["left_0"] == pytest.approx(0.0)
         assert rewards["left_1"] == pytest.approx(0.0)
         assert rewards["left_2"] == pytest.approx(0.0)
         assert shaper.pass_chain_length == 1
@@ -238,8 +239,9 @@ class TestCooperativeRewardShaper:
 
         rewards = shaper.compute_shaped_rewards(base_rewards, step_events, ground_truth, active_agents)
 
-        assert rewards["left_0"] == pytest.approx(0.30)
-        assert rewards["left_1"] == pytest.approx(0.30)
+        # Post-fix: r_pass=0.0 (engine owns base pass reward). No adapter pass bonus.
+        assert rewards["left_0"] == pytest.approx(0.0)
+        assert rewards["left_1"] == pytest.approx(0.0)
         assert rewards["left_2"] == pytest.approx(0.0)
         assert shaper.pass_chain_length == 2
 
