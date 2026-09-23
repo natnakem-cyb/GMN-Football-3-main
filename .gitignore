@@ -54,6 +54,7 @@ experiment_d_results_*.json
 
 # Training artifacts (transient)
 training/runs/
+runs/
 training/logs/
 training/models/opponent_pool/
 training/results/forensics/
