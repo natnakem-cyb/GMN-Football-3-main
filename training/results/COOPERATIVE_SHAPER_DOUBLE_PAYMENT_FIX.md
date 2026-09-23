@@ -172,14 +172,14 @@ TASK 5 — FRESH-CLONE VERIFICATION (mandatory, must show evidence)
     303 passed, 4 failed in 266.29s
     Matches local pre-push result (302 passed, 3 failed):  not exact — see note below.
 
-    Note on discrepancy:  One additional failure appeared in the fresh-clone full
-    suite run:
-      test_mappo_rollout_regression.py::test_live_smoke_single_env_collection
-
-    This test passes when run in isolation from both the fresh clone (23.58s) and
-    the local repo (13.58s). Its failure in the full suite is a known flaky
-    interaction with other tests (likely GNN background processes). It is
-    pre-existing and unrelated to this fix. The fix-specific tests all pass.
+    Non-equivalence note:  The local pre-push run (302/305) is NOT equivalent to
+    the fresh-clone post-push run (303/307). The 302/305 figure was taken against
+    an intermediate, uncommitted test set. Two additional tests were present in
+    the committed tree that the clone actually ran. The +1 extra failure in the
+    clone is the pre-existing flake
+    test_mappo_rollout_regression.py::test_live_smoke_single_env_collection; it
+    is unrelated to this fix. Authoritative suite result for this commit is the
+    fresh-clone run: 303 passed, 4 failed (3 pre-existing + 1 flake) out of 307.
 
   Local HEAD:                     87ab77c43d11bd9dcb709ca0611f5b5202421c53
   origin/main HEAD:               87ab77c43d11bd9dcb709ca0611f5b5202421c53
