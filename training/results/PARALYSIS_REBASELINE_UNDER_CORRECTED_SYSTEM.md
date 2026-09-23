@@ -11,7 +11,7 @@
 ## CORRECTED PARALYSIS RE-BASELINE + GNN AUDIT REPORT
 
 ### HEAD
-eab4643
+0035b87
 
 ### Pushed to origin/main
 yes
@@ -23,8 +23,8 @@ yes (local/origin/fresh-clone three-way match shown)
 
 ## DEFECT 1 — PROVENANCE
 
-- `git rev-parse HEAD`: eab4643
-- `git rev-parse origin/main`: eab4643
+- `git rev-parse HEAD`: 0035b87
+- `git rev-parse origin/main`: 0035b87
 
 All findings docs were committed and pushed. Fresh-clone verification passed (see section "CONFIRMATIONS").
 

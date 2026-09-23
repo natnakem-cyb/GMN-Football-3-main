@@ -10,7 +10,7 @@
 ## CORRECTED PARALYSIS RE-BASELINE + GNN AUDIT REPORT
 
 ### HEAD
-eab4643
+0035b87
 
 ### Pushed to origin/main
 yes
@@ -22,8 +22,8 @@ yes (local/origin/fresh-clone three-way match shown)
 
 ## DEFECT 1 — PROVENANCE
 
-- `git rev-parse HEAD`: eab4643
-- `git rev-parse origin/main`: eab4643
+- `git rev-parse HEAD`: 0035b87
+- `git rev-parse origin/main`: 0035b87
 
 All findings docs were committed and pushed. Fresh-clone verification passed (see section "CONFIRMATIONS").
 
@@ -103,7 +103,7 @@ No precise train-time "% of total reward" can be given: the duplicate rate was n
 
 ### Single, non-contradictory conclusion
 
-The PASS_COMPLETED double-payment bug had a **bounded, adapter-side effect** on the return signal during training: at most +0.10 extra per duplicated physical pass, capped at +0.20 total adapter pass-reward per episode. The engine's +0.15 pass reward is stripped by `_strip_progress` for academy_3_vs_1_with_keeper and does not enter the trained answer. The bug is **fixed in the current codebase** (1f81089 / 2bc83f8). It is not the primary driver of paralysis; the primary driver is optimization instability at the frozen-π snapshot.
+The PASS_COMPLETED double-payment bug had a **bounded, adapter-side effect** on the return signal during training: at most +0.10 extra per duplicated physical pass, capped at +0.20 total adapter pass-reward per episode. The engine's +0.15 pass reward is stripped by `_strip_progress` for academy_3_vs_1_with_keeper and does not enter the trained signal. The bug is **fixed in the current codebase** (1f81089 / 2bc83f8). It is not the primary driver of paralysis; the primary driver is optimization instability at the frozen-π snapshot.
 
 ---
 
