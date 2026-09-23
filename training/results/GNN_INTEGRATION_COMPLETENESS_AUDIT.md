@@ -84,25 +84,26 @@ Original eval: arm `ONBALL-pi`, 20 episodes/seed, base_seed=42 (NOT 500000)
 
 The PASS_COMPLETED dedup bug (fixed in commits 1f81089 / 2bc83f8, Sep 22–23) caused duplicate PASS_COMPLETED events on the same tick when both the passer path and the receiver path detected the same physical pass. The training checkpoints (Sep 15–20) were trained before the fix, so they were exposed to the bug during training.
 
-### Quantitative estimate
+### Mechanical description (attacking-drill scenario only)
+
+For `academy_3_vs_1_with_keeper`, `_strip_progress` zeros all engine base rewards on non-goal ticks before the adapter runs (reward_adapters.py:512-517, called at :664). Therefore the engine's raw +0.15 per completed pass never enters the AttackingDrill return signal. The duplicate-payment bug was purely adapter-side: two PASS_COMPLETED dicts for one physical pass caused `_pay_pass_rewards` to increment `attacking_pass_reward_count` twice, paying +0.20 (both counted events) instead of +0.10, and exhausting the 2-pass / +0.20 episode cap early so a later genuine pass in that episode paid 0. This is a front-loaded credit + early cap-exhaustion story, not a doubled-engine-payment story.
+
+The remaining open design item is the engine's uncapped +0.15 continuing to flow through non-stripping adapters (CooperativeRewardShaper for 5v5/11v11, where adapter `r_pass=0.30` plus engine +0.15 yields +0.45 per completed pass). That is a separate issue from the dedup bug and is tracked separately.
+
+### Quantitative bound (not a rate)
 
 | Parameter | Value | Source |
 |-----------|-------|--------|
-| Training timesteps | 50,176 | checkpoint_sha256 in eval JSON |
-| Episodes per training run | ~980 | 50176 / 51 ticks per episode |
-| Pass completion rate | 14.5% | 29 completions / 200 episodes (canonical re-eval) |
-| Expected pass completions | ~142 | 980 episodes × 14.5% |
-| Assumed duplicate rate | 10% | Conservative; exact rate not measured in training logs |
-| Expected duplicate events | ~14 | 142 completions × 10% |
-| Adapter capped pass reward | +0.10 | reward_adapters.py _pay_pass_rewards (first 2 passes per episode) |
-| Engine pass reward | +0.15 (stripped) | ObservationEncoder.ts computeReward, stripped by _strip_progress for AttackingDrill |
-| Total spurious reward | ~1.4 | 14 duplicates × +0.10 extra adapter payment |
-| Total step-cost reward | ~-250 | 50000 ticks × (-0.005) |
-| Spurious signal / total reward | ~0.56% | 1.4 / -250 |
+| Extra adapter credit per duplicated physical pass | +0.10 | reward_adapters.py :591-616 — each extra PASS_COMPLETED event inside the cap pays +0.10 |
+| Adapter pass-reward cap per episode | +0.20 | reward_adapters.py :594 — hard cap at 2 productive passes |
+| Worst-case per-episode spurious reward | +0.10 | One duplicate inside the cap burns +0.10 of the +0.20 episode budget |
+| Engine pass reward in AttackingDrill return | 0.00 | _strip_progress zeros engine base on non-goal ticks; PASS_COMPLETED does not preserve it |
+
+No precise train-time "% of total reward" can be given: the duplicate rate was never measured in training logs, and scaling from eval episode counts (51-tick eval window) to training horizon (~1800-tick 3v1 horizon) is invalid.
 
 ### Single, non-contradictory conclusion
 
-The PASS_COMPLETED double-payment bug had a **minor quantitative effect** on the return signal during training: approximately 0.56% of total reward, assuming a 10% duplicate rate. The adapter's capped pass reward (+0.10 for first 2 passes per episode) was double-counted for each duplicate event. The engine's +0.15 pass reward is stripped by _strip_progress for academy_3_vs_1_with_keeper, so the engine's double payment does not affect the final reward for this scenario. The bug is **fixed in the current codebase** (1f81089 / 2bc83f8). It is not the primary driver of paralysis; the primary driver is optimization instability at the frozen-π snapshot.
+The PASS_COMPLETED double-payment bug had a **bounded, adapter-side effect** on the return signal during training: at most +0.10 extra per duplicated physical pass, capped at +0.20 total adapter pass-reward per episode. The engine's +0.15 pass reward is stripped by `_strip_progress` for academy_3_vs_1_with_keeper and does not enter the trained answer. The bug is **fixed in the current codebase** (1f81089 / 2bc83f8). It is not the primary driver of paralysis; the primary driver is optimization instability at the frozen-π snapshot.
 
 ---
 
