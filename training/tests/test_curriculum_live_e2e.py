@@ -345,13 +345,15 @@ class TestTrainMappoCurriculumLiveSmoke:
         import sys
 
         # Pre-seed the curriculum state so the first evaluate_and_step sees
-        # a window already at the promote threshold. This avoids relying on
-        # a random policy scoring goals.
+        # a window already at the promote threshold. Disable demotion for this
+        # wiring smoke: with both thresholds at 0, one unsuccessful episode
+        # after promotion immediately demotes the scheduler and masks the
+        # promotion that this test is meant to verify.
         scheduler = CurriculumScheduler(
             stages=["academy_empty_goal", "academy_run_to_score"],
             window_size=5,
             promote_threshold=0.0,
-            demote_threshold=0.0,
+            demote_threshold=-1.0,
             min_episodes_before_promotion=1,
         )
         for _ in range(5):
@@ -372,7 +374,7 @@ class TestTrainMappoCurriculumLiveSmoke:
             "--curriculum-window-size", "5",
             "--curriculum-min-episodes", "1",
             "--curriculum-promote-threshold", "0.0",
-            "--curriculum-demote-threshold", "0.0",
+            "--curriculum-demote-threshold", "-1.0",
             "--checkpoint-name", ckpt_name,
             "--models-dir", str(tmp_path),
         ]

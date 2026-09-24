@@ -983,25 +983,35 @@ class TestLiveOnePassPipeline:
                     return 0.0, 0.0
 
                 def _move_toward_ball(agent):
-                    """Return a movement action that heads toward the ball."""
+                    """Move toward the ball relative to this agent's position."""
                     bx, by = _ball_xy_for(agent)
+                    v = obs_dict.get(agent)
+                    arr = v.get("observation") if isinstance(v, dict) else v
+                    if not hasattr(arr, "__len__") or len(arr) < 108:
+                        return 0
+                    controlled = arr[97:108]
+                    if not any(controlled):
+                        return 0
+                    player_idx = max(range(11), key=lambda idx: controlled[idx])
+                    px, py = float(arr[2 * player_idx]), float(arr[2 * player_idx + 1])
+                    dx, dy = bx - px, by - py
                     # Simple 8-direction mapping: pick closest cardinal/diagonal
-                    if bx > 0.05:
-                        if by < -0.05:
+                    if dx > 0.02:
+                        if dy < -0.02:
                             return 4  # TOP_RIGHT
-                        elif by > 0.05:
+                        elif dy > 0.02:
                             return 6  # BOTTOM_RIGHT
                         return 5  # RIGHT
-                    elif bx < -0.05:
-                        if by < -0.05:
+                    elif dx < -0.02:
+                        if dy < -0.02:
                             return 2  # TOP_LEFT
-                        elif by > 0.05:
+                        elif dy > 0.02:
                             return 8  # BOTTOM_LEFT
                         return 1  # LEFT
                     else:
-                        if by < -0.05:
+                        if dy < -0.02:
                             return 3  # TOP
-                        elif by > 0.05:
+                        elif dy > 0.02:
                             return 7  # BOTTOM
                     return 0  # IDLE if ball is roughly centered
 

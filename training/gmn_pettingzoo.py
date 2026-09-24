@@ -830,10 +830,12 @@ class GMNMultiAgentEnv(ParallelEnv):
             raise RuntimeError(f"[GMN-Batch] Expected {self.batch_size} reset results, got {len(results)}: {list(parsed.keys())}")
         self._init_batch_envs(results)
         # Return per-env tuples for the caller (trainer can index by env_idx)
-        return [
-            (env_state["obs_dict"], {a: env_state["info"] for a in env_state["agents"]})
-            for env_state in self._batch_envs
-        ]
+        batch_results = []
+        for env_state in self._batch_envs:
+            infos = {a: dict(env_state["info"]) for a in env_state["agents"]}
+            self._attach_graph_observations(env_state["obs_dict"], infos)
+            batch_results.append((env_state["obs_dict"], infos))
+        return batch_results
 
     def reset_one(
         self, env_idx: int, seed: Optional[int] = None

@@ -123,25 +123,57 @@ evaluators. The live smoke also exercised the GNN `eval_progress.py` path.
   diagnostics only and support no policy-quality conclusion. Local checkpoint
   artifacts are under `runs/gnn_gap3_smoke_artifacts/`.
 
-## Next tasks from verification
+## Follow-up verification â€” 2026-09-24
 
-1. Fix the curriculum-training smoke: establish why the pre-seeded scheduler
-   state is not advanced by the tiny live trainer run.
-2. Investigate the two pass-spam regressions and the 600-tick live pass-pipeline
-   failure; confirm whether the engine behavior or the tests' zero-pass
-   expectations are incorrect, then update code/tests with measured evidence.
-3. Add coverage for Gap 1 batched graph helpers and exercise GNN `gat` and
-   `geometry` beyond checkpoint construction/loading. Graph-aware batched MAPPO
-   remains unimplemented.
-4. Keep ONNX/browser deployment and held-out diagnostic-probe validation open
-   until those capabilities are explicitly needed and measured.
+The four verification tasks were investigated and triaged:
+
+1. **Curriculum smoke:** the pre-seeded scheduler did promote at the beginning
+   of training. The smoke configured both promotion and demotion thresholds to
+   `0.0`; after one unsuccessful episode, the `success_rate <= demote_threshold`
+   rule immediately demoted it and persisted index 0. The test now uses a
+   `-1.0` demotion threshold so it isolates promotion wiring without relying on
+   random policy success. The corrected live test passed in **414.44 seconds**:
+   four updates completed, the seeded promotion persisted, and the trainer
+   checkpoint/reload path succeeded. Its evaluator emitted a non-fatal
+   `EADDRINUSE` warning for port 5050 while an evaluator bridge was already
+   bound; evaluation still completed. This remains an environment-port warning
+   to monitor on full-suite runs.
+2. **Pass-spam and live pipeline:** the zero-completed-pass assertions were
+   invalid. A measured 10-episode run completed 3 LONG_PASS and 18 SHORT_PASS
+   events while satisfying the tests' non-positive total-reward criterion;
+   successful passes alone do not establish reward exploitation. Those zero
+   expectations have been removed. The separate live pipeline test's receiver
+   movement selected direction from absolute ball coordinates, which steered
+   relative to the pitch origin. It now computes ball position minus that
+   agent's position from the controlled-player one-hot and position fields.
+   The two revised pass-spam tests passed (**2 passed in 94.07 seconds**) and
+   the live single-pass/single-event/engine-reward test passed (**1 passed in
+   15.68 seconds**) after this fix.
+3. **Gap 1 and encoder coverage:** `reset_batch()` now attaches graph data into
+   each per-agent info map when opt-in graph observations are enabled; flat
+   observation arrays and action masks are unchanged. Batched reset tests cover
+   enabled and disabled modes, and a helper test covers the shared-info shape
+   used on the batched step path. The GNN PPO update test now parametrizes MLP,
+   GAT, and geometry encoders and checks actor and critic parameter updates.
+   The focused integration suite passed **13 tests** in 125.03 seconds.
+   Graph-aware batched MAPPO is still unimplemented.
+4. **Deferred capabilities:** ONNX/browser deployment and quantitative
+   held-out diagnostic-probe validation remain open and deferred until those
+   capabilities are needed and their target requirements/data are measured.
+
+The full Python suite was started after the focused checks, but produced no
+progress output for substantially longer than the earlier 1493.98-second run.
+That rerun was stopped without a pytest summary, so it provides no pass/fail
+result. The pre-fix 318 passed / 1 skipped / 4 failed result remains the last
+complete full-suite measurement. The affected tests listed above passed in
+focused reruns; the full suite still needs a clean completion.
 
 ## Remaining implementation sequence
 
 | Gap | Status | Scope |
 |---|---|---|
-| 1. Environment graph construction | Single-env reset/step and flat default verified | Add batched helper coverage |
-| 2. GNN actor/critic in rollout and PPO update | `gnn:mlp` rollout/update tests and 256-step live smoke passed | Exercise `gat`/`geometry`; graph-aware batched rollout remains open |
+| 1. Environment graph construction | Single-env reset/step, flat default, and batched helper paths covered | Graph-aware batched MAPPO remains open |
+| 2. GNN actor/critic in rollout and PPO update | `gnn:mlp` live smoke; rollout/update gradient coverage for MLP, GAT, and geometry | Graph-aware batched MAPPO remains open |
 | 3. Checkpoint/evaluator contract | Contract rejection/loading tests and evaluator loaders passed | Continue compatibility checks as formats evolve |
-| 4. Deployment export | Open; needed only for browser deployment | Export and run the selected GNN architecture in target runtime |
-| 5. Quantitative probe validation | Open research work | Collect data and train probes with held-out splits |
+| 4. Deployment export | Open and deferred until browser deployment is needed | Export and run the selected GNN architecture in target runtime |
+| 5. Quantitative probe validation | Open research work, deferred | Collect data and train probes with held-out splits |

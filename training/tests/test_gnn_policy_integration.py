@@ -137,6 +137,63 @@ def test_gap1_reset_and_step_preserve_flat_contract_and_attach_graphs(
         assert calls == []
 
 
+@pytest.mark.parametrize("graph_enabled", [False, True])
+def test_gap1_batched_reset_attaches_graphs_without_changing_flat_observations(
+    monkeypatch, graph_enabled
+):
+    from training import gnn_graph_builder
+
+    graph = {"batch": "graph"}
+    calls = []
+    monkeypatch.setattr(
+        gnn_graph_builder,
+        "build_graph",
+        lambda observation, info, scenario: calls.append(
+            (observation, info, scenario)
+        ) or graph,
+    )
+    env = _uninitialized_env(graph_enabled)
+    env.batch_size = 2
+    env._scenario_adapter = lambda previous=None: None
+    env._recv_reset_batch_response = lambda: __import__("json").dumps(
+        {
+            "results": [
+                {
+                    "observations": [np.zeros(127, dtype=np.float32).tolist()],
+                    "action_masks": [MASK.tolist()],
+                    "info": {"controllableAgentIds": [AGENT]},
+                }
+                for _ in range(2)
+            ]
+        }
+    )
+
+    results = env.reset_batch([10, 11])
+    assert len(results) == 2
+    for observations, infos in results:
+        assert observations[AGENT]["observation"].shape == (127,)
+        assert np.array_equal(observations[AGENT]["action_mask"], MASK)
+        if graph_enabled:
+            assert infos[AGENT]["graph_observation"] is graph
+        else:
+            assert "graph_observation" not in infos[AGENT]
+    assert len(calls) == (2 if graph_enabled else 0)
+
+
+def test_gap1_graph_helper_accepts_batched_step_shared_info_shape(monkeypatch):
+    from training import gnn_graph_builder
+
+    graph = {"batch": "step-graph"}
+    monkeypatch.setattr(gnn_graph_builder, "build_graph", lambda *args: graph)
+    env = _uninitialized_env(graph_enabled=True)
+    observations = {AGENT: {"observation": np.zeros(127, dtype=np.float32)}}
+    shared_info = {"score": {"left": 0, "right": 0}}
+
+    env._attach_graph_observations(observations, shared_info)
+
+    assert shared_info["graph_observations"] == {AGENT: graph}
+
+
 class _FakeGraphEnv:
     """Two-step, single-agent PettingZoo fixture for the GNN rollout/update."""
 
@@ -170,18 +227,19 @@ class _FakeGraphEnv:
         )
 
 
-def test_gap2_gnn_rollout_and_ppo_update_train_actor_and_critic():
+@pytest.mark.parametrize("encoder_type", ["mlp", "gat", "geometry"])
+def test_gap2_gnn_rollout_and_ppo_update_train_actor_and_critic(encoder_type):
     torch.manual_seed(17)
     np.random.seed(17)
     env = _FakeGraphEnv()
-    actor = GNNMAPPOActor(encoder_type="mlp", hidden_dim=16)
-    critic = GNNMAPPOCritic(encoder_type="mlp", hidden_dim=16)
+    actor = GNNMAPPOActor(encoder_type=encoder_type, hidden_dim=16)
+    critic = GNNMAPPOCritic(encoder_type=encoder_type, hidden_dim=16)
     buffer = collect_rollout(env, actor, critic, num_steps=3)
 
     assert len(buffer["graph_observations"]) == 3
     assert len(buffer["next_graph_observations"]) == 1
-    actor_before = actor.encoder.node_encoder[0].weight.detach().clone()
-    critic_before = critic.encoder.node_encoder[0].weight.detach().clone()
+    actor_before = {key: value.detach().clone() for key, value in actor.state_dict().items()}
+    critic_before = {key: value.detach().clone() for key, value in critic.state_dict().items()}
     actor_opt = torch.optim.SGD(actor.parameters(), lr=0.02)
     critic_opt = torch.optim.SGD(critic.parameters(), lr=0.02)
 
@@ -201,8 +259,8 @@ def test_gap2_gnn_rollout_and_ppo_update_train_actor_and_critic():
 
     assert np.isfinite(metrics["policy_loss"])
     assert np.isfinite(metrics["value_loss"])
-    assert not torch.equal(actor_before, actor.encoder.node_encoder[0].weight)
-    assert not torch.equal(critic_before, critic.encoder.node_encoder[0].weight)
+    assert any(not torch.equal(actor_before[k], value) for k, value in actor.state_dict().items())
+    assert any(not torch.equal(critic_before[k], value) for k, value in critic.state_dict().items())
 
 
 @pytest.mark.parametrize("architecture", ["gnn:mlp", "gnn:gat", "gnn:geometry"])
