@@ -72,12 +72,47 @@ validates flat checkpoints and explicitly reports that GNN export is Gap 4 work.
 was performed for this update. Existing flat-checkpoint compatibility and new
 GNN checkpoint rejection/load behavior still need targeted verification.
 
+## Verification results — 2026-09-24
+
+- Focused command
+  `python -m pytest training/tests/test_gnn_phase4.py training/tests/test_mappo_rollout_regression.py training/tests/test_action_masks.py -q -p no:cacheprovider`:
+  **42 passed**. These cover the existing Phase 4 encoder, rollout regression,
+  and action-mask suites; they do not directly exercise the new Gap 1–3
+  integration paths.
+- `npm test`: **passed**. Scenario validation passed 16/16 scenarios and
+  regressions; determinism checks passed for all four configured scenarios.
+- Full training Python suite, run with elevated filesystem/process access:
+  `python -m pytest training/tests/ -x -q -p no:cacheprovider` reached
+  **36 passed, 1 failed**. The failure was
+  `test_curriculum_live_e2e.py::TestCurriculumLiveSchedulerPromotion::test_live_scheduler_promotes_on_real_successes_or_records`:
+  the test's bridge-backed environment timed out waiting for its WebSocket
+  step frame, then could not reconnect to the bridge. A non-fail-fast rerun
+  was interrupted after about three minutes without further output; because
+  quiet mode did not identify the in-progress test, that run has no aggregate
+  result and its stall is not attributed to a specific test.
+- An initial sandboxed run stopped earlier because a test could not create its
+  temporary `models` directory. The elevated rerun passed that point; it is not
+  counted as a code failure.
+
+## Next tasks from verification
+
+1. Diagnose bridge startup/readiness and WebSocket responsiveness for the live
+   curriculum integration tests; rerun those tests and then complete the Python
+   training suite without interruption.
+2. Add focused tests for Gap 1 graph attachment on reset/step (including the
+   unchanged flat-observation default), Gap 2 GNN rollout/PPO update and critic
+   gradients, and Gap 3 checkpoint contract validation plus flat/GNN evaluator
+   loading.
+3. Run a small single-environment GNN training/evaluation smoke run after the
+   focused integration tests pass. Do not make a policy-quality claim from a
+   smoke run.
+
 ## Remaining implementation sequence
 
 | Gap | Status | Scope |
 |---|---|---|
-| 1. Environment graph construction | Implemented in code; verification pending | Graph per agent on reset/step, including batched helpers |
-| 2. GNN actor/critic in rollout and PPO update | Implemented in code for `n_envs=1`; verification pending | Validate gradients and end-to-end updates; graph-aware batched rollout remains open |
-| 3. Checkpoint/evaluator contract | Implemented in code; verification pending | Versioned graph contract; progress, F_act, and canonical measurement loaders |
+| 1. Environment graph construction | Implemented; direct integration coverage pending | Test graph per agent on reset/step and the unchanged default observation contract |
+| 2. GNN actor/critic in rollout and PPO update | Implemented in code for `n_envs=1`; direct GNN update verification pending | Test gradients and end-to-end updates; graph-aware batched rollout remains open |
+| 3. Checkpoint/evaluator contract | Implemented; direct integration coverage pending | Test versioned graph contract, legacy flat loading, and progress/F_act/canonical measurement loaders |
 | 4. Deployment export | Open; needed only for browser deployment | Export and run the selected GNN architecture in target runtime |
 | 5. Quantitative probe validation | Open research work | Collect data and train probes with held-out splits |

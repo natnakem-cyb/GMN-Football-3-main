@@ -6,6 +6,9 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [x] Gap 1: add opt-in graph construction to environment reset/step, including batched helpers, and attach results to info without changing the default observation contract. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
 - [x] Gap 2: add GNN actor/critic and connect single-environment rollout, PPO updates, progress evaluation, and architecture-tagged checkpoints. Implementation is pending test and training verification; batched GNN rollout remains open.
 - [x] Gap 3: add versioned GNN checkpoint contracts and architecture-aware progress, F_act, and canonical evaluators; preserve legacy flat-checkpoint loading. Code implemented; verification pending. ONNX export remains Gap 4.
+- [ ] Diagnose bridge readiness/WebSocket timeout in `test_curriculum_live_e2e.py`; finish the Python training suite (current fail-fast run: 36 passed, 1 bridge timeout).
+- [ ] Add direct Gap 1–3 tests: graph attachment and default flat observations; GNN rollout/update gradients; checkpoint contract and flat/GNN evaluator loading.
+- [ ] After those tests pass, run a small single-environment GNN train/evaluation smoke check. Record it as a smoke check, not a policy-quality result.
 - [ ] If GNN policies are to be deployed in the browser, add and validate ONNX export/runtime support after the architecture contract is stable.
 - [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality.
 
