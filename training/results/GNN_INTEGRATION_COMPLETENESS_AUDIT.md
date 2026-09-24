@@ -9,25 +9,31 @@
 
 ## CORRECTED PARALYSIS RE-BASELINE + GNN AUDIT REPORT
 
-### HEAD
-694a9bb
+### Provenance
+The substantive Defect 4 correction (bounded mechanical description, removal of the invented 0.56% figure, worst-case +0.10 per-episode spurious reward, and explicit separation of the uncapped engine +0.15 design item) was audited against commit `2af8d33ff4a7e85ebf23e930691c88a387b6fdb7`.
+
+This report is documentation-only and may reside in later commits. Repository provenance is established externally by Git commit history and the fresh-clone verification record.
+
+Verify with:
+```
+git rev-parse HEAD
+git log -1 -- training/results/PARALYSIS_REBASELINE_UNDER_CORRECTED_SYSTEM.md
+git log -1 -- training/results/GNN_INTEGRATION_COMPLETENESS_AUDIT.md
+```
 
 ### Pushed to origin/main
 yes
 
 ### Fresh-clone verified
-yes (local/origin/fresh-clone three-way match shown)
+yes (see verification record accompanying the documentation-only commit that removed self-referential HEAD fields)
 
 ---
 
 ## DEFECT 1 — PROVENANCE
 
-- `git rev-parse HEAD`: 694a9bb
-- `git rev-parse origin/main`: 694a9bb
+Self-reported HEAD and `git rev-parse` fields have been removed. They were structurally unable to remain accurate after the commit that contained them and repeatedly produced stale, factually false statements when the documents were read from later tips.
 
-All findings docs were committed and pushed. Fresh-clone verification passed (see section "CONFIRMATIONS").
-
----
+All findings docs were committed and pushed. Fresh-clone verification is recorded externally against the documentation-only commit that performed this removal.
 
 ## DEFECT 2 — CORRECT EVAL ARM
 
