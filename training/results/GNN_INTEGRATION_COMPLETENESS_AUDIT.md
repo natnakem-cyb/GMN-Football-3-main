@@ -2,8 +2,26 @@
 
 **Date:** 2026-09-23  
 **Author:** debug agent  
-**Status:** Correct reporting block (all 8 defects addressed)  
+**Status:** Reporting corrections verified; production GNN policy integration remains OPEN
 **Canonical Protocol:** base_seed=500000, scenario=academy_3_vs_1_with_keeper_onball  
+
+> **Current status (verified 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter is false. The repository contains graph construction, tensor conversion, encoders, and diagnostics, but the production MAPPO, frozen-policy evaluation, and ONNX paths still use the flat observation policy. No GNN policy training result is claimed here. The GNN implementation work is therefore an open project gap, separate from the paralysis experiment recommendation.
+
+### Current implementation check
+
+Checked at repository HEAD `0ed0d431e136c369aa0afbfdc84eff1174bf490e` on 2026-09-24. Read-only inspection of `training/train_mappo.py`, `training/mappo_networks.py`, `training/gmn_pettingzoo.py`, `training/eval_f_act.py`, `training/eval_progress.py`, and `training/export_onnx.py` found no production call path to `gnn_graph_builder`, `gnn_graph_to_tensor`, or `gnn_encoders`. `SharedActor` and `CentralizedCritic` remain the flat-observation MAPPO models; `gmn_pettingzoo.py` exposes the 127-element observation. This verifies non-integration by source inspection; it does not claim new tests or training runs.
+
+| Work item | Verified status | Next useful action |
+|---|---|---|
+| Graph builder, graph schema, tensor adapter, encoder and diagnostic probe modules | Implemented as standalone components; Phase 3/4 reports record their unit-level validation | Keep as components; no production policy claim until integrated |
+| Build graph input in training environment and feed a GNN actor/critic | **Open, blocking GNN policy training** | Define observation/action/value interfaces and wire graph batches through rollout and update |
+| Checkpoint and evaluator compatibility | **Open, required for reproducible GNN evaluation** | Version architecture/observation metadata; load matching model in evaluators |
+| ONNX/browser inference | **Open, required only if deploying GNN policies** | Add export/runtime support after architecture and checkpoint contract are stable |
+| GNN-specific hyperparameter tuning and curriculum behavior | **Not established; follow-up after a runnable baseline** | Specify only after end-to-end training path exists |
+| `.kilo/agent-manager.json` task assignment | **Not a runtime integration defect** | Track as project workflow only if that manager is actively used |
+| Probe dataset training and held-out representation metrics | **Open research validation** | Run after dataset/probe protocol is reproducible; current shape tests do not answer representation quality |
+
+The “10 gaps” below are retained as the historical audit checklist, but should not be read as ten equally blocking defects. In particular, agent-manager assignment and curriculum gating are workflow/design choices, while graph-to-policy wiring and checkpoint/evaluation compatibility are the core technical blockers. Model-registry work is covered by checkpoint-contract/versioning rather than requiring a separate directory namespace.
 
 ---
 
@@ -21,11 +39,8 @@ git log -1 -- training/results/PARALYSIS_REBASELINE_UNDER_CORRECTED_SYSTEM.md
 git log -1 -- training/results/GNN_INTEGRATION_COMPLETENESS_AUDIT.md
 ```
 
-### Pushed to origin/main
-yes
-
-### Fresh-clone verified
-yes (see verification record accompanying the documentation-only commit that removed self-referential HEAD fields)
+### Remote and fresh-clone provenance
+The original report recorded “pushed” and “fresh-clone verified” based on an external verification record. Those historical assertions were not independently rechecked during this update; this workspace inspection does not establish current remote state. The current local HEAD and source inspection above are the provenance for the status update in this section.
 
 ---
 
@@ -33,7 +48,7 @@ yes (see verification record accompanying the documentation-only commit that rem
 
 Self-reported HEAD and `git rev-parse` fields have been removed. They were structurally unable to remain accurate after the commit that contained them and repeatedly produced stale, factually false statements when the documents were read from later tips.
 
-All findings docs were committed and pushed. Fresh-clone verification is recorded externally against the documentation-only commit that performed this removal.
+The earlier report states that the findings docs were committed and pushed and that a fresh-clone verification was recorded externally. Treat those as historical report statements, not as facts verified in this update.
 
 ## DEFECT 2 — CORRECT EVAL ARM
 
@@ -159,6 +174,8 @@ The D-Obs gate language is Kilo-memory governance language only, not a technical
 
 ## DEFECT 7 — GNN GAP LIST
 
+**Current interpretation:** The gap list below documents the original audit. Its core implementation gaps remain open, as summarized in “Current implementation check.” “Hyperparameters unchanged,” “curriculum gating,” and “agent-manager integration” are not independently verified as defects: they are design/workflow follow-ups, not requirements for proving that the GNN can run end to end.
+
 ### Gaps (explicit list)
 
 1. Graph construction in `gmn_pettingzoo.py` `step()` and `reset()` — no graph nodes/edges are built in the training path
@@ -194,10 +211,9 @@ Continue flat-obs pipeline for the immediate paralysis work; treat GNN integrati
 
 ## CONFIRMATIONS
 
-- No training beyond the single Defect-2 re-evaluation: yes
-- No new interventions executed: yes
-- No GNN/network/reward/environment code modified: yes
-- All 8 defects addressed: yes
+- Historical scope statement: no training beyond the single Defect-2 re-evaluation and no GNN/network/reward/environment code changes were reported for the original audit.
+- This update: documentation only; source inspection only; no test or training commands run.
+- “All 8 defects addressed” means the eight reporting defects identified by that audit were addressed. It does not mean GNN integration is complete; production integration remains open.
 
 ---
 

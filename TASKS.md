@@ -2,6 +2,12 @@
 
 Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` = done.
 
+## Open — Production GNN policy integration
+- [ ] Wire graph observations, tensor conversion, and a GNN actor/critic through environment reset/step, rollout collection, PPO update, checkpoint save/load, and frozen-policy evaluation. Current flat-observation MAPPO remains the production path; see `training/results/GNN_INTEGRATION_COMPLETENESS_AUDIT.md` for the 2026-09-24 source check.
+- [ ] Add GNN-specific checkpoint metadata and evaluator compatibility; preserve the existing flat-observation checkpoint path.
+- [ ] If GNN policies are to be deployed in the browser, add and validate ONNX export/runtime support after the architecture contract is stable.
+- [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality.
+
 ## Item 1 — Make reward shaping (CooperativeRewardShaper) actually functional
 - [x] Bridge/wrapper feed shaper with the event types it can consume (`PASS_COMPLETED`, `SHOT_TAKEN`, `GOAL_SCORED`, `TURNOVER_CONCEDED`, `PASS_FAILED`)
 - [x] Provide `agent_id` for ball-owner attribution (ball-hogging / per-agent credit)
