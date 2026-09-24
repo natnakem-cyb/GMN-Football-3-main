@@ -3,8 +3,9 @@
 Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` = done.
 
 ## Open — Production GNN policy integration
-- [ ] Wire graph observations, tensor conversion, and a GNN actor/critic through environment reset/step, rollout collection, PPO update, checkpoint save/load, and frozen-policy evaluation. Current flat-observation MAPPO remains the production path; see `training/results/GNN_INTEGRATION_COMPLETENESS_AUDIT.md` for the 2026-09-24 source check.
-- [ ] Add GNN-specific checkpoint metadata and evaluator compatibility; preserve the existing flat-observation checkpoint path.
+- [x] Gap 1: add opt-in graph construction to environment reset/step, including batched helpers, and attach results to info without changing the default observation contract. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
+- [x] Gap 2: add GNN actor/critic and connect single-environment rollout, PPO updates, progress evaluation, and architecture-tagged checkpoints. Implementation is pending test and training verification; batched GNN rollout remains open.
+- [ ] Gap 3: complete GNN checkpoint-contract and canonical evaluator support; preserve the existing flat-observation checkpoint path.
 - [ ] If GNN policies are to be deployed in the browser, add and validate ONNX export/runtime support after the architecture contract is stable.
 - [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality.
 

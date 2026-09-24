@@ -5,17 +5,18 @@
 **Status:** Reporting corrections verified; production GNN policy integration remains OPEN
 **Canonical Protocol:** base_seed=500000, scenario=academy_3_vs_1_with_keeper_onball  
 
-> **Current status (verified 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter is false. The repository contains graph construction, tensor conversion, encoders, and diagnostics, but the production MAPPO, frozen-policy evaluation, and ONNX paths still use the flat observation policy. No GNN policy training result is claimed here. The GNN implementation work is therefore an open project gap, separate from the paralysis experiment recommendation.
+> **Current status (updated 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter is false. Gaps 1 and 2 now have code paths for opt-in environment graph observations and single-environment MAPPO training/update; verification is pending. `eval_progress.py` supports architecture-tagged GNN actor checkpoints. Batched GNN training, other canonical evaluator coverage, and ONNX/browser inference remain open. No GNN training result is claimed here. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
 
 ### Current implementation check
 
-Checked at repository HEAD `0ed0d431e136c369aa0afbfdc84eff1174bf490e` on 2026-09-24. Read-only inspection of `training/train_mappo.py`, `training/mappo_networks.py`, `training/gmn_pettingzoo.py`, `training/eval_f_act.py`, `training/eval_progress.py`, and `training/export_onnx.py` found no production call path to `gnn_graph_builder`, `gnn_graph_to_tensor`, or `gnn_encoders`. `SharedActor` and `CentralizedCritic` remain the flat-observation MAPPO models; `gmn_pettingzoo.py` exposes the 127-element observation. This verifies non-integration by source inspection; it does not claim new tests or training runs.
+At base HEAD `0ed0d431e136c369aa0afbfdc84eff1174bf490e`, read-only inspection found no GNN call path in the trainer, policy networks, evaluators, or exporter. Subsequent local changes add optional graph attachments, GNN actor/critic classes, a single-environment rollout/update path, and architecture-aware progress evaluation. Flat MAPPO remains the default. This current implementation status is based on source inspection only; no test or training evidence is claimed.
 
 | Work item | Verified status | Next useful action |
 |---|---|---|
-| Graph builder, graph schema, tensor adapter, encoder and diagnostic probe modules | Implemented as standalone components; Phase 3/4 reports record their unit-level validation | Keep as components; no production policy claim until integrated |
-| Build graph input in training environment and feed a GNN actor/critic | **Open, blocking GNN policy training** | Define observation/action/value interfaces and wire graph batches through rollout and update |
-| Checkpoint and evaluator compatibility | **Open, required for reproducible GNN evaluation** | Version architecture/observation metadata; load matching model in evaluators |
+| Graph builder, graph schema, tensor adapter, encoder and diagnostic probe modules | Implemented as standalone components; earlier Phase 3/4 reports record unit-level checks | Keep as components; no policy-quality claim until measured |
+| Build graph input during environment reset/step | **Gap 1 implemented; verification pending** | Review/run targeted reset, step, and batched integration checks |
+| Feed graph tensors to a GNN actor/critic during rollout and PPO updates | **Gap 2 implemented for `n_envs=1`; verification pending** | Add graph-aware batched rollout and verify the actor/critic update path |
+| Checkpoint and evaluator compatibility | **Partially implemented** | Architecture string is saved and `eval_progress.py` loads it; complete checkpoint-contract and canonical evaluator support |
 | ONNX/browser inference | **Open, required only if deploying GNN policies** | Add export/runtime support after architecture and checkpoint contract are stable |
 | GNN-specific hyperparameter tuning and curriculum behavior | **Not established; follow-up after a runnable baseline** | Specify only after end-to-end training path exists |
 | `.kilo/agent-manager.json` task assignment | **Not a runtime integration defect** | Track as project workflow only if that manager is actively used |

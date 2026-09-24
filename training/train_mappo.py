@@ -68,7 +68,13 @@ def run_mappo_training(
     actor_loss_reweight_M: float = 1.0,
     actor_loss_reweight_phase1_steps: int = 15000,
     actor_loss_reweight_checkpoint_interval: int = 5000,
+    policy_architecture: str = "flat",
 ) -> bool:
+    if policy_architecture not in ("flat", "gnn:gat", "gnn:geometry", "gnn:mlp"):
+        raise ValueError("policy_architecture must be flat, gnn:gat, gnn:geometry, or gnn:mlp")
+    if policy_architecture != "flat" and n_envs != 1:
+        raise ValueError("GNN MAPPO currently requires --n-envs 1; graph-aware batched rollout is not wired yet")
+    graph_policy = policy_architecture != "flat"
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
         suffix = "smoke" if is_smoke_test else "quarantine"
@@ -93,7 +99,7 @@ def run_mappo_training(
     print(f"Target Scenario: {scenario} | Timesteps: {timesteps}")
     if resume_path:
         print(f"Resuming From Checkpoint: {resume_path}")
-    print("Architecture: SharedActor (Mlp 64x64) + CentralizedCritic (Global State / Set Pooling -> 1)")
+    print(f"Architecture: {policy_architecture}")
     print(f"Checkpoint Output (quarantine): models/{checkpoint_name}")
     print(f"Checkpoint Output (clean, post-eval): models/{clean_checkpoint_name}")
     print("==================================================")
@@ -145,6 +151,7 @@ def run_mappo_training(
             "max_grad_norm": 0.5,
             "actor_hidden": 64,
             "critic_hidden": 64,
+            "policy_architecture": policy_architecture,
             "obs_dim": OBSERVATION_DIM,
             "action_dim": ACTION_SPACE_SIZE,
         },
@@ -192,6 +199,7 @@ def run_mappo_training(
             shot_clock_t_max=600,
             enable_exploration_bonus=enable_exploration,
             exploration_beta=exploration_beta,
+            include_graph_observations=graph_policy,
         )
         envs = [env]
     else:
@@ -209,6 +217,7 @@ def run_mappo_training(
                     shot_clock_t_max=600,
                     enable_exploration_bonus=enable_exploration,
                     exploration_beta=exploration_beta,
+                    include_graph_observations=graph_policy,
                 )
             )
         env = envs[0]
@@ -244,8 +253,14 @@ def run_mappo_training(
     print(f"   Local Obs Dim (with Role One-Hot): {obs_dim} | Action Dim: {action_dim}")
     print(f"   Critic Architecture: Permutation-Invariant Deep Sets Pooling (O(1) parameter scaling)")
 
-    actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
-    critic = CentralizedCritic(obs_dim=obs_dim, hidden=64, mode="pool")
+    if graph_policy:
+        from training.gnn_mappo_networks import GNNMAPPOActor, GNNMAPPOCritic
+        encoder_type = policy_architecture.split(":", 1)[1]
+        actor = GNNMAPPOActor(action_dim=action_dim, encoder_type=encoder_type)
+        critic = GNNMAPPOCritic(encoder_type=encoder_type)
+    else:
+        actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
+        critic = CentralizedCritic(obs_dim=obs_dim, hidden=64, mode="pool")
 
     actor_opt = torch.optim.Adam(actor.parameters(), lr=3e-4)
     critic_opt = torch.optim.Adam(critic.parameters(), lr=3e-4)
@@ -256,7 +271,12 @@ def run_mappo_training(
     if resume_path and os.path.exists(resume_path):
         print(f"\n   -> Loading checkpoint state from: {resume_path}...")
         ckpt = torch.load(resume_path, map_location="cpu")
-        ckpt_obs_dim = ckpt.get("obs_dim", 115 if "actor" in ckpt and ckpt["actor"]["net.0.weight"].shape[1] == 115 else OBSERVATION_DIM)
+        if ckpt.get("policy_architecture", "flat") != policy_architecture:
+            raise RuntimeError(
+                f"Checkpoint policy_architecture={ckpt.get('policy_architecture', 'flat')!r} "
+                f"does not match requested {policy_architecture!r}"
+            )
+        ckpt_obs_dim = int(ckpt.get("obs_dim", OBSERVATION_DIM))
         if ckpt_obs_dim != OBSERVATION_DIM:
             raise RuntimeError(
                 f"[GMN Contract Mismatch] Checkpoint '{resume_path}' has obs_dim={ckpt_obs_dim}, "
@@ -373,6 +393,7 @@ def run_mappo_training(
                         "obs_dim": obs_dim,
                         "global_state_dim": global_state_dim,
                         "action_dim": action_dim,
+                        "policy_architecture": policy_architecture,
                         "timesteps": total_steps_elapsed,
                         "curriculum_stage": new_stage,
                         "curriculum_history": scheduler.history,
@@ -460,6 +481,7 @@ def run_mappo_training(
             lam=0.95,
             bootstrap_value=0.0,
             next_local_obs=buffer["next_local_obs"],
+            next_graph_observations=buffer.get("next_graph_observations"),
             critic=critic,
             per_agent_rewards=buffer.get("per_agent_rewards"),
         )
@@ -687,6 +709,7 @@ def run_mappo_training(
                         "obs_dim": obs_dim,
                         "global_state_dim": global_state_dim,
                         "action_dim": action_dim,
+                        "policy_architecture": policy_architecture,
                         "timesteps": total_steps_elapsed,
                     },
                     best_rolling_ckpt_name,
@@ -726,6 +749,7 @@ def run_mappo_training(
                     "obs_dim": obs_dim,
                     "global_state_dim": global_state_dim,
                     "action_dim": action_dim,
+                    "policy_architecture": policy_architecture,
                     "timesteps": total_steps_elapsed,
                 },
                 milestone_ckpt_path,
@@ -763,6 +787,7 @@ def run_mappo_training(
                             "obs_dim": obs_dim,
                             "global_state_dim": global_state_dim,
                             "action_dim": action_dim,
+                            "policy_architecture": policy_architecture,
                             "timesteps": total_steps_elapsed,
                         },
                         best_ckpt_name,
@@ -798,6 +823,7 @@ def run_mappo_training(
                             "obs_dim": obs_dim,
                             "global_state_dim": global_state_dim,
                             "action_dim": action_dim,
+                            "policy_architecture": policy_architecture,
                             "timesteps": total_steps_elapsed,
                         },
                         _ablation_ckpt_name,
@@ -828,6 +854,7 @@ def run_mappo_training(
                             "obs_dim": obs_dim,
                             "global_state_dim": global_state_dim,
                             "action_dim": action_dim,
+                            "policy_architecture": policy_architecture,
                             "timesteps": total_steps_elapsed,
                             "actor_loss_reweight_M": current_actor_reweight_M,
                             "phase": "intervention" if total_steps_elapsed < actor_loss_reweight_phase1_steps else "tail",
@@ -859,6 +886,7 @@ def run_mappo_training(
                         "obs_dim": obs_dim,
                         "global_state_dim": global_state_dim,
                         "action_dim": action_dim,
+                        "policy_architecture": policy_architecture,
                         "timesteps": total_steps_elapsed,
                     },
                     mixscript_end_ckpt,
@@ -886,6 +914,7 @@ def run_mappo_training(
             "obs_dim": obs_dim,
             "global_state_dim": global_state_dim,
             "action_dim": action_dim,
+            "policy_architecture": policy_architecture,
             "timesteps": total_steps_elapsed,
         },
         checkpoint_path,
@@ -928,6 +957,7 @@ def run_mappo_training(
                     "obs_dim": obs_dim,
                     "global_state_dim": global_state_dim,
                     "action_dim": action_dim,
+                    "policy_architecture": policy_architecture,
                     "timesteps": total_steps_elapsed,
                 },
                 best_ckpt_name,
@@ -1016,8 +1046,17 @@ def run_mappo_training(
     # 7. Checkpoint Reload Smoke Test
     print("\n7. Verifying Checkpoint Reload Smoke Test...", flush=True)
     loaded_checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    eval_actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
-    eval_critic = CentralizedCritic(obs_dim=obs_dim, hidden=64, mode="pool")
+    if graph_policy:
+        eval_actor = GNNMAPPOActor(
+            action_dim=action_dim,
+            encoder_type=policy_architecture.split(":", 1)[1],
+        )
+        eval_critic = GNNMAPPOCritic(
+            encoder_type=policy_architecture.split(":", 1)[1],
+        )
+    else:
+        eval_actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
+        eval_critic = CentralizedCritic(obs_dim=obs_dim, hidden=64, mode="pool")
 
     eval_actor.load_state_dict(loaded_checkpoint["actor"])
     eval_critic.load_state_dict(loaded_checkpoint["critic"])
@@ -1025,11 +1064,16 @@ def run_mappo_training(
     eval_critic.eval()
 
     # Test dummy forward pass
-    dummy_obs = torch.zeros((num_agents, obs_dim), dtype=torch.float32)
-    dummy_dist = eval_actor(dummy_obs)
+    if graph_policy:
+        dummy_graphs = buffer["graph_observations"][-1]
+        dummy_masks = torch.tensor(buffer["action_masks"][-1], dtype=torch.bool)
+        dummy_dist = eval_actor(dummy_graphs, dummy_masks)
+        dummy_val = eval_critic([dummy_graphs[0]])
+    else:
+        dummy_obs = torch.zeros((num_agents, obs_dim), dtype=torch.float32)
+        dummy_dist = eval_actor(dummy_obs)
+        dummy_val = eval_critic(torch.zeros((1, num_agents, obs_dim), dtype=torch.float32))
     dummy_act = dummy_dist.sample()
-    dummy_joint = torch.zeros((1, num_agents, obs_dim), dtype=torch.float32)
-    dummy_val = eval_critic(dummy_joint)
 
     assert dummy_act.shape == (num_agents,), f"Dummy action shape mismatch: {dummy_act.shape}"
     assert dummy_val.shape == (1,), f"Dummy value shape mismatch: {dummy_val.shape}"
@@ -1137,6 +1181,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint (.pt) to resume from")
     parser.add_argument("--n-envs", type=int, default=1, help="Number of parallel environments/bridges (1 = legacy single-env mode)")
+    parser.add_argument("--policy-architecture", choices=["flat", "gnn:gat", "gnn:geometry", "gnn:mlp"], default="flat", help="Policy/value representation; GNN modes are experimental")
     parser.add_argument("--self-play", action="store_true", help="Enable the self-play opponent pool for the right team")
     parser.add_argument("--opponent-difficulty", type=str, default="medium", choices=["easy", "medium", "hard", "master"], help="Fixed rule-based opponent difficulty when self-play is disabled")
     parser.add_argument("--opponent-strategy", type=str, default="uniform", choices=["uniform", "cyclic", "elo"], help="Opponent pool selection strategy")
@@ -1190,6 +1235,7 @@ if __name__ == "__main__":
         exploration_ablation_phase1_steps=args.exploration_ablation_phase1_steps,
         exploration_ablation_total_steps=args.exploration_ablation_total_steps,
         exploration_ablation_checkpoint_interval=args.exploration_ablation_checkpoint_interval,
+        policy_architecture=args.policy_architecture,
     )
 
 

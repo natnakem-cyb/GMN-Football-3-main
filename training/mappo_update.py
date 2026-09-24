@@ -61,6 +61,15 @@ def ppo_update(
     # Flatten (T, num_agents, ...) -> (T*num_agents, ...), agent-major within
     # each timestep — matches collect_rollout's storage order exactly.
     flat_obs = buffer["local_obs"].reshape(T * num_agents, obs_dim)
+    use_graphs = bool(getattr(actor, "requires_graph_observations", False))
+    flat_actor_graphs = None
+    flat_critic_graphs = None
+    if use_graphs:
+        graph_steps = buffer.get("graph_observations")
+        if graph_steps is None or len(graph_steps) != T:
+            raise ValueError("GNN PPO update requires graph_observations for every rollout step")
+        flat_actor_graphs = [graph_steps[t][a] for t in range(T) for a in range(num_agents)]
+        flat_critic_graphs = [graph_steps[t][0] for t in range(T) for _ in range(num_agents)]
     flat_actions = buffer["actions"].reshape(T * num_agents)
     flat_old_logprobs = buffer["logprobs"].reshape(T * num_agents)
 
@@ -95,8 +104,9 @@ def ppo_update(
     returns_t = torch.from_numpy(flat_returns).float()
     
     # 3D joint observations for scalable permutation-invariant critic (Deep Sets)
-    joint_obs_repeated = np.repeat(buffer["local_obs"], num_agents, axis=0)
-    joint_obs_t = torch.from_numpy(joint_obs_repeated).float()
+    if not use_graphs:
+        joint_obs_repeated = np.repeat(buffer["local_obs"], num_agents, axis=0)
+        joint_obs_t = torch.from_numpy(joint_obs_repeated).float()
 
     n_samples = T * num_agents
     metrics = {"policy_loss": [], "value_loss": [], "entropy": [], "approx_kl": []}
@@ -111,7 +121,10 @@ def ppo_update(
             batch_masks = (
                 flat_masks_t[batch_idx] if flat_masks_t is not None else None
             )
-            dist = actor(obs_t[batch_idx], batch_masks)
+            if use_graphs:
+                dist = actor([flat_actor_graphs[int(i)] for i in batch_idx], batch_masks)
+            else:
+                dist = actor(obs_t[batch_idx], batch_masks)
             new_logprobs = dist.log_prob(actions_t[batch_idx])
             entropy = dist.entropy().mean()
 
@@ -182,7 +195,10 @@ def ppo_update(
                 surrogate_loss_share_M1.append(share_M1.item())
 
             # Pass 3D tensor (batch_size, num_agents, obs_dim) to CentralizedCritic
-            values_pred = critic(joint_obs_t[batch_idx])
+            if use_graphs:
+                values_pred = critic([flat_critic_graphs[int(i)] for i in batch_idx])
+            else:
+                values_pred = critic(joint_obs_t[batch_idx])
             value_loss = ((values_pred - returns_t[batch_idx]) ** 2).mean()
             # NOTE (audit P1, Issue 6): the critic input `joint_obs_t` is the same
             # per-timestep state repeated once per agent, so the critic loss is

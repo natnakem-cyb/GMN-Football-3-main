@@ -57,6 +57,29 @@ def unwrap_masks(obs_dict: Dict[str, Any]) -> Dict[str, Optional[np.ndarray]]:
     return masks
 
 
+def unwrap_graph_observations(
+    infos: Dict[str, Any], agent_order: List[str]
+) -> Dict[str, Any]:
+    """Read graphs attached by GMNMultiAgentEnv for every controlled agent."""
+    shared = infos.get("graph_observations") if isinstance(infos, dict) else None
+    if isinstance(shared, dict):
+        graphs = shared
+    else:
+        graphs = {
+            agent: infos[agent]["graph_observation"]
+            for agent in agent_order
+            if isinstance(infos.get(agent), dict)
+            and "graph_observation" in infos[agent]
+        }
+    missing = [agent for agent in agent_order if agent not in graphs]
+    if missing:
+        raise RuntimeError(
+            "GNN policy requested graph observations, but environment info is "
+            f"missing graphs for: {missing}. Set include_graph_observations=True."
+        )
+    return {agent: graphs[agent] for agent in agent_order}
+
+
 # Engine action-space size (src/engine/ActionMapping.ts).
 _ACTION_DIM = 19
 
@@ -153,16 +176,29 @@ def collect_rollout(
 
     # Retrieve or initialize persistent rollout state on env
     if not hasattr(env, "_mappo_obs") or env._mappo_obs is None:
-        raw_obs_dict, _ = env.reset()
+        raw_obs_dict, reset_infos = env.reset()
         env._mappo_masks = unwrap_masks(raw_obs_dict)
         obs_dict = unwrap_obs(raw_obs_dict)
         env._mappo_obs = obs_dict
         env._mappo_ep_rew = 0.0
         env._mappo_ep_len = 0
+        if getattr(actor, "requires_graph_observations", False):
+            env._mappo_graph_obs = unwrap_graph_observations(
+                reset_infos, list(env.agents or env.possible_agents)
+            )
     else:
         obs_dict = unwrap_obs(env._mappo_obs)
         if not hasattr(env, "_mappo_masks") or env._mappo_masks is None:
             env._mappo_masks = unwrap_masks(env._mappo_obs)
+
+    if getattr(actor, "requires_graph_observations", False):
+        if not getattr(env, "include_graph_observations", False):
+            raise RuntimeError(
+                "GNN actor requires GMNMultiAgentEnv(include_graph_observations=True)"
+            )
+        graph_obs_dict = getattr(env, "_mappo_graph_obs", None)
+        if graph_obs_dict is None:
+            raise RuntimeError("GNN rollout state has no current graph observations")
 
     agent_order = list(env.agents if env.agents else env.possible_agents)
     num_agents = len(agent_order)
@@ -186,16 +222,22 @@ def collect_rollout(
         # Sample from the policy under the engine's legality mask (all-ones
         # matrix when this env does not provide masks).
         mask_matrix = _mask_matrix(getattr(env, "_mappo_masks", None), current_agents)
+        current_graphs = (
+            [graph_obs_dict[a] for a in current_agents]
+            if getattr(actor, "requires_graph_observations", False)
+            else None
+        )
         with torch.no_grad():
             local_obs_t = torch.tensor(local_obs, dtype=torch.float32)
-            dist = actor(
-                local_obs_t,
-                torch.tensor(mask_matrix, dtype=torch.bool),
-            )
+            action_mask_t = torch.tensor(mask_matrix, dtype=torch.bool)
+            if current_graphs is not None:
+                dist = actor(current_graphs, action_mask_t)
+                value = critic([current_graphs[0]])
+            else:
+                dist = actor(local_obs_t, action_mask_t)
+                value = critic(local_obs_t.unsqueeze(0))
             actions = dist.sample()
             logprobs = dist.log_prob(actions)
-            # Pass 3D tensor (1, num_agents, obs_dim) to CentralizedCritic (Deep Sets pooling)
-            value = critic(local_obs_t.unsqueeze(0))
 
         action_dict = {a: int(actions[i].item()) for i, a in enumerate(current_agents)}
 
@@ -251,10 +293,17 @@ def collect_rollout(
                     # Recompute logprob for the overridden action so the surrogate
                     # objective remains approximately on-policy for this transition.
                     with torch.no_grad():
-                        _override_dist = actor(
-                            local_obs_t[_target_idx:_target_idx + 1],
-                            torch.tensor(mask_matrix[_target_idx:_target_idx + 1], dtype=torch.bool),
+                        _override_mask = torch.tensor(
+                            mask_matrix[_target_idx:_target_idx + 1], dtype=torch.bool
                         )
+                        if current_graphs is not None:
+                            _override_dist = actor(
+                                [current_graphs[_target_idx]], _override_mask
+                            )
+                        else:
+                            _override_dist = actor(
+                                local_obs_t[_target_idx:_target_idx + 1], _override_mask
+                            )
                         logprobs[_target_idx] = _override_dist.log_prob(
                             torch.tensor([_scripted_action], dtype=torch.long)
                         ).item()
@@ -264,6 +313,9 @@ def collect_rollout(
         reward_before_terminal = float(env._mappo_ep_rew)
 
         obs_dict, rewards, terminations, truncations, infos = env.step(action_dict)
+        if current_graphs is not None:
+            graph_obs_dict = unwrap_graph_observations(infos, current_agents)
+            env._mappo_graph_obs = graph_obs_dict
         # G2 fix: step returns the envelope format ({agent: {"observation": ...,
         # "action_mask": ...}}); unwrap immediately so the next loop iteration's
         # np.stack sees raw arrays instead of dicts. Capture the fresh masks
@@ -297,6 +349,8 @@ def collect_rollout(
         env._mappo_ep_len += 1
 
         buffer["local_obs"].append(local_obs)
+        if current_graphs is not None:
+            buffer.setdefault("graph_observations", []).append(current_graphs)
         buffer["global_state"].append(global_state)
         buffer["actions"].append(actions.cpu().numpy())
         buffer["logprobs"].append(logprobs.cpu().numpy())
@@ -376,9 +430,12 @@ def collect_rollout(
             })
             env._mappo_ep_rew = 0.0
             env._mappo_ep_len = 0
-            raw_reset, _ = env.reset()
+            raw_reset, reset_infos = env.reset()
             env._mappo_masks = unwrap_masks(raw_reset)
             obs_dict = unwrap_obs(raw_reset)
+            if current_graphs is not None:
+                graph_obs_dict = unwrap_graph_observations(reset_infos, agent_order)
+                env._mappo_graph_obs = graph_obs_dict
 
     env._mappo_obs = obs_dict
 
@@ -402,6 +459,11 @@ def collect_rollout(
         "completed_episodes": completed_episodes,
         "mixscript_stats": mixscript_stats,
     }
+    if getattr(actor, "requires_graph_observations", False):
+        res_buffer["graph_observations"] = buffer["graph_observations"]
+        res_buffer["next_graph_observations"] = [
+            graph_obs_dict[a] for a in agent_order
+        ]
 
     # Explicit shape assertions
     assert res_buffer["local_obs"].shape == (num_steps, num_agents, obs_dim), (
@@ -655,6 +717,7 @@ def compute_gae(
     lam: float = 0.95,
     bootstrap_value: float = 0.0,
     next_local_obs: np.ndarray = None,
+    next_graph_observations: Optional[List[Any]] = None,
     critic = None,
     per_agent_rewards: np.ndarray = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -691,12 +754,17 @@ def compute_gae(
         and not dones[-1]
     ):
         with torch.no_grad():
-            # next_local_obs shape: (num_agents, obs_dim) -> (1, num_agents, obs_dim)
-            assert next_local_obs.ndim == 2, (
-                f"Expected next_local_obs shape (num_agents, obs_dim), got {next_local_obs.shape}"
-            )
-            obs_tensor = torch.tensor(next_local_obs, dtype=torch.float32).unsqueeze(0)
-            effective_bootstrap = float(critic(obs_tensor).item())
+            if getattr(critic, "requires_graph_observations", False):
+                if not next_graph_observations:
+                    raise ValueError("GNN critic requires next_graph_observations for bootstrap")
+                effective_bootstrap = float(critic([next_graph_observations[0]]).item())
+            else:
+                # next_local_obs: (num_agents, obs_dim) -> (1, num_agents, obs_dim)
+                assert next_local_obs.ndim == 2, (
+                    f"Expected next_local_obs shape (num_agents, obs_dim), got {next_local_obs.shape}"
+                )
+                obs_tensor = torch.tensor(next_local_obs, dtype=torch.float32).unsqueeze(0)
+                effective_bootstrap = float(critic(obs_tensor).item())
 
     if per_agent_rewards is not None:
         # Per-agent GAE: each agent has its own reward signal but shares the same

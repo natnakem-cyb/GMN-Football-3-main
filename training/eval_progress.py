@@ -601,14 +601,30 @@ def evaluate_multi_agent_mappo(
     from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    obs_dim = checkpoint.get("obs_dim", 127 if "actor" in checkpoint and checkpoint["actor"]["net.0.weight"].shape[1] == 127 else (checkpoint["actor"]["net.0.weight"].shape[1] if "actor" in checkpoint else 127))
+    obs_dim = int(checkpoint.get("obs_dim", 127))
     action_dim = checkpoint.get("action_dim", 19)
 
-    actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
+    policy_architecture = checkpoint.get("policy_architecture", "flat")
+    if policy_architecture == "flat":
+        actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
+    elif policy_architecture.startswith("gnn:"):
+        from training.gnn_mappo_networks import GNNMAPPOActor
+        actor = GNNMAPPOActor(
+            action_dim=action_dim,
+            encoder_type=policy_architecture.split(":", 1)[1],
+        )
+    else:
+        raise ValueError(f"Unsupported checkpoint policy_architecture: {policy_architecture}")
     actor.load_state_dict(checkpoint["actor"])
     actor.eval()
 
-    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True, port=bridge_port)
+    graph_policy = bool(getattr(actor, "requires_graph_observations", False))
+    env = GMNMultiAgentEnv(
+        scenario=scenario,
+        auto_start_bridge=True,
+        port=bridge_port,
+        include_graph_observations=graph_policy,
+    )
     controllable_agents = list(env.possible_agents)
 
     rewards = []
@@ -632,7 +648,8 @@ def evaluate_multi_agent_mappo(
     try:
         for ep in range(num_episodes):
             seed = base_seed + ep * 1009
-            obs_dict, _ = env.reset(seed=seed)
+            obs_dict, reset_infos = env.reset(seed=seed)
+            current_infos = reset_infos
             current_ep_masks = unwrap_masks(obs_dict)
             tracker = FootballMetricsTracker()
             sample_obs = next(iter(obs_dict.values())) if obs_dict else None
@@ -651,7 +668,14 @@ def evaluate_multi_agent_mappo(
                 mask_matrix = _mask_matrix(current_ep_masks, current_agents)
 
                 with torch.no_grad():
-                    dist = actor(torch.from_numpy(local_obs).float(), torch.tensor(mask_matrix, dtype=torch.bool))
+                    if graph_policy:
+                        graphs = [
+                            current_infos[a]["graph_observation"]
+                            for a in current_agents
+                        ]
+                        dist = actor(graphs, torch.tensor(mask_matrix, dtype=torch.bool))
+                    else:
+                        dist = actor(torch.from_numpy(local_obs).float(), torch.tensor(mask_matrix, dtype=torch.bool))
                     if deterministic:
                         actions = dist.logits.argmax(dim=-1)
                     else:
@@ -669,6 +693,7 @@ def evaluate_multi_agent_mappo(
 
                 obs_dict, rews, terms, truncs, infos = env.step(action_dict)
                 current_ep_masks = unwrap_masks(obs_dict)
+                current_infos = infos
                 steps += 1
 
                 shared_rew = float(rews[current_agents[0]]) if current_agents and current_agents[0] in rews else 0.0

@@ -420,9 +420,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         shot_clock_t_max: Optional[int] = None,
         enable_exploration_bonus: bool = True,
         exploration_beta: float = 0.03,
+        include_graph_observations: bool = False,
     ):
         super().__init__()
         self.scenario = scenario
+        self.include_graph_observations = bool(include_graph_observations)
         self.host = host
         self.port = port or int(os.environ.get("GMN_BRIDGE_PORT", "5050"))
         self.base_url = f"http://{self.host}:{self.port}"
@@ -488,6 +490,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         # Phase 5: forensic debug flag and episode index
         self._forensic_debug: bool = os.environ.get("GMN_FORENSIC_DEBUG", "0") == "1"
         self._episode_index: int = 0
+
         self._bridge_error_count: int = 0
 
         # Terminal-frame provenance for forensic reward tracing (Step 2/3).
@@ -550,6 +553,70 @@ class GMNMultiAgentEnv(ParallelEnv):
         # started and its /opponent endpoint is not yet accepting requests.
         if opponent_difficulty != "medium":
             self.set_opponent_difficulty(opponent_difficulty)
+
+    @staticmethod
+    def _graph_controlled_player_id(agent_id: str) -> str:
+        """Map bridge IDs (left_1) to graph roster IDs (left_0)."""
+        team, _, raw_index = agent_id.rpartition("_")
+        if team not in ("left", "right") or not raw_index.isdigit():
+            raise ValueError(f"Cannot map agent ID to graph roster: {agent_id!r}")
+        index = int(raw_index)
+        if index < 1:
+            raise ValueError(f"Bridge agent IDs are one-based: {agent_id!r}")
+        return f"{team}_{index - 1}"
+
+    def _attach_graph_observations(
+        self,
+        observations: Dict[str, Any],
+        infos: Dict[str, Any],
+        scenario_id: Optional[str] = None,
+    ) -> None:
+        """Optionally attach a per-agent Phase 3 graph alongside flat observations.
+
+        Standard PettingZoo reset/step responses store info by agent, while the
+        batched helpers return one shared info dict. Both forms are supported.
+        The existing observation and action-mask contract is left untouched.
+        """
+        if not self.include_graph_observations or not observations:
+            return
+
+        try:
+            from training.gnn_graph_builder import SCENARIOS as GNN_SCENARIOS
+            from training.gnn_graph_builder import build_graph
+        except ImportError:
+            from gnn_graph_builder import SCENARIOS as GNN_SCENARIOS
+            from gnn_graph_builder import build_graph
+
+        requested_scenario = scenario_id or self.scenario
+        graph_scenario = requested_scenario
+        if graph_scenario not in GNN_SCENARIOS and graph_scenario.endswith("_onball"):
+            candidate = graph_scenario[: -len("_onball")]
+            if candidate in GNN_SCENARIOS:
+                graph_scenario = candidate
+        if graph_scenario not in GNN_SCENARIOS:
+            raise ValueError(
+                f"Graph observations are not defined for scenario {requested_scenario!r}"
+            )
+
+        per_agent_infos = all(agent in infos for agent in observations)
+        graph_by_agent: Dict[str, Any] = {}
+        for agent_id, observation in observations.items():
+            if isinstance(observation, dict) and "observation" in observation:
+                graph_input = observation
+            else:
+                graph_input = {"observation": observation}
+            info = infos[agent_id] if per_agent_infos else infos
+            graph_info = dict(info) if isinstance(info, dict) else {}
+            graph_info["controlledPlayerId"] = self._graph_controlled_player_id(agent_id)
+            graph_by_agent[agent_id] = build_graph(
+                graph_input, graph_info, graph_scenario
+            )
+
+        if per_agent_infos:
+            for agent_id, graph in graph_by_agent.items():
+                infos[agent_id]["graph_observation"] = graph
+        else:
+            infos["graph_observations"] = graph_by_agent
 
     def set_opponent_difficulty(self, difficulty: str) -> None:
         """Set the right-team (bot) difficulty via the bridge /opponent endpoint."""
@@ -825,7 +892,9 @@ class GMNMultiAgentEnv(ParallelEnv):
         else:
             state["_last_ball_owner_agent_idx"] = 255
         self._batch_envs[env_idx] = state
-        return (state["obs_dict"], {a: state["info"] for a in state["agents"]})
+        infos = {a: dict(state["info"]) for a in state["agents"]}
+        self._attach_graph_observations(state["obs_dict"], infos)
+        return (state["obs_dict"], infos)
 
     def _recv_reset_one_response(self) -> str:
         """Receive a reset_one JSON response, skipping unsolicited broadcast frames."""
@@ -1027,6 +1096,7 @@ class GMNMultiAgentEnv(ParallelEnv):
                     if agent in shaped_rewards:
                         env_rewards[agent] = shaped_rewards[agent]
 
+            self._attach_graph_observations(observations, shared_info)
             results.append((observations, env_rewards, shared_term, shared_trunc, shared_info))
         return results
 
@@ -1387,6 +1457,8 @@ class GMNMultiAgentEnv(ParallelEnv):
         if self.batch_size > 1:
             seeds = [int(seed) + i if seed is not None else None for i in range(self.batch_size)]
             batch_results = self.reset_batch(seeds)
+            for batch_obs, batch_infos in batch_results:
+                self._attach_graph_observations(batch_obs, batch_infos, target_scenario)
             first_obs, first_info = batch_results[0]
             self.possible_agents = list(first_obs.keys())
             self.agents = list(self.possible_agents)
@@ -1459,6 +1531,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         infos: Dict[str, Any] = {agent: dict(info_data) for agent in self.agents}
         for agent in self.agents:
             infos[agent]["action_mask"] = action_masks[agent]
+        graph_inputs = {
+            agent: {"observation": observations[agent], "action_mask": action_masks[agent]}
+            for agent in self.agents
+        }
+        self._attach_graph_observations(graph_inputs, infos, target_scenario)
         return {agent: {"observation": observations[agent], "action_mask": action_masks[agent]} for agent in self.agents}, infos
 
     @staticmethod
@@ -2138,6 +2215,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         if shared_term or shared_trunc:
             self.agents = []
 
+        self._attach_graph_observations(observations, infos)
         return observations, rewards, terminations, truncations, infos
 
     def render(self):
