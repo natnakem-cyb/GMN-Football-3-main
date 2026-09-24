@@ -1264,7 +1264,6 @@ wss.on('connection', (ws: WebSocket, req) => {
       if (isBinary) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
         if (buf.length === 1) {
-          console.log('[WS DEBUG] Single-agent path');
           // existing single-agent path — unchanged
           const actionIdx = buf.readUInt8(0);
           if (actionIdx >= ACTION_SPACE_SIZE) {

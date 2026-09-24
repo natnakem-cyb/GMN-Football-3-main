@@ -3,12 +3,14 @@
 Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` = done.
 
 ## Open — Production GNN policy integration
-- [x] Gap 1: add opt-in graph construction to environment reset/step, including batched helpers, and attach results to info without changing the default observation contract. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
-- [x] Gap 2: add GNN actor/critic and connect single-environment rollout, PPO updates, progress evaluation, and architecture-tagged checkpoints. Implementation is pending test and training verification; batched GNN rollout remains open.
-- [x] Gap 3: add versioned GNN checkpoint contracts and architecture-aware progress, F_act, and canonical evaluators; preserve legacy flat-checkpoint loading. Code implemented; verification pending. ONNX export remains Gap 4.
-- [ ] Diagnose bridge readiness/WebSocket timeout in `test_curriculum_live_e2e.py`; finish the Python training suite (current fail-fast run: 36 passed, 1 bridge timeout).
-- [ ] Add direct Gap 1–3 tests: graph attachment and default flat observations; GNN rollout/update gradients; checkpoint contract and flat/GNN evaluator loading.
-- [ ] After those tests pass, run a small single-environment GNN train/evaluation smoke check. Record it as a smoke check, not a policy-quality result.
+- [x] Gap 1: add opt-in graph construction at reset/step; focused single-environment attachment and unchanged flat-default tests pass. Batched graph-helper verification remains open.
+- [x] Gap 2: connect GNN actor/critic to single-environment rollout and PPO; rollout/update gradient tests and a 256-step live `gnn:mlp` smoke with two-episode evaluation pass. No policy-quality claim; batched MAPPO and GAT/geometry training remain open.
+- [x] Gap 3: versioned GNN checkpoint contract, legacy flat loading, and F_act/canonical evaluator loading tests pass; the GNN smoke exercised `eval_progress.py`. ONNX export remains Gap 4.
+- [x] Diagnose/fix bridge hangs: unread child output pipes could block Node, and Windows listener cleanup parsed `netstat` incorrectly and left child processes. The live curriculum test now completes its scoring loop and takes its expected no-goal skip path.
+- [ ] Fix the live trainer curriculum smoke: the seeded scheduler was expected at index 1 but remained at index 0.
+- [ ] Investigate `test_policy_a_pass_spam_long`, `test_policy_b_pass_spam_short`, and `test_live_single_pass_single_event_and_engine_reward`; full suite observed completed passes where zero were expected and no completion within the 600-tick pass pipeline.
+- [ ] Add Gap 1 batched graph-helper tests; exercise GAT/geometry end-to-end; graph-aware batched MAPPO remains open.
+- [ ] Full Python suite currently completes with 318 passed, 1 skipped, 4 failed. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md` for exact failures and run provenance.
 - [ ] If GNN policies are to be deployed in the browser, add and validate ONNX export/runtime support after the architecture contract is stable.
 - [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality.
 

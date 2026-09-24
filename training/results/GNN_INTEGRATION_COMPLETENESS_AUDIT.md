@@ -2,21 +2,21 @@
 
 **Date:** 2026-09-23  
 **Author:** debug agent  
-**Status:** Reporting corrections verified; production GNN policy integration remains OPEN
+**Status:** Reporting corrections verified; single-environment GNN policy path smoke-verified; production integration remains OPEN
 **Canonical Protocol:** base_seed=500000, scenario=academy_3_vs_1_with_keeper_onball  
 
-> **Current status (updated 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter is false. Gaps 1–3 now have code paths for opt-in environment graph observations, single-environment MAPPO training/update, versioned GNN checkpoint contracts, and architecture-aware progress/F_act/canonical evaluators; verification is pending. Batched GNN training and ONNX/browser inference remain open. No GNN training result is claimed here. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
+> **Current status (updated 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter remains false. Focused tests now cover single-environment reset/step graph attachment, default flat behavior, GNN rollout and actor/critic updates, checkpoint validation, and evaluator loading. A 256-step live `gnn:mlp` smoke plus two-episode deterministic evaluation completed; this is execution evidence, not a policy-quality result. Batched graph helpers/MAPPO, GAT/geometry training, ONNX/browser inference, and quantitative probes remain open. The full Python suite completes with 318 passed, 1 skipped, and 4 failures tracked in the progress report.
 
 ### Current implementation check
 
-At base HEAD `0ed0d431e136c369aa0afbfdc84eff1174bf490e`, read-only inspection found no GNN call path in the trainer, policy networks, evaluators, or exporter. Subsequent local changes add optional graph attachments, GNN actor/critic classes, a single-environment rollout/update path, and architecture-aware progress evaluation. Flat MAPPO remains the default. This current implementation status is based on source inspection only; no test or training evidence is claimed.
+At base HEAD `0ed0d431e136c369aa0afbfdc84eff1174bf490e`, read-only inspection found no GNN call path in the trainer, policy networks, evaluators, or exporter. Subsequent changes add optional graph attachments, GNN actor/critic classes, a single-environment rollout/update path, and architecture-aware evaluator loading. Focused tests and one bounded live smoke have since run; flat MAPPO remains the default. The exact evidence and limits are recorded in `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
 
 | Work item | Verified status | Next useful action |
 |---|---|---|
 | Graph builder, graph schema, tensor adapter, encoder and diagnostic probe modules | Implemented as standalone components; earlier Phase 3/4 reports record unit-level checks | Keep as components; no policy-quality claim until measured |
-| Build graph input during environment reset/step | **Gap 1 implemented; verification pending** | Review/run targeted reset, step, and batched integration checks |
-| Feed graph tensors to a GNN actor/critic during rollout and PPO updates | **Gap 2 implemented for `n_envs=1`; verification pending** | Add graph-aware batched rollout and verify the actor/critic update path |
-| Checkpoint and evaluator compatibility | **Gap 3 implemented; verification pending** | Versioned graph contract, encoder signatures, and progress/F_act/canonical evaluator loading |
+| Build graph input during environment reset/step | **Single-environment reset/step and flat default tested** | Add batched helper coverage |
+| Feed graph tensors to a GNN actor/critic during rollout and PPO updates | **`gnn:mlp` rollout/update tests and 256-step live smoke passed** | Exercise GAT/geometry and add graph-aware batched rollout |
+| Checkpoint and evaluator compatibility | **Contract, legacy flat, F_act/canonical loaders tested; progress evaluator exercised by smoke** | Continue compatibility tests as formats evolve |
 | ONNX/browser inference | **Open, required only if deploying GNN policies** | Add export/runtime support after architecture and checkpoint contract are stable |
 | GNN-specific hyperparameter tuning and curriculum behavior | **Not established; follow-up after a runnable baseline** | Specify only after end-to-end training path exists |
 | `.kilo/agent-manager.json` task assignment | **Not a runtime integration defect** | Track as project workflow only if that manager is actively used |

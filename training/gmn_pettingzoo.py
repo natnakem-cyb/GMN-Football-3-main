@@ -1121,6 +1121,23 @@ class GMNMultiAgentEnv(ParallelEnv):
                     pass
         raise RuntimeError("[GMN-Batch] No reset_batch_result received (only broadcast frames)")
 
+    @staticmethod
+    def _parse_netstat_listening_pids(lines: List[str], port: int) -> set:
+        """Extract Windows listener PIDs for one local TCP port."""
+        port_text = str(port)
+        pids = set()
+        for line in lines:
+            parts = line.split()
+            # Windows rows are `TCP local remote LISTENING PID`.
+            if (
+                len(parts) >= 5
+                and parts[0].strip().upper() == "TCP"
+                and parts[-2].strip().upper() == "LISTENING"
+                and parts[1].rsplit(":", 1)[-1] == port_text
+            ):
+                pids.add(parts[-1])
+        return pids
+
     def _kill_existing_bridge(self):
         """Kill any existing bridge processes on this port to avoid stale listeners."""
         # 1. Terminate tracked subprocess if we have one
@@ -1138,24 +1155,20 @@ class GMNMultiAgentEnv(ParallelEnv):
         # 2. Kill orphaned bridge_server.ts / tsx / node processes on the same port
         try:
             if sys.platform == "win32":
-                # Windows: find PID listening on the port and taskkill it
+                # Windows: find the PID listening on this exact port and kill
+                # its process tree. `npx.cmd` can spawn Node children that
+                # outlive the tracked cmd.exe process when only the parent is
+                # terminated.
                 import subprocess as _subprocess
                 port = str(self.port)
-                # netstat -ano finds the PID; findstr filters to LISTENING + port
                 netstat = _subprocess.check_output(
                     ["netstat", "-ano"], text=True, stderr=_subprocess.DEVNULL, timeout=5.0
                 ).splitlines()
-                pids = set()
-                for line in netstat:
-                    parts = line.split()
-                    if len(parts) >= 4 and parts[0].strip().upper() == "LISTENING":
-                        local = parts[1]
-                        if (":" + port) in local:
-                            pids.add(parts[-1])
+                pids = self._parse_netstat_listening_pids(netstat, self.port)
                 for pid in pids:
                     try:
                         _subprocess.check_call(
-                            ["taskkill", "/F", "/PID", pid],
+                            ["taskkill", "/F", "/T", "/PID", pid],
                             stdout=_subprocess.DEVNULL,
                             stderr=_subprocess.DEVNULL,
                             timeout=5.0,
@@ -1227,8 +1240,9 @@ class GMNMultiAgentEnv(ParallelEnv):
                 self.bridge_process = subprocess.Popen(
                     _npx_cmd() + ["tsx", bridge_script],
                     env=dict(os.environ, GMN_BRIDGE_PORT=str(self.port)),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    # Do not leave an unread PIPE attached to the bridge.
+                    # The child emits logs while serving steps; a full pipe
+                    # blocks Node's event loop and makes WebSocket clients hang.
                 )
             except Exception as e:
                 raise RuntimeError(
