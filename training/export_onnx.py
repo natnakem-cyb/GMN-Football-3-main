@@ -15,6 +15,7 @@ import onnx
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from training.mappo_networks import SharedActor
+from training.checkpoint_contract import validate_policy_checkpoint
 
 
 class ActorPolicyOnnxModule(nn.Module):
@@ -50,7 +51,14 @@ def export_to_onnx(
 
     # 1. Load PyTorch checkpoint
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    obs_dim = checkpoint.get("obs_dim", 127 if "actor" in checkpoint and checkpoint["actor"]["net.0.weight"].shape[1] == 127 else checkpoint["actor"]["net.0.weight"].shape[1] if "actor" in checkpoint else 127)
+    valid, reason = validate_policy_checkpoint(checkpoint)
+    if not valid:
+        raise RuntimeError(f"[GMN-Export Error] Invalid MAPPO checkpoint: {reason}")
+    if checkpoint.get("policy_architecture", "flat") != "flat":
+        raise NotImplementedError(
+            "GNN checkpoint export is not implemented yet; ONNX/browser deployment is tracked as Gap 4."
+        )
+    obs_dim = int(checkpoint.get("obs_dim", 127))
     action_dim = checkpoint.get("action_dim", 19)
     timesteps = checkpoint.get("timesteps", "unknown")
 

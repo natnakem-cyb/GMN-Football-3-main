@@ -49,6 +49,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv  # noqa: E402
 from training.mappo_networks import SharedActor  # noqa: E402
+from training.checkpoint_contract import load_mappo_actor  # noqa: E402
 from training.mappo_rollout import _mask_matrix, unwrap_masks, unwrap_obs  # noqa: E402
 from training.prestep_onball import (  # noqa: E402
     OBS_BALL_OWNERSHIP_SLICE,
@@ -185,12 +186,19 @@ def _batched_actor_quantities(
     actor: SharedActor,
     obs_t: torch.Tensor,
     mask_t: torch.Tensor,
+    graph_observations: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     obs_t = torch.from_numpy(obs_t).float() if isinstance(obs_t, np.ndarray) else obs_t
     mask_t = torch.from_numpy(mask_t).bool() if isinstance(mask_t, np.ndarray) else mask_t
-    dist = actor(obs_t, mask_t)
+    if getattr(actor, "requires_graph_observations", False):
+        if graph_observations is None:
+            raise ValueError("GNN canonical evaluation requires per-agent graph observations")
+        dist = actor(graph_observations, mask_t)
+        raw_logits = actor.raw_logits(graph_observations).cpu().numpy()
+    else:
+        dist = actor(obs_t, mask_t)
+        raw_logits = actor.net(obs_t).cpu().numpy()
 
-    raw_logits = actor.net(obs_t).cpu().numpy()
     masked_logits = dist.logits.cpu().numpy()
     probs = dist.probs.cpu().numpy().astype(np.float64)
     entropy = dist.entropy().cpu().numpy().astype(np.float64)
@@ -536,8 +544,12 @@ def collect_canonical_measurement(
     verbose: bool = True,
 ) -> Dict[str, Any]:
     """Roll out deterministic episodes, capturing all 3 agents' pre-step decisions."""
+    graph_policy = bool(getattr(actor, "requires_graph_observations", False))
     env = GMNMultiAgentEnv(
-        scenario=scenario, auto_start_bridge=True, port=bridge_port
+        scenario=scenario,
+        auto_start_bridge=True,
+        port=bridge_port,
+        include_graph_observations=graph_policy,
     )
     controllable_agents = list(env.possible_agents)
 
@@ -548,7 +560,7 @@ def collect_canonical_measurement(
     try:
         for ep in range(num_episodes):
             ep_seed = base_seed + ep * 1009
-            obs_dict, _ = env.reset(seed=ep_seed)
+            obs_dict, current_infos = env.reset(seed=ep_seed)
             current_ep_masks = unwrap_masks(obs_dict)
             obs_dict = unwrap_obs(obs_dict)
 
@@ -581,7 +593,14 @@ def collect_canonical_measurement(
                 )
 
                 # Run actor once for all agents
-                actor_q = _batched_actor_quantities(actor, local_obs, mask_matrix)
+                graphs = (
+                    [current_infos[a]["graph_observation"] for a in current_agents]
+                    if graph_policy
+                    else None
+                )
+                actor_q = _batched_actor_quantities(
+                    actor, local_obs, mask_matrix, graphs
+                )
 
                 # Build action dict from deterministic actions
                 actions_np = actor_q["deterministic_action"]
@@ -591,6 +610,7 @@ def collect_canonical_measurement(
 
                 # ---- Step (post-step ownership is diagnostic only) ----
                 obs_dict, rewards, terms, truncs, infos = env.step(action_dict)
+                current_infos = infos
                 current_ep_masks = unwrap_masks(obs_dict)
                 obs_dict = unwrap_obs(obs_dict)
 
@@ -1282,10 +1302,7 @@ def _check_temporal_alignment(decisions: List[Dict[str, Any]]) -> bool:
 def load_actor(checkpoint_path: str):
     """Load the checkpoint actor."""
     ckpt = torch.load(checkpoint_path, map_location="cpu")
-    obs_dim = int(ckpt.get("obs_dim", OBS_DIM))
-    action_dim = int(ckpt.get("action_dim", ACTION_DIM))
-    actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
-    actor.load_state_dict(ckpt["actor"])
+    actor = load_mappo_actor(ckpt)
     actor.eval()
     timesteps = ckpt.get("timesteps", None)
     actual_timesteps = (

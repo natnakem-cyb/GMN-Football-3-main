@@ -50,6 +50,154 @@ ROLE_DIM = 12
 OBSERVATION_DIM = 127
 ACTION_SCHEMA_VERSION = "discrete19_v1"
 ACTION_SPACE_SIZE = 19
+POLICY_ARCHITECTURE_SCHEMA_VERSION = "policy_architecture_v1"
+GNN_GRAPH_SCHEMA_ID = "gnn_graph_schema_v3.json"
+GNN_NODE_FEATURE_DIM = 32
+GNN_EDGE_FEATURE_DIM = 10
+GNN_CONTEXT_DIM = 8
+
+
+def create_policy_checkpoint_contract(policy_architecture: str = "flat") -> Dict[str, Any]:
+    """Return versioned architecture metadata stored with MAPPO checkpoints."""
+    contract: Dict[str, Any] = {
+        "policy_architecture_schema": POLICY_ARCHITECTURE_SCHEMA_VERSION,
+        "policy_architecture": policy_architecture,
+        "env_version": GMN_ENV_VERSION,
+        "observation_schema": OBSERVATION_SCHEMA_VERSION,
+        "observation_dim": OBSERVATION_DIM,
+        "action_schema": ACTION_SCHEMA_VERSION,
+        "action_space_size": ACTION_SPACE_SIZE,
+    }
+    if policy_architecture.startswith("gnn:"):
+        contract.update({
+            "graph_schema": GNN_GRAPH_SCHEMA_ID,
+            "node_feature_dim": GNN_NODE_FEATURE_DIM,
+            "edge_feature_dim": GNN_EDGE_FEATURE_DIM,
+            "graph_context_dim": GNN_CONTEXT_DIM,
+        })
+    return contract
+
+
+def validate_policy_checkpoint(
+    checkpoint: Dict[str, Any],
+    expected_architecture: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """Validate flat legacy or versioned GNN MAPPO checkpoints.
+
+    Legacy checkpoints without architecture metadata are interpreted as flat
+    MAPPO. GNN checkpoints must carry the full graph/model contract so a graph
+    tensor or encoder change cannot silently load into the wrong architecture.
+    """
+    architecture = checkpoint.get("policy_architecture", "flat")
+    if expected_architecture is not None and architecture != expected_architecture:
+        return False, (
+            f"Policy architecture mismatch: expected {expected_architecture!r}, "
+            f"got {architecture!r}."
+        )
+    if architecture != "flat" and architecture not in (
+        "gnn:gat", "gnn:geometry", "gnn:mlp"
+    ):
+        return False, f"Unsupported policy architecture: {architecture!r}."
+
+    if int(checkpoint.get("obs_dim", OBSERVATION_DIM)) != OBSERVATION_DIM:
+        return False, f"Observation dimension mismatch: expected {OBSERVATION_DIM}."
+    if int(checkpoint.get("action_dim", ACTION_SPACE_SIZE)) != ACTION_SPACE_SIZE:
+        return False, f"Action dimension mismatch: expected {ACTION_SPACE_SIZE}."
+
+    actor_state = checkpoint.get("actor")
+    if not isinstance(actor_state, dict):
+        return False, "Checkpoint is missing an actor state dictionary."
+
+    if architecture == "flat":
+        contract = checkpoint.get("checkpoint_contract")
+        if contract is not None:
+            valid, reason = validate_checkpoint_metadata(contract)
+            if not valid:
+                return False, reason
+            expected_contract = create_policy_checkpoint_contract("flat")
+            for key, expected in expected_contract.items():
+                if contract.get(key) != expected:
+                    return False, f"Flat checkpoint contract mismatch for {key}."
+        first_layer = actor_state.get("net.0.weight")
+        if first_layer is None or tuple(first_layer.shape)[1] != OBSERVATION_DIM:
+            return False, "Flat actor first layer does not match the 127-dim observation contract."
+        return True, None
+
+    contract = checkpoint.get("checkpoint_contract")
+    if not isinstance(contract, dict):
+        return False, "GNN checkpoint is missing checkpoint_contract metadata."
+    valid, reason = validate_checkpoint_metadata(contract)
+    if not valid:
+        return False, reason
+    expected_contract = create_policy_checkpoint_contract(architecture)
+    for key, expected in expected_contract.items():
+        if contract.get(key) != expected:
+            return False, (
+                f"GNN checkpoint contract mismatch for {key}: "
+                f"expected {expected!r}, got {contract.get(key)!r}."
+            )
+
+    encoder_prefix = {
+        "gnn:gat": "encoder.input_proj.weight",
+        "gnn:geometry": "encoder.feature_mlp.0.weight",
+        "gnn:mlp": "encoder.node_encoder.0.weight",
+    }[architecture]
+    if encoder_prefix not in actor_state:
+        return False, f"Actor state does not contain the {architecture} encoder signature."
+    policy_head = actor_state.get("policy_head.weight")
+    if policy_head is None or tuple(policy_head.shape)[0] != ACTION_SPACE_SIZE:
+        return False, "GNN actor policy head does not match the discrete19 action contract."
+    critic_state = checkpoint.get("critic")
+    if critic_state is not None:
+        if not isinstance(critic_state, dict) or encoder_prefix not in critic_state:
+            return False, f"Critic state does not contain the {architecture} encoder signature."
+        value_head = critic_state.get("value_head.2.weight")
+        if value_head is None or tuple(value_head.shape)[0] != 1:
+            return False, "GNN critic value head must produce one scalar value."
+    return True, None
+
+
+def load_mappo_actor(checkpoint: Dict[str, Any], expected_architecture: Optional[str] = None):
+    """Validate and construct a flat or GNN MAPPO actor from a checkpoint."""
+    valid, reason = validate_policy_checkpoint(checkpoint, expected_architecture)
+    if not valid:
+        raise ValueError(f"Invalid MAPPO checkpoint: {reason}")
+    architecture = checkpoint.get("policy_architecture", "flat")
+    if architecture == "flat":
+        from training.mappo_networks import SharedActor
+        actor = SharedActor(
+            obs_dim=int(checkpoint.get("obs_dim", OBSERVATION_DIM)),
+            action_dim=int(checkpoint.get("action_dim", ACTION_SPACE_SIZE)),
+            hidden=64,
+        )
+    else:
+        from training.gnn_mappo_networks import GNNMAPPOActor
+        actor = GNNMAPPOActor(
+            action_dim=int(checkpoint.get("action_dim", ACTION_SPACE_SIZE)),
+            encoder_type=architecture.split(":", 1)[1],
+        )
+    actor.load_state_dict(checkpoint["actor"])
+    return actor
+
+
+def load_mappo_critic(checkpoint: Dict[str, Any]):
+    """Construct the architecture-matched critic when present in a checkpoint."""
+    valid, reason = validate_policy_checkpoint(checkpoint)
+    if not valid:
+        raise ValueError(f"Invalid MAPPO checkpoint: {reason}")
+    if "critic" not in checkpoint:
+        return None
+    architecture = checkpoint.get("policy_architecture", "flat")
+    if architecture == "flat":
+        from training.mappo_networks import CentralizedCritic
+        critic = CentralizedCritic(
+            obs_dim=int(checkpoint.get("obs_dim", OBSERVATION_DIM)), hidden=64
+        )
+    else:
+        from training.gnn_mappo_networks import GNNMAPPOCritic
+        critic = GNNMAPPOCritic(encoder_type=architecture.split(":", 1)[1])
+    critic.load_state_dict(checkpoint["critic"])
+    return critic
 
 
 def compute_file_sha256(file_path: str) -> str:

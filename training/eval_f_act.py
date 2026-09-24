@@ -26,7 +26,7 @@ import torch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from training.gmn_pettingzoo import GMNMultiAgentEnv
-from training.mappo_networks import SharedActor, CentralizedCritic
+from training.checkpoint_contract import load_mappo_actor, load_mappo_critic
 from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
 
 ACTION_NAMES = [
@@ -62,14 +62,11 @@ def load_checkpoint(path: str):
     ckpt = torch.load(path, map_location="cpu")
     obs_dim = ckpt.get("obs_dim", OBS_DIM)
     action_dim = ckpt.get("action_dim", ACTION_DIM)
-    actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
-    actor.load_state_dict(ckpt["actor"])
+    actor = load_mappo_actor(ckpt)
     actor.eval()
 
-    critic = None
-    if "critic" in ckpt:
-        critic = CentralizedCritic(obs_dim=obs_dim, hidden=64)
-        critic.load_state_dict(ckpt["critic"])
+    critic = load_mappo_critic(ckpt)
+    if critic is not None:
         critic.eval()
 
     timesteps = ckpt.get("timesteps", None)
@@ -126,12 +123,18 @@ def _select_policy_actions(
     local_obs: np.ndarray,
     mask_matrix: np.ndarray,
     deterministic: bool = True,
+    graph_observations: Optional[List[Dict[str, Any]]] = None,
 ) -> np.ndarray:
     """Return action indices from the frozen policy for all agents."""
     with torch.no_grad():
-        obs_tensor = torch.from_numpy(local_obs).float()
         mask_tensor = torch.tensor(mask_matrix, dtype=torch.bool)
-        dist = actor(obs_tensor, mask_tensor)
+        if getattr(actor, "requires_graph_observations", False):
+            if graph_observations is None:
+                raise ValueError("GNN checkpoint evaluation requires graph observations")
+            dist = actor(graph_observations, mask_tensor)
+        else:
+            obs_tensor = torch.from_numpy(local_obs).float()
+            dist = actor(obs_tensor, mask_tensor)
         logits = dist.logits
         if deterministic:
             actions = logits.argmax(dim=-1)
@@ -206,7 +209,13 @@ def run_arm(
     elif arm == "ONBALL-Shot":
         force_idx = FORCED_SHOT_IDX
 
-    env = GMNMultiAgentEnv(scenario=scenario, auto_start_bridge=True, port=bridge_port)
+    graph_policy = bool(getattr(actor, "requires_graph_observations", False))
+    env = GMNMultiAgentEnv(
+        scenario=scenario,
+        auto_start_bridge=True,
+        port=bridge_port,
+        include_graph_observations=graph_policy,
+    )
     controllable_agents = list(env.possible_agents)
 
     episodes_data: List[Dict[str, Any]] = []
@@ -214,7 +223,7 @@ def run_arm(
     try:
         for ep in range(num_episodes):
             ep_seed = base_seed + ep * 1009
-            obs_dict, _ = env.reset(seed=ep_seed)
+            obs_dict, current_infos = env.reset(seed=ep_seed)
 
             # ---- t=0 ownership capture BEFORE first step ----
             t0_capture = _capture_t0_telemetry(obs_dict)
@@ -274,7 +283,14 @@ def run_arm(
                 local_obs = np.stack([obs_dict[a] for a in current_agents], axis=0).astype(np.float32)
                 mask_matrix = _mask_matrix(current_ep_masks, current_agents)
 
-                policy_actions = _select_policy_actions(actor, local_obs, mask_matrix, deterministic)
+                graphs = (
+                    [current_infos[a]["graph_observation"] for a in current_agents]
+                    if graph_policy
+                    else None
+                )
+                policy_actions = _select_policy_actions(
+                    actor, local_obs, mask_matrix, deterministic, graphs
+                )
 
                 # Pre-step: capture ball state for forced tick from current observation
                 if force_this_episode and tick_idx == force_tick:
@@ -296,6 +312,7 @@ def run_arm(
                 )
 
                 obs_dict, rewards, terms, truncs, infos = env.step(action_dict)
+                current_infos = infos
 
                 shared_rew = float(rewards[current_agents[0]]) if current_agents and current_agents[0] in rewards else 0.0
                 ep_reward += shared_rew

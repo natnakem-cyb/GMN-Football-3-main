@@ -47,6 +47,18 @@ class GNNMAPPOActor(nn.Module):
         graphs: Sequence[Any],
         action_mask: Optional[torch.Tensor] = None,
     ) -> Categorical:
+        logits = self.raw_logits(graphs)
+        if action_mask is not None:
+            mask = torch.as_tensor(action_mask, dtype=torch.bool, device=logits.device)
+            if mask.shape != logits.shape:
+                mask = mask.reshape(logits.shape)
+            if not mask.any(dim=-1).all():
+                raise ValueError("Action mask contains a row with no legal actions")
+            logits = logits.masked_fill(~mask, float("-inf"))
+        return Categorical(logits=logits)
+
+    def raw_logits(self, graphs: Sequence[Any]) -> torch.Tensor:
+        """Return unmasked logits for diagnostics and canonical evaluation."""
         if not graphs:
             raise ValueError("GNN actor requires at least one graph")
         embeddings = []
@@ -58,15 +70,7 @@ class GNNMAPPOActor(nn.Module):
                     f"got {agent_embeddings.shape[0]}"
                 )
             embeddings.append(agent_embeddings[0])
-        logits = self.policy_head(torch.stack(embeddings))
-        if action_mask is not None:
-            mask = torch.as_tensor(action_mask, dtype=torch.bool, device=logits.device)
-            if mask.shape != logits.shape:
-                mask = mask.reshape(logits.shape)
-            if not mask.any(dim=-1).all():
-                raise ValueError("Action mask contains a row with no legal actions")
-            logits = logits.masked_fill(~mask, float("-inf"))
-        return Categorical(logits=logits)
+        return self.policy_head(torch.stack(embeddings))
 
 
 class GNNMAPPOCritic(nn.Module):

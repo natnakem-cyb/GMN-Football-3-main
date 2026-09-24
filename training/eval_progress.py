@@ -597,25 +597,14 @@ def evaluate_multi_agent_mappo(
 ) -> Dict[str, float]:
     import torch
     from training.gmn_pettingzoo import GMNMultiAgentEnv
-    from training.mappo_networks import SharedActor
+    from training.checkpoint_contract import load_mappo_actor
     from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     obs_dim = int(checkpoint.get("obs_dim", 127))
     action_dim = checkpoint.get("action_dim", 19)
 
-    policy_architecture = checkpoint.get("policy_architecture", "flat")
-    if policy_architecture == "flat":
-        actor = SharedActor(obs_dim=obs_dim, action_dim=action_dim, hidden=64)
-    elif policy_architecture.startswith("gnn:"):
-        from training.gnn_mappo_networks import GNNMAPPOActor
-        actor = GNNMAPPOActor(
-            action_dim=action_dim,
-            encoder_type=policy_architecture.split(":", 1)[1],
-        )
-    else:
-        raise ValueError(f"Unsupported checkpoint policy_architecture: {policy_architecture}")
-    actor.load_state_dict(checkpoint["actor"])
+    actor = load_mappo_actor(checkpoint)
     actor.eval()
 
     graph_policy = bool(getattr(actor, "requires_graph_observations", False))

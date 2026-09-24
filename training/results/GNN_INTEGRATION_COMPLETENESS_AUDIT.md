@@ -5,7 +5,7 @@
 **Status:** Reporting corrections verified; production GNN policy integration remains OPEN
 **Canonical Protocol:** base_seed=500000, scenario=academy_3_vs_1_with_keeper_onball  
 
-> **Current status (updated 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter is false. Gaps 1 and 2 now have code paths for opt-in environment graph observations and single-environment MAPPO training/update; verification is pending. `eval_progress.py` supports architecture-tagged GNN actor checkpoints. Batched GNN training, other canonical evaluator coverage, and ONNX/browser inference remain open. No GNN training result is claimed here. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
+> **Current status (updated 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter is false. Gaps 1–3 now have code paths for opt-in environment graph observations, single-environment MAPPO training/update, versioned GNN checkpoint contracts, and architecture-aware progress/F_act/canonical evaluators; verification is pending. Batched GNN training and ONNX/browser inference remain open. No GNN training result is claimed here. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
 
 ### Current implementation check
 
@@ -16,7 +16,7 @@ At base HEAD `0ed0d431e136c369aa0afbfdc84eff1174bf490e`, read-only inspection fo
 | Graph builder, graph schema, tensor adapter, encoder and diagnostic probe modules | Implemented as standalone components; earlier Phase 3/4 reports record unit-level checks | Keep as components; no policy-quality claim until measured |
 | Build graph input during environment reset/step | **Gap 1 implemented; verification pending** | Review/run targeted reset, step, and batched integration checks |
 | Feed graph tensors to a GNN actor/critic during rollout and PPO updates | **Gap 2 implemented for `n_envs=1`; verification pending** | Add graph-aware batched rollout and verify the actor/critic update path |
-| Checkpoint and evaluator compatibility | **Partially implemented** | Architecture string is saved and `eval_progress.py` loads it; complete checkpoint-contract and canonical evaluator support |
+| Checkpoint and evaluator compatibility | **Gap 3 implemented; verification pending** | Versioned graph contract, encoder signatures, and progress/F_act/canonical evaluator loading |
 | ONNX/browser inference | **Open, required only if deploying GNN policies** | Add export/runtime support after architecture and checkpoint contract are stable |
 | GNN-specific hyperparameter tuning and curriculum behavior | **Not established; follow-up after a runnable baseline** | Specify only after end-to-end training path exists |
 | `.kilo/agent-manager.json` task assignment | **Not a runtime integration defect** | Track as project workflow only if that manager is actively used |

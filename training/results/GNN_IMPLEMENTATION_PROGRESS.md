@@ -46,7 +46,31 @@ manifest record the architecture string.
 
 **Not yet verified:** No tests, compilation check, live bridge run, or training
 run was performed. The GNN policy path has no performance claim. `eval_f_act.py`,
-ONNX export, and browser inference are not integrated.
+the canonical three-agent measurement, and `eval_progress.py` now load the
+architecture declared by the checkpoint. ONNX export validates the checkpoint
+and fails with an explicit Gap 4 message for GNN policies; GNN export and browser
+inference are not implemented.
+
+## Gap 3 — Checkpoint contract and evaluator compatibility
+
+**Status: Implemented in code; verification pending.**
+
+`checkpoint_contract.py` now defines versioned flat/GNN policy metadata and
+validates the environment, flat observation, action, graph schema and feature
+dimensions, expected encoder state-dict signatures, and action/value head
+shapes. New MAPPO checkpoints and experiment manifests store this contract.
+Legacy flat checkpoints without architecture metadata continue to load as
+`flat`; GNN checkpoints without a matching contract are rejected.
+
+`load_mappo_actor` and `load_mappo_critic` centralize architecture-aware loading.
+`eval_progress.py`, `eval_f_act.py`, and
+`eval_canonical_three_agent_measurement.py` now request graph observations and
+use the checkpoint's encoder when the checkpoint is GNN-based. ONNX export
+validates flat checkpoints and explicitly reports that GNN export is Gap 4 work.
+
+**Not yet verified:** No test, checkpoint load, evaluator run, or training run
+was performed for this update. Existing flat-checkpoint compatibility and new
+GNN checkpoint rejection/load behavior still need targeted verification.
 
 ## Remaining implementation sequence
 
@@ -54,7 +78,6 @@ ONNX export, and browser inference are not integrated.
 |---|---|---|
 | 1. Environment graph construction | Implemented in code; verification pending | Graph per agent on reset/step, including batched helpers |
 | 2. GNN actor/critic in rollout and PPO update | Implemented in code for `n_envs=1`; verification pending | Validate gradients and end-to-end updates; graph-aware batched rollout remains open |
-| 3. Checkpoint/evaluator contract | Partially implemented | Architecture string is saved and `eval_progress.py` loads it; complete canonical evaluator/checkpoint-contract coverage |
+| 3. Checkpoint/evaluator contract | Implemented in code; verification pending | Versioned graph contract; progress, F_act, and canonical measurement loaders |
 | 4. Deployment export | Open; needed only for browser deployment | Export and run the selected GNN architecture in target runtime |
 | 5. Quantitative probe validation | Open research work | Collect data and train probes with held-out splits |
-

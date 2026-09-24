@@ -37,7 +37,11 @@ from training.mappo_rollout import collect_rollout, collect_rollout_parallel, co
 from training.mappo_update import ppo_update
 from training.eval_progress import evaluate_checkpoint_progress, persist_trend_snapshots
 from training.curriculum_scheduler import CurriculumScheduler, CURRICULUM_STAGES
-from training.checkpoint_contract import create_experiment_manifest, compute_file_sha256
+from training.checkpoint_contract import (
+    create_experiment_manifest,
+    compute_file_sha256,
+    create_policy_checkpoint_contract,
+)
 
 
 def run_mappo_training(
@@ -152,12 +156,14 @@ def run_mappo_training(
             "actor_hidden": 64,
             "critic_hidden": 64,
             "policy_architecture": policy_architecture,
+            "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
             "obs_dim": OBSERVATION_DIM,
             "action_dim": ACTION_SPACE_SIZE,
         },
         git_commit=_git_commit,
     )
     _manifest["experiment"] = _experiment_name
+    _manifest["checkpoint_contract"] = create_policy_checkpoint_contract(policy_architecture)
     _manifest["output_dir"] = _run_dir
     _manifest["checkpoint_names"] = [
         f"mappo_{scenario}_seed{seed}_50k.pt",
@@ -394,6 +400,7 @@ def run_mappo_training(
                         "global_state_dim": global_state_dim,
                         "action_dim": action_dim,
                         "policy_architecture": policy_architecture,
+                        "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                         "timesteps": total_steps_elapsed,
                         "curriculum_stage": new_stage,
                         "curriculum_history": scheduler.history,
@@ -710,6 +717,7 @@ def run_mappo_training(
                         "global_state_dim": global_state_dim,
                         "action_dim": action_dim,
                         "policy_architecture": policy_architecture,
+                        "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                         "timesteps": total_steps_elapsed,
                     },
                     best_rolling_ckpt_name,
@@ -750,6 +758,7 @@ def run_mappo_training(
                     "global_state_dim": global_state_dim,
                     "action_dim": action_dim,
                     "policy_architecture": policy_architecture,
+                    "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                     "timesteps": total_steps_elapsed,
                 },
                 milestone_ckpt_path,
@@ -788,6 +797,7 @@ def run_mappo_training(
                             "global_state_dim": global_state_dim,
                             "action_dim": action_dim,
                             "policy_architecture": policy_architecture,
+                            "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                             "timesteps": total_steps_elapsed,
                         },
                         best_ckpt_name,
@@ -824,6 +834,7 @@ def run_mappo_training(
                             "global_state_dim": global_state_dim,
                             "action_dim": action_dim,
                             "policy_architecture": policy_architecture,
+                            "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                             "timesteps": total_steps_elapsed,
                         },
                         _ablation_ckpt_name,
@@ -855,6 +866,7 @@ def run_mappo_training(
                             "global_state_dim": global_state_dim,
                             "action_dim": action_dim,
                             "policy_architecture": policy_architecture,
+                            "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                             "timesteps": total_steps_elapsed,
                             "actor_loss_reweight_M": current_actor_reweight_M,
                             "phase": "intervention" if total_steps_elapsed < actor_loss_reweight_phase1_steps else "tail",
@@ -887,6 +899,7 @@ def run_mappo_training(
                         "global_state_dim": global_state_dim,
                         "action_dim": action_dim,
                         "policy_architecture": policy_architecture,
+                        "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                         "timesteps": total_steps_elapsed,
                     },
                     mixscript_end_ckpt,
@@ -915,6 +928,7 @@ def run_mappo_training(
             "global_state_dim": global_state_dim,
             "action_dim": action_dim,
             "policy_architecture": policy_architecture,
+            "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
             "timesteps": total_steps_elapsed,
         },
         checkpoint_path,
@@ -958,6 +972,7 @@ def run_mappo_training(
                     "global_state_dim": global_state_dim,
                     "action_dim": action_dim,
                     "policy_architecture": policy_architecture,
+                    "checkpoint_contract": create_policy_checkpoint_contract(policy_architecture),
                     "timesteps": total_steps_elapsed,
                 },
                 best_ckpt_name,
