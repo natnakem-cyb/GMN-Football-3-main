@@ -2,10 +2,10 @@
 
 **Date:** 2026-09-23  
 **Author:** debug agent  
-**Status:** Reporting corrections verified; single-environment GNN policy path smoke-verified; production integration remains OPEN
+**Status:** Reporting corrections verified; single- and batched-environment GNN policy paths integration-tested; production quality claims remain OPEN
 **Canonical Protocol:** base_seed=500000, scenario=academy_3_vs_1_with_keeper_onball  
 
-> **Current status (updated 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter remains false. Focused tests now cover single-environment reset/step graph attachment, default flat behavior, GNN rollout and actor/critic updates, checkpoint validation, and evaluator loading. A 256-step live `gnn:mlp` smoke plus two-episode deterministic evaluation completed; this is execution evidence, not a policy-quality result. Batched graph helpers/MAPPO, GAT/geometry training, ONNX/browser inference, and quantitative probes remain open. The full Python suite completes with 318 passed, 1 skipped, and 4 failures tracked in the progress report.
+> **Current status (updated 2026-09-24):** This document previously conflated “the eight reporting defects are addressed” with “the GNN work is complete.” The former describes this audit only; the latter remains false. Focused tests cover single- and batched-environment graph attachment, default flat behavior, GNN rollout/PPO updates, MLP/GAT/geometry actor and critic gradients, checkpoint validation, and evaluator loading. A 256-step live `gnn:mlp` smoke and two-episode evaluation completed; this is execution evidence, not a policy-quality result. Batched GNN MAPPO has a synthetic rollout/update test with per-environment GAE, but multi-environment learning quality is unmeasured. ONNX export now passes CPU parity for `mlp`, `gat`, and `geometry` at two graph sizes, and the tensorized browser runner typechecks; canonical browser graph construction and app/agent wiring remain open. Quantitative held-out probes remain deferred. The last complete Python suite result is the pre-fix 318 passed, 1 skipped, 4 failed baseline; the post-fix full-suite rerun did not produce a summary. A fresh post-fix full-suite run is underway to capture a complete summary and check for the previously observed non-fatal port-5050 warning.
 
 ### Current implementation check
 
@@ -14,10 +14,10 @@ At base HEAD `0ed0d431e136c369aa0afbfdc84eff1174bf490e`, read-only inspection fo
 | Work item | Verified status | Next useful action |
 |---|---|---|
 | Graph builder, graph schema, tensor adapter, encoder and diagnostic probe modules | Implemented as standalone components; earlier Phase 3/4 reports record unit-level checks | Keep as components; no policy-quality claim until measured |
-| Build graph input during environment reset/step | **Single-environment reset/step and flat default tested** | Add batched helper coverage |
-| Feed graph tensors to a GNN actor/critic during rollout and PPO updates | **`gnn:mlp` rollout/update tests and 256-step live smoke passed** | Exercise GAT/geometry and add graph-aware batched rollout |
+| Build graph input during environment reset/step | **Single- and batched-environment attachment tested; flat default preserved** | Continue runtime validation |
+| Feed graph tensors to a GNN actor/critic during rollout and PPO updates | **Single- and batched-environment GNN rollout/update tested; MLP/GAT/geometry gradients pass; 256-step `gnn:mlp` live smoke passed** | Measure multi-env learning behavior; no policy-quality claim |
 | Checkpoint and evaluator compatibility | **Contract, legacy flat, F_act/canonical loaders tested; progress evaluator exercised by smoke** | Continue compatibility tests as formats evolve |
-| ONNX/browser inference | **Open, required only if deploying GNN policies** | Add export/runtime support after architecture and checkpoint contract are stable |
+| ONNX/browser inference | **Partial: export/runtime parity and tensorized runner verified; app integration open** | Add canonical browser graph builder and app/agent wiring if deployment is required |
 | GNN-specific hyperparameter tuning and curriculum behavior | **Not established; follow-up after a runnable baseline** | Specify only after end-to-end training path exists |
 | `.kilo/agent-manager.json` task assignment | **Not a runtime integration defect** | Track as project workflow only if that manager is actively used |
 | Probe dataset training and held-out representation metrics | **Open research validation** | Run after dataset/probe protocol is reproducible; current shape tests do not answer representation quality |

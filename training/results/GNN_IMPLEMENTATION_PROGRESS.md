@@ -156,7 +156,13 @@ The four verification tasks were investigated and triaged:
    used on the batched step path. The GNN PPO update test now parametrizes MLP,
    GAT, and geometry encoders and checks actor and critic parameter updates.
    The focused integration suite passed **13 tests** in 125.03 seconds.
-   Graph-aware batched MAPPO is still unimplemented.
+   Graph-aware batched MAPPO is now wired through graph observations, actor and
+   critic inference, PPO updates, and per-environment GAE. Its synthetic
+   batched rollout/update test passed (**1 passed in 80.92 seconds**). Existing
+   flat batched rollout regressions also passed: terminated-subenvironment
+   reset (**1 passed in 74.02 seconds**) and live batched collection (**1 passed
+   in 91.14 seconds**). This verifies execution and gradient flow, not policy
+   quality or multi-environment GNN learning performance.
 4. **Deferred capabilities:** ONNX/browser deployment and quantitative
    held-out diagnostic-probe validation remain open and deferred until those
    capabilities are needed and their target requirements/data are measured.
@@ -177,3 +183,30 @@ focused reruns; the full suite still needs a clean completion.
 | 3. Checkpoint/evaluator contract | Contract rejection/loading tests and evaluator loaders passed | Continue compatibility checks as formats evolve |
 | 4. Deployment export | Open and deferred until browser deployment is needed | Export and run the selected GNN architecture in target runtime |
 | 5. Quantitative probe validation | Open research work, deferred | Collect data and train probes with held-out splits |
+
+## Follow-up verification — 2026-09-24
+
+This section supersedes the earlier remaining-sequence table where it conflicts
+with later evidence.
+
+- **Batched GNN MAPPO:** implemented using graph observations per environment,
+  per-environment terminal boundaries, next-state critic values, and trajectory-
+  isolated GAE. Focused synthetic rollout/PPO/critic-gradient coverage passed;
+  no multi-environment policy-quality claim is made.
+- **ONNX export:** CPU ONNX Runtime parity passed for `gnn:mlp`, `gnn:gat`, and
+  `gnn:geometry`, at the export graph and a second graph with different node and
+  edge counts (`3 passed`). Dense destination aggregation replaces the
+  export-unsafe duplicate-index scatter while preserving sum semantics.
+- **Browser runner:** `src/agents/GnnOnnxPolicy.ts` accepts already tensorized
+  graph inputs and passed TypeScript typechecking. Canonical browser graph
+  construction and app/agent selection wiring are not implemented, so this is
+  not end-to-end browser deployment.
+- **Held-out diagnostic probes:** remain deferred; no probe dataset or measured
+  held-out result was created in this work.
+- **Port warning:** the previous curriculum smoke logged non-fatal
+  `EADDRINUSE` on port 5050. This run is intended to establish whether it
+  recurs under the complete suite before deciding whether startup changes are
+  warranted.
+- **Full-suite verification:** pending a complete run with progress output. The
+  last complete result remains the pre-fix baseline of 318 passed, 1 skipped,
+  and 4 failed; the prior post-fix attempt did not emit a final summary.

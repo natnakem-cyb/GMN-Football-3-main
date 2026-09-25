@@ -3,16 +3,18 @@
 Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` = done.
 
 ## Open — Production GNN policy integration
-- [x] Gap 1: add opt-in graph construction at reset/step; single-environment and batched reset/step helper tests preserve the flat observation contract. Batched MAPPO remains open.
-- [x] Gap 2: connect GNN actor/critic to single-environment rollout and PPO; rollout/update gradient tests exercise `mlp`, `gat`, and `geometry`, plus the 256-step live `gnn:mlp` smoke. No policy-quality claim; graph-aware batched MAPPO remains open.
+- [x] Gap 1: add opt-in graph construction at reset/step; single-environment and batched reset/step paths preserve the flat observation contract.
+- [x] Gap 2: connect GNN actor/critic to single- and batched-environment rollout/PPO; gradient coverage exercises `mlp`, `gat`, and `geometry`, plus the 256-step live `gnn:mlp` smoke. No policy-quality claim.
 - [x] Gap 3: versioned GNN checkpoint contract, legacy flat loading, and F_act/canonical evaluator loading tests pass; the GNN smoke exercised `eval_progress.py`. ONNX export remains Gap 4.
 - [x] Diagnose/fix bridge hangs: unread child output pipes could block Node, and Windows listener cleanup parsed `netstat` incorrectly and left child processes. The live curriculum test now completes its scoring loop and takes its expected no-goal skip path.
 - [x] Curriculum smoke diagnosis: its zero demotion threshold allowed an unsuccessful post-promotion rollout to immediately demote the pre-seeded scheduler. The smoke now sets demotion to -1 to isolate promotion wiring.
 - [x] Pass-spam expectations corrected: a fixed-seed run completed 3 long passes and 18 short passes across 10 episodes while meeting the existing non-positive total-reward criterion. Valid pass completion is not itself an exploit.
 - [x] Live pass pipeline fixed: receiver movement used absolute ball coordinates instead of ball-minus-player displacement. The live one-pass/event/reward test now passes with relative movement.
-- [x] Added batched Gap 1 graph attachment coverage and PPO update/gradient coverage for GAT and geometry; graph-aware batched MAPPO remains open.
+- [x] Added batched Gap 1 graph attachment coverage, graph-aware batched PPO rollout/update, and per-environment GAE coverage; synthetic batched integration test passes.
 - [ ] Complete a clean post-fix full Python suite run. The latest rerun was stopped after prolonged silence without a pytest summary; the prior complete baseline was 318 passed, 1 skipped, 4 failed. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
-- [ ] If GNN policies are to be deployed in the browser, add and validate ONNX export/runtime support after the architecture contract is stable.
+- [x] ONNX export has CPU parity for `mlp`, `gat`, and `geometry`, including a second node/edge shape; the tensorized browser ONNX runner typechecks. This is not end-to-end browser deployment: canonical browser graph construction and app/agent wiring remain open.
+- [ ] Quantitative held-out diagnostic-probe validation remains deferred; no quality inference is made from the synthetic parity fixtures or smoke run.
+- [ ] Run the complete post-fix Python suite with progress output and record whether the curriculum evaluator's port-5050 `EADDRINUSE` warning recurs. Earlier post-fix run had no final summary; baseline remains 318 passed, 1 skipped, 4 failed.
 - [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality.
 
 ## Item 1 — Make reward shaping (CooperativeRewardShaper) actually functional
