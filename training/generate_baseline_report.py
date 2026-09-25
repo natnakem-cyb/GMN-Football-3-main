@@ -16,7 +16,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------------
-with open(os.path.join(RESULTS_DIR, "forensics_analysis.json")) as f:
+with open(os.path.join(RESULTS_DIR, "forensics_analysis.json"), encoding="utf-8") as f:
     analysis = json.load(f)
 
 # ---------------------------------------------------------------------------
@@ -193,7 +193,9 @@ For valid comparisons, use the single canonical protocol defined in this forensi
     head=os.popen("git rev-parse HEAD").read().strip() if os.path.exists(os.path.join(BASE_DIR, ".git")) else "unavailable",
 )
 
-with open(os.path.join(RESULTS_DIR, "EXPLORATION_BASELINE_RECONCILIATION.md"), "w") as f:
+with open(
+    os.path.join(RESULTS_DIR, "EXPLORATION_BASELINE_RECONCILIATION.md"), "w", encoding="utf-8"
+) as f:
     f.write(baseline_report)
 
 print("Baseline reconciliation report written.")

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-18T18:07:27Z  
 **HEAD:** `a8a1f3189e357ba7eb95e657324321735196cd7f`  
-**Protocol:** Critic/GAE Horizon Forensics — Phase A
+**Protocol:** Critic/GAE Horizon Forensics â€” Phase A
 
 ---
 
@@ -31,7 +31,7 @@
 | Eval flags | `--deterministic --num-episodes 20 --base-seed 42` |
 | Episodes | 20 |
 | Metric definition | `policy_pass_count + policy_shot_count` / `total_ticks` where counts include ALL agents |
-| Total ticks | 1,020 (20 episodes × 51 ticks avg) |
+| Total ticks | 1,020 (20 episodes Ã— 51 ticks avg) |
 | PASS count | 36 (all agents) |
 | SHOT count | 1 (all agents) |
 | PASS+SHOT rate | 37 / 1,020 = **3.63%** |
@@ -50,7 +50,7 @@
 | Eval flags | `--deterministic --num-episodes 20 --base-seed 700000` |
 | Episodes | 20 |
 | Metric definition | `mean_pi_pass + mean_pi_shot` where `pi_pass` = agent-0 PASS actions / agent-0 total actions |
-| Total ticks | 1,020 (20 episodes × 51 ticks avg) |
+| Total ticks | 1,020 (20 episodes Ã— 51 ticks avg) |
 | PASS count | 25 (agent 0 only) |
 | SHOT count | 0 (agent 0 only) |
 | PASS+SHOT rate | 25 / 1,020 = **2.45%** |
@@ -106,7 +106,7 @@ The discrepancy between 3.63% and 2.45% has **three compounding causes**:
 
 ## 5. Classification
 
-### RESOLVED — DIFFERENT EVALUATION PROTOCOLS / DIFFERENT EPISODE SAMPLES
+### RESOLVED â€” DIFFERENT EVALUATION PROTOCOLS / DIFFERENT EPISODE SAMPLES
 
 The two values come from the **same checkpoint** but different evaluation scripts with:
 - Different base seeds (42 vs 700,000)
@@ -114,7 +114,7 @@ The two values come from the **same checkpoint** but different evaluation script
 - Different episode samples
 
 The 3.63% value is higher because:
-- It counts all 3 agents (approximately 1.5× more PASS detections than agent 0 alone in this checkpoint)
+- It counts all 3 agents (approximately 1.5Ã— more PASS detections than agent 0 alone in this checkpoint)
 - It uses base_seed=42, which happens to produce more PASS-prone initial states
 
 The 2.45% value is lower because:

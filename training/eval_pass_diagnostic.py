@@ -962,7 +962,7 @@ class PassDiagnosticEvaluator:
             "seeds": [res["seed"] for res in all_results],
         }
         manifest_path = os.path.join(output_dir, f"pass_diagnostic_manifest{self.output_suffix}.json")
-        with open(manifest_path, "w") as f:
+        with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
 
     def write_findings(self, all_results: List[Dict[str, Any]], output_dir: str) -> None:
@@ -1087,7 +1087,9 @@ class PassDiagnosticEvaluator:
         lines.append("This document is diagnostic-only. No corrective override is proposed or implemented.")
         lines.append("")
 
-        with open(os.path.join(output_dir, "PASS_DIAGNOSTIC_FINDINGS.md"), "w") as f:
+        with open(
+            os.path.join(output_dir, "PASS_DIAGNOSTIC_FINDINGS.md"), "w", encoding="utf-8"
+        ) as f:
             f.write("\n".join(lines))
 
     def compute_summary(self, all_results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1209,7 +1211,7 @@ def main():
         args.output_dir,
         f"pass_diag_seed{args.seed}_{os.path.splitext(os.path.basename(args.checkpoint))[0]}.json",
     )
-    with open(result_path, "w") as f:
+    with open(result_path, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2)
     print(f"\nResults JSON: {result_path}")
 

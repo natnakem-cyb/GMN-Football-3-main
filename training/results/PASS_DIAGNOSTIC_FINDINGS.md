@@ -1,4 +1,4 @@
-# PASS Diagnostic Findings — F_act Extension
+# PASS Diagnostic Findings â€” F_act Extension
 
 **Date:** 2026-09-18 07:25 UTC
 **Run ID:** pass_diag_2026-09-18
@@ -49,7 +49,7 @@
 
 ## 5. PASS Trajectory
 
-- Median angular error to nearest teammate: 0.706 rad (40.5°)
+- Median angular error to nearest teammate: 0.706 rad (40.5Â°)
 - Perpendicular distance to pass ray: median=0.2190, min=0.0110
 - Min ball-to-teammate distance: median=0.1991, min=0.0668
 

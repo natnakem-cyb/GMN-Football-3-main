@@ -123,7 +123,7 @@ evaluators. The live smoke also exercised the GNN `eval_progress.py` path.
   diagnostics only and support no policy-quality conclusion. Local checkpoint
   artifacts are under `runs/gnn_gap3_smoke_artifacts/`.
 
-## Follow-up verification â€” 2026-09-24
+## Follow-up verification — 2026-09-24
 
 The four verification tasks were investigated and triaged:
 
