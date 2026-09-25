@@ -70,20 +70,6 @@ MOJIBAKE_PATTERNS = {
 MOJIBAKE_ALLOWLIST = {
     ".clinerules": "the encoding rule itself quotes the corrupt example 'Gamma-C-cedilla'",
     "training/test_event_code_wire.py": "comment documents mojibake examples as text",
-    # Temporary: removed in the follow-up commit that transcodes these logs.
-    "dbg_out.txt": "UTF-16 capture, transcoded to UTF-8 in the following commit",
-    "debug_out.txt": "UTF-16 capture, transcoded to UTF-8 in the following commit",
-    "null": "UTF-16 capture, transcoded to UTF-8 in the following commit",
-    "retrain_seed42_validation.log": "UTF-16 capture, transcoded in the following commit",
-    "training/full_trace_episode_0.log": "UTF-16 capture, transcoded in the following commit",
-    "training/log_run3_200k.txt": "UTF-16 capture, transcoded in the following commit",
-    "training/log_run3_200k_full.txt": "UTF-16 capture, transcoded in the following commit",
-    "training/log_smoke_test.txt": "UTF-16 capture, transcoded in the following commit",
-    "training/mappo_200k_new_run.log": "UTF-16 capture, transcoded in the following commit",
-    "training/mappo_200k_run.log": "UTF-16 capture, transcoded in the following commit",
-    "training/mappo_500k_run.log": "UTF-16 capture, transcoded in the following commit",
-    "training/results/forensic_seed42_offball_inventory_output.txt": "UTF-16 capture, transcoded in the following commit",
-    "training/results/forensic_verify_canonical_artifacts_output.txt": "UTF-16 capture, transcoded in the following commit",
 }
 
 

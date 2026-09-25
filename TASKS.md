@@ -23,7 +23,21 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [x] Root cause of the cp1252 reports: `open(path, "w")` without `encoding=` uses the Windows locale codec, so `—` was written as byte `0x97` (also `0xD7` for `×`, `0xB0` for `°`). Fixed `training/generate_baseline_report.py:19/196` and `training/eval_pass_diagnostic.py:965/1090/1214` to pass `encoding="utf-8"`, mirroring the already-correct `training/generate_forensics_report.py:539`. Evidence: controlled run of the fixed generator (exit 0) regenerated `EXPLORATION_BASELINE_RECONCILIATION.md` as **valid UTF-8** (CRLF 151 preserved); the tracked artifact was then restored byte-exactly (sha256 match) so the committed diff stays encoding-only.
 - [x] Transcoded the two cp1252 reports to UTF-8 (content-identical — asserted by decoded-text equality, line count and CRLF preservation): `EXPLORATION_BASELINE_RECONCILIATION.md` 6208 → 6215 B (sha `0f074a66…` → `a2e61383…`; recovered 2× `—`, 3× `×`), `PASS_DIAGNOSTIC_FINDINGS.md` 2403 → 2406 B (sha `d5919acd…` → `e7cdd600…`; recovered `—`, `°`).
 - [x] Regression guard: `training/tests/test_encoding_hygiene.py` (3 tests, ~3 s) byte-scans tracked text files and fails on invalid UTF-8, mojibake signatures, U+FFFD, C1 controls and UTF-16 text; NUL-bearing binary payloads are skipped; the two documents that intentionally quote mojibake examples are allowlisted with reasons; a second test rejects stale/undocumented allowlist entries and a third proves the detector fires on all three damage classes.
-- [ ] Transcode the 13 UTF-16LE+BOM capture logs to UTF-8 (content-preserving, before/after hashes recorded) — separate commit. The guard test allowlists those 13 paths only with the reason "transcoded to UTF-8 in the following commit".
+- [x] Transcoded the 13 UTF-16LE+BOM capture logs to UTF-8 (content-preserving; verified by `after.decode(utf-8) == before.decode(utf-16)` plus identical line counts and EOL layout). Full before/after hashes: `training/results/encoding_utf16_transcode_hashes.json`.
+  - Sizes roughly halve as expected (UTF-16LE -> UTF-8); the two forensic logs still match the line counts quoted in `SEED42_OFFBALL_FORENSIC_AUDIT.md` (359/177).
+  - `dbg_out.txt`: sha256 d6d3e7489dd63896 -> d263da088da72825 (size 2902 -> 1450, lines 44, CRLF 43, LF-only 0)
+  - `debug_out.txt`: sha256 51f5ce9ef3259315 -> a56d753b7f273df7 (size 178 -> 88, lines 2, CRLF 1, LF-only 0)
+  - `null`: sha256 126788b1cb7e0823 -> 43435d6c0e9ca79a (size 644 -> 321, lines 9, CRLF 8, LF-only 0)
+  - `retrain_seed42_validation.log`: sha256 7da3368e4cd04e18 -> 39ed9baf345614ed (size 10024 -> 5011, lines 63, CRLF 62, LF-only 0)
+  - `training/full_trace_episode_0.log`: sha256 e80f2d3a717cd455 -> e8b278e41198d396 (size 38164 -> 19081, lines 165, CRLF 164, LF-only 0)
+  - `training/log_run3_200k.txt`: sha256 606bea2093cbaa0b -> 98e86550530bf521 (size 19238 -> 9618, lines 116, CRLF 115, LF-only 0)
+  - `training/log_run3_200k_full.txt`: sha256 31fa0eb2868b0e5b -> cb609ffdc0fecf47 (size 6936 -> 3467, lines 35, CRLF 34, LF-only 0)
+  - `training/log_smoke_test.txt`: sha256 a5b6e12b0a20dd7d -> 42597902dceb95e9 (size 12030 -> 6014, lines 74, CRLF 73, LF-only 0)
+  - `training/mappo_200k_new_run.log`: sha256 0d839bb9a5861af0 -> 519a0eea6982e0a8 (size 17882 -> 8940, lines 96, CRLF 95, LF-only 0)
+  - `training/mappo_200k_run.log`: sha256 a853c2d7877defc7 -> a955de63b217d60e (size 17852 -> 8925, lines 102, CRLF 0, LF-only 101)
+  - `training/mappo_500k_run.log`: sha256 c2bde4d2d76531e0 -> 92a625eaf8d4fb05 (size 52810 -> 26404, lines 260, CRLF 259, LF-only 0)
+  - `training/results/forensic_seed42_offball_inventory_output.txt`: sha256 36d662019c65d924 -> 5b3853156c5580e7 (size 25986 -> 12992, lines 360, CRLF 359, LF-only 0)
+  - `training/results/forensic_verify_canonical_artifacts_output.txt`: sha256 c97159c19858fe99 -> e33c80da3c750737 (size 20136 -> 10067, lines 178, CRLF 177, LF-only 0)
 - [ ] Backlog: 63 write-mode `open()` calls in `training/*.py` still lack an explicit `encoding="utf-8"` (audited, not yet changed; the two scripts that corrupted tracked artifacts are fixed).
 - [ ] Prevention: never capture logs with PowerShell `>` (writes UTF-16LE) — use `cmd /c "... > file"` or `Out-File -Encoding utf8`; Python always passes `encoding="utf-8"` for text-mode writes.
 
