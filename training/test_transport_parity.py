@@ -2,6 +2,16 @@ import sys
 import os
 import numpy as np
 
+# Windows: stdout redirected to a pipe defaults to the ANSI code page (cp1252),
+# which cannot encode the check mark / em dash in the summary line. That crashed
+# this script with UnicodeEncodeError AFTER all checks had passed, making a green
+# parity run report exit code 1. Force UTF-8 so results are reported truthfully.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from training.gmn_gym import GMNFootballEnv, ACTION_SPACE_SIZE, OBSERVATION_DIM
