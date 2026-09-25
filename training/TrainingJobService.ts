@@ -452,17 +452,39 @@ export class TrainingJobService {
       });
       p.on('close', (code) => {
         if (code === 0) {
-          // If this was the academy_3_vs_1_with_keeper scenario, also copy to default mappo_policy.onnx
-          if (scenario === 'academy_3_vs_1_with_keeper' && fs.existsSync(outputOnnx)) {
+          // Only flat-observation exports may become the browser's default
+          // mappo_policy.onnx. GNN exports take tensorized graph inputs and
+          // must never silently replace the flat model consumed by App.tsx.
+          const sidecarPath = outputOnnx + '.json';
+          let exportedArchitecture = 'flat'; // legacy flat sidecars predate this field
+          if (fs.existsSync(sidecarPath)) {
+            try {
+              exportedArchitecture = JSON.parse(fs.readFileSync(sidecarPath, 'utf-8'))
+                .policy_architecture || 'flat';
+            } catch (e) {
+              console.warn('[TrainingJobService] Could not read ONNX architecture metadata:', e);
+              exportedArchitecture = 'unknown';
+            }
+          }
+          if (
+            scenario === 'academy_3_vs_1_with_keeper' &&
+            exportedArchitecture === 'flat' &&
+            fs.existsSync(outputOnnx)
+          ) {
             try {
               fs.copyFileSync(outputOnnx, 'public/models/mappo_policy.onnx');
-              if (fs.existsSync(outputOnnx + '.json')) {
-                fs.copyFileSync(outputOnnx + '.json', 'public/models/mappo_policy.onnx.json');
+              if (fs.existsSync(sidecarPath)) {
+                fs.copyFileSync(sidecarPath, 'public/models/mappo_policy.onnx.json');
               }
               console.log('[TrainingJobService] Synced active mappo_policy.onnx with completed run.');
             } catch (e) {
               console.warn('[TrainingJobService] Failed to copy to mappo_policy.onnx:', e);
             }
+          } else if (exportedArchitecture.startsWith('gnn:')) {
+            console.log(
+              `[TrainingJobService] Exported ${exportedArchitecture} graph-input ONNX artifact; ` +
+              'left the flat browser default unchanged.'
+            );
           }
 
           resolve({

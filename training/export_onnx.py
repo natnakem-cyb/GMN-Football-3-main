@@ -54,10 +54,26 @@ def export_to_onnx(
     valid, reason = validate_policy_checkpoint(checkpoint)
     if not valid:
         raise RuntimeError(f"[GMN-Export Error] Invalid MAPPO checkpoint: {reason}")
-    if checkpoint.get("policy_architecture", "flat") != "flat":
-        raise NotImplementedError(
-            "GNN checkpoint export is not implemented yet; ONNX/browser deployment is tracked as Gap 4."
+    policy_architecture = checkpoint.get("policy_architecture", "flat")
+    if policy_architecture != "flat":
+        if policy_architecture not in ("gnn:mlp", "gnn:gat", "gnn:geometry"):
+            raise NotImplementedError(
+                f"ONNX export does not support policy architecture {policy_architecture!r}."
+            )
+        from training.gnn_onnx import export_gnn_actor_onnx
+
+        metadata = export_gnn_actor_onnx(
+            checkpoint,
+            output_path=output_path,
+            scenario_id=scenario_id,
+            algorithm=algorithm,
         )
+        print(
+            f"[OK] GNN ONNX exported and validated: {output_path} "
+            f"(architecture={policy_architecture}, "
+            f"max parity diff={metadata['parity_max_abs_diff']:.3g})"
+        )
+        return
     obs_dim = int(checkpoint.get("obs_dim", 127))
     action_dim = checkpoint.get("action_dim", 19)
     timesteps = checkpoint.get("timesteps", "unknown")
@@ -204,6 +220,7 @@ def export_to_onnx(
     # Write ONNX sidecar JSON metadata
     sidecar_json_path = output_path + ".json"
     sidecar_data = {
+        "policy_architecture": "flat",
         "scenario": scenario_id,
         "algorithm": algorithm,
         "timesteps": timesteps,

@@ -19,6 +19,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def _aggregate_by_index(values: torch.Tensor, indices: torch.Tensor, size: int) -> torch.Tensor:
+    """Sum edge rows by destination using ONNX-friendly dense matmul."""
+    assignment = F.one_hot(indices.to(torch.long), num_classes=size).to(values.dtype)
+    flattened = values.reshape(values.shape[0], -1)
+    return (assignment.transpose(0, 1) @ flattened).reshape(size, *values.shape[1:])
+
+
 # ---------------------------------------------------------------------------
 # Utility: masked mean pooling
 # ---------------------------------------------------------------------------
@@ -200,21 +207,18 @@ class GraphAttentionLayer(nn.Module):
 
         # Softmax over neighbors per target node
         attn_weights = torch.zeros(num_edges, self.num_heads, device=node_features.device)
-        max_logits = torch.zeros(num_nodes, self.num_heads, device=node_features.device)
-        max_logits.index_add_(0, tgt, attn_logits.clamp(max=0))
+        max_logits = _aggregate_by_index(attn_logits.clamp(max=0), tgt, num_nodes)
         attn_logits = attn_logits - max_logits[tgt]
         exp_weights = attn_logits.exp()
 
         # Group by target node
-        sum_exp = torch.zeros(num_nodes, self.num_heads, device=node_features.device)
-        sum_exp.index_add_(0, tgt, exp_weights)
+        sum_exp = _aggregate_by_index(exp_weights, tgt, num_nodes)
         attn_weights = exp_weights / (sum_exp[tgt] + 1e-8)
 
         # Apply attention to values
-        attn_output = torch.zeros(num_nodes, self.num_heads, self.head_dim, device=node_features.device)
         attn_weights_expanded = attn_weights.unsqueeze(-1)  # (num_edges, num_heads, 1)
         weighted_values = V_src * attn_weights_expanded     # (num_edges, num_heads, head_dim)
-        attn_output.index_add_(0, tgt, weighted_values)
+        attn_output = _aggregate_by_index(weighted_values, tgt, num_nodes)
 
         # Reshape and project
         attn_output = attn_output.view(num_nodes, self.hidden_dim)
@@ -410,8 +414,7 @@ class GeometryAwareEncoder(nn.Module):
                 edge_msg = self.edge_mlp(edge_input)
 
                 # Aggregate messages
-                agg = torch.zeros(num_nodes, self.hidden_dim, device=x.device)
-                agg.index_add_(0, tgt, edge_msg)
+                agg = _aggregate_by_index(edge_msg, tgt, num_nodes)
 
                 # Update features
                 h = self.feature_mlp(torch.cat([x, h + agg], dim=-1))
@@ -419,7 +422,9 @@ class GeometryAwareEncoder(nn.Module):
 
                 # Update coordinates (equivariant)
                 coord_update = self.coord_mlp(h[tgt])
-                coords = coords + 0.1 * torch.zeros_like(coords).index_add_(0, tgt, coord_update) / max(1, edge_index.shape[1])
+                coord_delta = _aggregate_by_index(coord_update, tgt, num_nodes)
+                edge_count = F.one_hot(tgt.to(torch.long), num_classes=num_nodes).sum().clamp(min=1)
+                coords = coords + 0.1 * coord_delta / edge_count
         else:
             # No edges: just refine features
             for _ in range(3):
