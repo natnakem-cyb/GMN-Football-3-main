@@ -485,3 +485,96 @@ class TestTrainMappoCurriculumLiveSmoke:
                 "Curriculum state was not written (bridge likely unavailable). "
                 "L1/L3/L4/L5/L6 still exercise set_scenario and scheduler wiring."
             )
+
+
+# ---------------------------------------------------------------------------
+# P0.5b — train_mappo_shaped.py bridge lifecycle smoke
+# ---------------------------------------------------------------------------
+
+@skip_if_no_bridge
+class TestShapedTrainerBridgeLifecycle:
+    """
+    P0.5b: run_mappo_shaped_training must reap the bridge child it spawns
+    (node.exe / bridge_server.ts on port 5050) on a NORMAL, successful exit.
+    Mirrors the P0.5 train_mappo lifecycle regression: a tiny shaped run
+    must not leave any new port-5050 listener behind.
+
+    Uses scenario academy_empty_goal + a distinct seed so the smoke cannot
+    overwrite the canonical academy_3_vs_1_with_keeper shaped checkpoints.
+    """
+
+    def test_shaped_trainer_normal_exit_leaves_no_orphan_bridge(self, tmp_path):
+        import subprocess
+        import sys
+
+        cmd = [
+            sys.executable, "training/train_mappo_shaped.py",
+            "--scenario", "academy_empty_goal",
+            "--seed", "31337",
+            "--total-steps", "256",
+            "--validation-interval", "100000",
+            "--log-dir", str(tmp_path / "shaped_tb"),
+        ]
+        # Write output to a file: the trainer's bridge child inherits its
+        # output handles, so capture_output can keep communicate() blocked
+        # after the trainer itself has exited (same rationale as L2).
+        log_path = tmp_path / "shaped_lifecycle.log"
+        process = None
+        # P0.5b: snapshot who owns port 5050 before the trainer spawns its
+        # bridge so we can prove the trainer reaps that child on normal exit.
+        port_before = _listening_pids(5050)
+        try:
+            with log_path.open("w", encoding="utf-8") as log_file:
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=os.getcwd(),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                process.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            if os.name == "nt" and process is not None:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
+            pytest.fail(f"Shaped trainer smoke exceeded 600 seconds. Log tail:\n{log_tail}")
+
+        # P0.5b bridge-lifecycle regression: a fully successful shaped run
+        # must not leave ANY new port-5050 listener behind (pre-existing
+        # listeners from other sessions are tolerated so the check isolates
+        # what THIS run added).
+        port_after = _listening_pids(5050)
+        new_listeners = port_after - port_before
+        for _ in range(10):  # grace period: teardown is sync, allow stragglers
+            if not new_listeners:
+                break
+            time.sleep(0.5)
+            port_after = _listening_pids(5050)
+            new_listeners = port_after - port_before
+        if new_listeners:
+            # Reap the orphans so they cannot poison subsequent tests, then
+            # fail loudly.
+            import subprocess as _sp
+            for _pid in new_listeners:
+                if os.name == "nt":
+                    _sp.run(
+                        ["taskkill", "/PID", str(_pid), "/T", "/F"],
+                        stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, check=False,
+                    )
+            pytest.fail(
+                f"Shaped trainer exited successfully but left orphan bridge "
+                f"listener(s) on port 5050: PIDs {sorted(new_listeners)} "
+                f"(before={sorted(port_before)}, after={sorted(port_after)}). "
+                f"run_mappo_shaped_training must close its env on exit."
+            )
+        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+        print("SHAPED TRAINER LOG:", log_text[-4000:])
+        assert process.returncode == 0, (
+            f"Shaped trainer exited with code {process.returncode}. "
+            f"Log tail:\n{log_text[-4000:]}"
+        )

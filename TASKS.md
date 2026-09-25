@@ -2,6 +2,12 @@
 
 Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` = done.
 
+## Completed — P0/P0.5 bridge lifecycle (orphaned bridge on port 5050)
+
+- [x] P0.5 — `training/train_mappo.py` reaps the bridge child (node.exe / `bridge_server.ts`) on every exit path: atexit env-close hook (`train_mappo.py:230-245`) + port-5050 lifecycle regression in `training/tests/test_curriculum_live_e2e.py` — commit `14dfa58`. Evidence: controlled baseline (temporary worktree-only revert to `709dcaa`) left orphan listeners on 2/2 runs (PIDs 13992, 7028 — grandchild confirmed via captured `node.exe … bridge_server.ts` command line); HEAD passed 2/2 (37.81s, 28.64s), port free before/after, zero bridge node processes.
+- [x] P0.5b — `training/train_mappo_shaped.py` had the identical defect (no whole-function try/finally, no atexit, no `env.close()`): fixed with the same atexit pattern (`train_mappo_shaped.py:122-137`) + regression `TestShapedTrainerBridgeLifecycle` in `test_curriculum_live_e2e.py`. Evidence: baseline 2/2 FAIL (successful exit left orphan listeners: PIDs 1692/13376, then 1388/3164/3048); fixed 2/2 PASS (28.6s, 16.8s — port free, 0 bridge nodes); the new test fails on baseline (orphan PID 11776, reaped by the test itself) and passes with the fix (61.86s). Full file run: 8 passed, 1 pre-existing live-scoring skip (85.4s).
+- [ ] P0.5c — smaller residual teardown windows in secondary entrypoints: `train_ppo.py` / `train_ippo.py` close via `finally` but only after a pre-try env-creation window; `train_stage2_ppo.py:174` closes only on the normal path (no try/finally/atexit). Re-audit + harden if any of these become primary entrypoints (out of scope while `train_mappo.py` / `train_mappo_shaped.py` are the canonical trainers).
+
 ## Open — Production GNN policy integration
 - [x] Gap 1: add opt-in graph construction at reset/step; single-environment and batched reset/step paths preserve the flat observation contract.
 - [x] Gap 2: connect GNN actor/critic to single- and batched-environment rollout/PPO; gradient coverage exercises `mlp`, `gat`, and `geometry`, plus the 256-step live `gnn:mlp` smoke. No policy-quality claim.
@@ -11,11 +17,11 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [x] Pass-spam expectations corrected: a fixed-seed run completed 3 long passes and 18 short passes across 10 episodes while meeting the existing non-positive total-reward criterion. Valid pass completion is not itself an exploit.
 - [x] Live pass pipeline fixed: receiver movement used absolute ball coordinates instead of ball-minus-player displacement. The live one-pass/event/reward test now passes with relative movement.
 - [x] Added batched Gap 1 graph attachment coverage, graph-aware batched PPO rollout/update, and per-environment GAE coverage; synthetic batched integration test passes.
-- [ ] Complete a clean post-fix full Python suite run. The latest rerun was stopped after prolonged silence without a pytest summary; the prior complete baseline was 318 passed, 1 skipped, 4 failed. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
+- [ ] Complete a clean **post-P0.5** full Python suite run (`14dfa58` changed trainer shutdown ownership). Prior evidence: last complete measurement is the pre-fix baseline 318 passed, 1 skipped, 4 failed; the post-GNN-fix attempt produced no pytest summary. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
 - [x] ONNX export has CPU parity for `mlp`, `gat`, and `geometry`, including a second node/edge shape; the tensorized browser ONNX runner typechecks. This is not end-to-end browser deployment: canonical browser graph construction and app/agent wiring remain open.
-- [ ] Quantitative held-out diagnostic-probe validation remains deferred; no quality inference is made from the synthetic parity fixtures or smoke run.
-- [ ] Run the complete post-fix Python suite with progress output and record whether the curriculum evaluator's port-5050 `EADDRINUSE` warning recurs. Earlier post-fix run had no final summary; baseline remains 318 passed, 1 skipped, 4 failed.
-- [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality.
+- [ ] Quantitative held-out diagnostic-probe validation remains deferred and open: no held-out quantitative result exists; no quality inference is made from the synthetic parity fixtures or smoke run.
+- [ ] Run the complete post-P0.5 Python suite with progress output and record whether the port-5050 `EADDRINUSE` warning recurs (duplicate of the full-suite entry above, retained for the explicit EADDRINUSE observation). Orphan-reaping is now covered by the P0.5 + P0.5b lifecycle regressions; the full-suite observation itself remains outstanding.
+- [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality. No probe dataset or held-out result has been created yet.
 
 ## Item 1 — Make reward shaping (CooperativeRewardShaper) actually functional
 - [x] Bridge/wrapper feed shaper with the event types it can consume (`PASS_COMPLETED`, `SHOT_TAKEN`, `GOAL_SCORED`, `TURNOVER_CONCEDED`, `PASS_FAILED`)
@@ -44,7 +50,7 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 
 ## Item 5 — Reconciled eval/README checkpoint paths
 - [x] Point all defaults at an existing checkpoint — `mappo_..._trained.pt` did not exist; replaced with `mappo_..._best.pt` (eval_mappo.py, eval_generalization.py, export_onnx.py, validate_learned_policy.py, bridge_server.ts, TrainingJobService.ts fallback) and `..._seed44_best.pt` for the deployed-weights lineage (validate_learned_policy.ts, README). Remaining `_trained.pt` refs are guarded `fs.existsSync` fallbacks only. tsc + py_compile pass.
-- [ ] Reconcile stale/scattered `comprehensive_eval_*.json` / reports
+- [x] Reconcile stale/scattered `comprehensive_eval_*.json` / reports — `training/RESULTS_INDEX.md` maps the `comprehensive_eval_*` lineages to checkpoint SHA-256 + evaluator + revision, marks the pre-fix heuristic-era JSONs superseded (annotated, never deleted), and defines the reporting rules that prevent citing them as current.
 
 ## Item 6 — Single evidence source of truth
 - [x] Pin reported results to checkpoint SHA + `git describe` — created `training/RESULTS_INDEX.md`: lineage table (validation_report v2 → seed42_best `ddaf4d38…`, deployed weights → seed44_best `6fb28ff1…`, legacy heuristic JSONs marked superseded), reporting rules, verification commands. The old `FILE_NOT_FOUND` ambiguity is resolved: the report's model IS seed42_best.
@@ -215,14 +221,14 @@ All 9 checkpoints + eval JSONs + replay preserved in `training/models/` and `tra
 - [x] Regression test (engine level): `training/test_event_code_transmission.ts` — 64 checks, every event type × all 3 encoders + engine-driven goal/shot/pass/pass_completed ticks asserting `stats` and `event_code` agree
 - [x] Regression test (wire level): `training/test_event_code_wire.py` boots the REAL bridge and drives scripted policies (chase → pass / chase → shoot / carry-to-goal), asserting the transmitted `event_code` stream exactly equals engine ground truth: `pass` codes == `attempted_passes_left`, `pass_completed` codes == `completed_passes_left`, `shot` codes == `total_shots_left`, `goal` codes == final `score.left` — commit `0c17fe8`
 - [x] Re-sync stale Python contract constants (`EVENT_CODE_MAP` gained `pass_completed` (14) / `pass_intercepted` (15)) in `gmn_gym.py` / `checkpoint_contract.py` (`gmn_pettingzoo.py` already current)
-- [x] Test console output hardened to UTF-8 (`sys.stdout.reconfigure`) — the `PASS episode ΓÇö` seen in captures was CP437 mis-decoding of valid UTF-8 bytes at display time, not file corruption — commit `30f5b81`
+- [x] Test console output hardened to UTF-8 (`sys.stdout.reconfigure`) — the `PASS episode —` seen in captures was CP437 mis-decoding of valid UTF-8 bytes at display time, not file corruption — commit `30f5b81`
 
 **Non-obvious findings (documented in the wire test):**
 - The PettingZoo wrapper synthesizes all-ones action masks at reset (masks unknown before the first physics step); policies must not trust them at step 0.
 - Possession pickup is proximity-based (`BALL_CONTROL_DIST = 0.038`) while players cover ~0.12/tick, so chasers must re-aim EVERY tick to land inside the pickup radius; naive "run right" policies register zero passes/shots against a static ball.
 
 **Pending:**
-- [ ] Decide whether the Phase 10 comprehensive eval JSONs need a genuine re-run with corrected event instrumentation (engine-stat ground truth was already correct; per-tick event-derived metrics undercounted).
+- [ ] Decide whether the Phase 10 comprehensive eval JSONs need a genuine re-run with corrected event instrumentation (engine-stat ground truth was already correct; per-tick event-derived metrics undercounted). Decision still outstanding — the corrected instrumentation landing (wire test `0c17fe8`) does not by itself constitute the re-run decision.
 
 ## Task 8 — Run validation and produce final report of the current work
 - [x] Phase 4 tests: `python -m pytest training/tests/test_gnn_phase4.py -v` → 33/33 passed

@@ -35,6 +35,7 @@ Reward Shaping:
 """
 
 import argparse
+import atexit
 import os
 import sys
 import time
@@ -118,6 +119,23 @@ def run_mappo_shaped_training(
         auto_start_bridge=True,
         enable_reward_shaping=enable_reward_shaping,
     )
+
+    # P0.5b — Bridge lifecycle ownership: this trainer creates the bridge child
+    # (node.exe / bridge_server.ts on port 5050 via GMNMultiAgentEnv) and must
+    # reap it on EVERY exit path. run_mappo_shaped_training has no whole-function
+    # try/finally, so register an atexit hook covering both normal return and
+    # unhandled exception interpreter shutdown (mirrors train_mappo.py P0.5).
+    # Windows does not reap Popen children when the parent exits, which otherwise
+    # leaves the bridge listening on port 5050 after a fully successful run.
+    def _close_shaped_training_env() -> None:
+        try:
+            env.close()
+        except Exception:
+            # Best-effort teardown; never mask the run's own exit status.
+            pass
+
+    atexit.register(_close_shaped_training_env)
+
     num_agents = len(env.possible_agents)
     obs_dim = OBSERVATION_DIM
     global_state_dim = obs_dim * num_agents
