@@ -49,6 +49,35 @@ def _free_port():
     return port
 
 
+def _listening_pids(port: int) -> set:
+    """Return the set of local PIDs with a LISTENING TCP socket on `port`.
+
+    P0.5 bridge-lifecycle helper: used to prove the trainer reaps the bridge
+    child it spawns. Windows uses `netstat -ano`; other platforms return an
+    empty set (the lifecycle assertion then degrades to a no-op there).
+    """
+    if os.name != "nt":
+        return set()
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["netstat", "-ano"], text=True, errors="replace", timeout=10.0
+        ).splitlines()
+    except Exception:
+        return set()
+    pids = set()
+    for line in out:
+        parts = line.split()
+        if (
+            len(parts) >= 5
+            and parts[0].strip().upper() == "TCP"
+            and parts[-2].strip().upper() == "LISTENING"
+            and parts[1].rsplit(":", 1)[-1] == str(port)
+        ):
+            pids.add(parts[-1])
+    return pids
+
+
 def _bridge_can_start():
     """Return True if we believe the TypeScript bridge can start.
 
@@ -383,6 +412,9 @@ class TestTrainMappoCurriculumLiveSmoke:
         # blocked after the trainer itself has exited.
         log_path = tmp_path / "curriculum_smoke.log"
         process = None
+        # P0.5: snapshot who owns port 5050 before the trainer spawns its
+        # bridge so we can prove the trainer reaps that child on normal exit.
+        port_before = _listening_pids(5050)
         try:
             with log_path.open("w", encoding="utf-8") as log_file:
                 process = subprocess.Popen(
@@ -405,6 +437,37 @@ class TestTrainMappoCurriculumLiveSmoke:
                 )
             log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
             pytest.fail(f"Curriculum smoke exceeded 600 seconds. Log tail:\n{log_tail}")
+
+        # P0.5 bridge-lifecycle regression: the trainer owns the bridge child
+        # it spawns, and must reap it before its interpreter exits. A normal,
+        # successful completion must not leave ANY new port-5050 listener
+        # behind (pre-existing listeners from other sessions are tolerated so
+        # the check isolates what THIS run added).
+        port_after = _listening_pids(5050)
+        new_listeners = port_after - port_before
+        for _ in range(10):  # grace period: teardown is sync, allow stragglers
+            if not new_listeners:
+                break
+            time.sleep(0.5)
+            port_after = _listening_pids(5050)
+            new_listeners = port_after - port_before
+        if new_listeners:
+            # Reap the orphans so they cannot poison subsequent tests, then
+            # fail loudly — an orphaned bridge previously caused EADDRINUSE
+            # flakiness in later runs.
+            import subprocess as _sp
+            for _pid in new_listeners:
+                if os.name == "nt":
+                    _sp.run(
+                        ["taskkill", "/PID", str(_pid), "/T", "/F"],
+                        stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, check=False,
+                    )
+            pytest.fail(
+                f"Trainer exited successfully but left orphan bridge "
+                f"listener(s) on port 5050: PIDs {sorted(new_listeners)} "
+                f"(before={sorted(port_before)}, after={sorted(port_after)}). "
+                f"run_mappo_training must close its envs on exit."
+            )
         log_text = log_path.read_text(encoding="utf-8", errors="replace")
         print("TRAINER LOG:", log_text[-4000:])
         # The run may return non-zero for bridge issues; we only assert on

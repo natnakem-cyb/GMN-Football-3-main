@@ -16,6 +16,7 @@ Hyperparameters:
 """
 
 import argparse
+import atexit
 import csv
 import datetime
 import json
@@ -225,6 +226,23 @@ def run_mappo_training(
                 )
             )
         env = envs[0]
+
+    # P0.5 — Bridge lifecycle ownership: this trainer creates the bridge child
+    # (node.exe / bridge_server.ts on port 5050 via GMNMultiAgentEnv) and must
+    # reap it on EVERY exit path. run_mappo_training has no try/finally wrapper,
+    # so register an atexit hook covering both normal return and unhandled
+    # exception interpreter shutdown. Windows does not reap Popen children when
+    # the parent exits, which previously let the live curriculum smoke leave its
+    # bridge listening after a fully successful run.
+    def _close_training_envs() -> None:
+        for _training_env in envs:
+            try:
+                _training_env.close()
+            except Exception:
+                # Best-effort teardown; never mask the run's own exit status.
+                pass
+
+    atexit.register(_close_training_envs)
 
     print(f"   Shot clock: truncates={env.shot_clock_truncates} "
           f"t_max={env.shot_clock_t_max} (episodes are not capped by the clock)",
