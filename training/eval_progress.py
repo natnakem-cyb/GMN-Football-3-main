@@ -323,6 +323,7 @@ def evaluate_single_agent_ppo(
     rewards = []
     goals = 0
     shots = 0
+    passes = 0
     turnovers_conceded_total = 0.0
     is_rondo = scenario == "academy_rondo_4v1"
 
@@ -341,9 +342,12 @@ def evaluate_single_agent_ppo(
             while not done and steps < 600:
                 action, _ = model.predict(obs, deterministic=deterministic)
                 act_val = int(action[0]) if isinstance(action, (list, np.ndarray)) else int(action)
-                if not is_rondo and act_val == 12:  # Shot action
-                    shots += 1
-                    ep_shot = True
+                if not is_rondo:
+                    if act_val == 12:  # Shot action
+                        shots += 1
+                        ep_shot = True
+                    elif act_val in (9, 10, 11):  # Pass actions
+                        passes += 1
 
                 obs, reward_arr, done_arr, info_list = vec_env.step(action)
                 reward = float(reward_arr[0])
@@ -400,19 +404,21 @@ def evaluate_single_agent_ppo(
         "mean_reward": mean_rew,
         "std_reward": std_rew,
         "shots_per_ep": shots_per_ep,
+        "passes_per_ep": passes_per_ep,
+        "pass_shot_rate_pct": pass_shot_rate_pct,
         "non_scoring_episode_rate_pct": non_scoring_episode_rate_pct,
         "turnovers_conceded_per_ep": turnovers_conceded_per_ep,
         "possession_retention_time": possession_retention_time,
         "completed_pass_chains": completed_pass_chains,
-        "ground_truth_possession_left_pct": gt_possession,
-        "ground_truth_pass_accuracy": gt_pass_accuracy,
-        "ground_truth_shot_accuracy": gt_shot_accuracy,
-        "pass_accuracy_goal_episodes": gt_pass_accuracy_goal_mean,
-        "shot_accuracy_goal_episodes": gt_shot_accuracy_goal_mean,
-        "pass_accuracy_no_goal_episodes": gt_pass_accuracy_no_goal_mean,
-        "shot_accuracy_no_goal_episodes": gt_shot_accuracy_no_goal_mean,
-        "goal_episodes_count": len(gt_pass_accuracy_goal),
-        "no_goal_episodes_count": len(gt_pass_accuracy_no_goal),
+        "ground_truth_possession_left_pct": None,
+        "ground_truth_pass_accuracy": None,
+        "ground_truth_shot_accuracy": None,
+        "pass_accuracy_goal_episodes": None,
+        "shot_accuracy_goal_episodes": None,
+        "pass_accuracy_no_goal_episodes": None,
+        "shot_accuracy_no_goal_episodes": None,
+        "goal_episodes_count": 0,
+        "no_goal_episodes_count": 0,
     }
 
 
@@ -434,6 +440,7 @@ def evaluate_multi_agent_ippo(
     rewards = []
     goals = 0
     shots = 0
+    passes = 0
     turnovers_conceded_total = 0.0
     is_rondo = scenario == "academy_rondo_4v1"
     ground_truth_possession = []
@@ -470,8 +477,11 @@ def evaluate_multi_agent_ippo(
                     act, _ = model.predict(obs, deterministic=deterministic)
                     act_int = int(act)
                     actions[agent_id] = act_int
-                    if not is_rondo and act_int == 12:
-                        shots += 1
+                    if not is_rondo:
+                        if act_int == 12:
+                            shots += 1
+                        elif act_int in (9, 10, 11):
+                            passes += 1
 
                 obs_dict, rews, terms, truncs, infos = env.step(actions)
                 obs_dict = unwrap_obs(obs_dict)

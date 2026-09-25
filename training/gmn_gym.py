@@ -8,7 +8,7 @@ import numpy as np
 import websockets.sync.client
 import gymnasium as gym
 from gymnasium import spaces
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Union
 import sys
 
 
@@ -87,7 +87,7 @@ class GMNFootballEnv(gym.Env):
         self,
         scenario: str = "academy_empty_goal",
         host: str = "127.0.0.1",
-        port: int = 5050,
+        port: Optional[int] = None,
         auto_start_bridge: bool = True,
         render_mode: Optional[str] = None,
         use_ws: bool = True,
@@ -97,7 +97,7 @@ class GMNFootballEnv(gym.Env):
 
         self.scenario = scenario
         self.host = host
-        self.port = int(os.environ.get("GMN_BRIDGE_PORT", port))
+        self.port = port if port is not None else int(os.environ.get("GMN_BRIDGE_PORT", 5050))
         self.base_url = f"http://{self.host}:{self.port}"
         self.ws_url = f"ws://{self.host}:{self.port}"
         self.auto_start_bridge = auto_start_bridge

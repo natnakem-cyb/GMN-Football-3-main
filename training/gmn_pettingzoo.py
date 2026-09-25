@@ -429,7 +429,7 @@ class GMNMultiAgentEnv(ParallelEnv):
         self.scenario = scenario
         self.include_graph_observations = bool(include_graph_observations)
         self.host = host
-        self.port = port or int(os.environ.get("GMN_BRIDGE_PORT", "5050"))
+        self.port = port if port is not None else int(os.environ.get("GMN_BRIDGE_PORT", "5050"))
         self.base_url = f"http://{self.host}:{self.port}"
         self.ws_url = f"ws://{self.host}:{self.port}"
         if debug_rewards:

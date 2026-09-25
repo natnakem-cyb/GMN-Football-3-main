@@ -92,3 +92,32 @@ def test_transport_parity(steps: int = 500, seed: int = 424242, scenario: str = 
 
 if __name__ == "__main__":
     test_transport_parity(500, 424242, "academy_empty_goal")
+
+
+def test_port_precedence_explicit_wins_over_env_var():
+    """Regression test: explicit port argument must win over GMN_BRIDGE_PORT env var."""
+    # Set env var to a known value
+    os.environ["GMN_BRIDGE_PORT"] = "5050"
+    
+    # Create env with explicit port=5062
+    env = GMNFootballEnv(scenario="academy_empty_goal", port=5062, use_ws=False, auto_start_bridge=False)
+    
+    # Explicit port should win
+    assert env.port == 5062, f"Expected port 5062 (explicit), got {env.port}"
+    
+    # Test with port=None (should fall back to env var)
+    env2 = GMNFootballEnv(scenario="academy_empty_goal", port=None, use_ws=False, auto_start_bridge=False)
+    assert env2.port == 5050, f"Expected port 5050 (env var fallback), got {env2.port}"
+    
+    # Clean up
+    del os.environ["GMN_BRIDGE_PORT"]
+    
+    # Test with no env var and no explicit port (should default to 5050)
+    env3 = GMNFootballEnv(scenario="academy_empty_goal", port=None, use_ws=False, auto_start_bridge=False)
+    assert env3.port == 5050, f"Expected port 5050 (default), got {env3.port}"
+    
+    print("✓ PORT PRECEDENCE TEST PASSED — explicit argument wins over env var")
+
+
+if __name__ == "__main__":
+    test_port_precedence_explicit_wins_over_env_var()
