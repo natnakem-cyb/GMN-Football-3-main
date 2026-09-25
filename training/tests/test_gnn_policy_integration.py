@@ -18,7 +18,7 @@ from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.gnn_graph_to_tensor import GraphTensor
 from training.gnn_mappo_networks import GNNMAPPOActor, GNNMAPPOCritic
 from training.mappo_networks import SharedActor
-from training.mappo_rollout import collect_rollout
+from training.mappo_rollout import collect_rollout, collect_rollout_batched, compute_gae
 from training.mappo_update import ppo_update
 
 
@@ -227,6 +227,51 @@ class _FakeGraphEnv:
         )
 
 
+class _FakeGraphBatchedEnv:
+    """Two graph-enabled sub-environments with independent episode clocks."""
+
+    include_graph_observations = True
+    scenario = "academy_empty_goal"
+    possible_agents = [AGENT]
+
+    def __init__(self, batch_size=2):
+        self.batch_size = batch_size
+        self.ticks = [0] * batch_size
+
+    def _observations(self, env_idx):
+        obs = np.full(127, (self.ticks[env_idx] + env_idx) / 10.0, dtype=np.float32)
+        return {AGENT: {"observation": obs, "action_mask": MASK.copy()}}
+
+    def _graph_info(self, env_idx):
+        return {AGENT: {"graph_observation": _graph(self.ticks[env_idx] + env_idx)}}
+
+    def reset_batch(self, seeds=None):
+        self.ticks = [0] * self.batch_size
+        return [
+            (self._observations(i), self._graph_info(i))
+            for i in range(self.batch_size)
+        ]
+
+    def step_batch(self, action_sets):
+        results = []
+        for env_idx in range(self.batch_size):
+            self.ticks[env_idx] += 1
+            terminated = self.ticks[env_idx] == env_idx + 2
+            graphs = {AGENT: _graph(self.ticks[env_idx] + env_idx)}
+            results.append((
+                self._observations(env_idx),
+                {AGENT: float(self.ticks[env_idx])},
+                {AGENT: terminated},
+                {AGENT: False},
+                {"graph_observations": graphs},
+            ))
+        return results
+
+    def reset_one(self, env_idx, seed=None):
+        self.ticks[env_idx] = 0
+        return self._observations(env_idx), self._graph_info(env_idx)
+
+
 @pytest.mark.parametrize("encoder_type", ["mlp", "gat", "geometry"])
 def test_gap2_gnn_rollout_and_ppo_update_train_actor_and_critic(encoder_type):
     torch.manual_seed(17)
@@ -261,6 +306,68 @@ def test_gap2_gnn_rollout_and_ppo_update_train_actor_and_critic(encoder_type):
     assert np.isfinite(metrics["value_loss"])
     assert any(not torch.equal(actor_before[k], value) for k, value in actor.state_dict().items())
     assert any(not torch.equal(critic_before[k], value) for k, value in critic.state_dict().items())
+
+
+def test_gap2_graph_batched_rollout_ppo_update_and_per_env_gae():
+    torch.manual_seed(31)
+    np.random.seed(31)
+    env = _FakeGraphBatchedEnv(batch_size=2)
+    actor = GNNMAPPOActor(encoder_type="mlp", hidden_dim=16)
+    critic = GNNMAPPOCritic(encoder_type="mlp", hidden_dim=16)
+    buffer = collect_rollout_batched(
+        env, actor, critic, num_steps=3, batch_size=2
+    )
+
+    assert buffer["graph_observations"] and len(buffer["graph_observations"]) == 6
+    assert buffer["sequence_ids"].tolist() == [0, 1, 0, 1, 0, 1]
+    assert buffer["episode_ends"].tolist() == [False, False, True, False, False, True]
+    assert buffer["next_values"].shape == (6,)
+
+    actor_before = {k: v.detach().clone() for k, v in actor.state_dict().items()}
+    critic_before = {k: v.detach().clone() for k, v in critic.state_dict().items()}
+    advantages, returns = compute_gae(
+        rewards=buffer["rewards"],
+        values=buffer["values"],
+        dones=buffer["dones"],
+        per_agent_rewards=buffer["per_agent_rewards"],
+        next_values=buffer["next_values"],
+        sequence_ids=buffer["sequence_ids"],
+        episode_ends=buffer["episode_ends"],
+    )
+    metrics = ppo_update(
+        actor,
+        critic,
+        torch.optim.SGD(actor.parameters(), lr=0.02),
+        torch.optim.SGD(critic.parameters(), lr=0.02),
+        buffer,
+        advantages=advantages,
+        returns=returns,
+        n_epochs=1,
+        batch_size=6,
+        entropy_coef=0.0,
+        max_grad_norm=None,
+    )
+    assert np.isfinite(metrics["policy_loss"])
+    assert np.isfinite(metrics["value_loss"])
+    assert any(not torch.equal(actor_before[k], v) for k, v in actor.state_dict().items())
+    assert any(not torch.equal(critic_before[k], v) for k, v in critic.state_dict().items())
+
+    # Interleaved env transitions must accumulate only within their own env.
+    rewards = np.asarray([1, 10, 2, 20], dtype=np.float32)
+    gae, _ = compute_gae(
+        rewards=rewards,
+        values=np.zeros(4, dtype=np.float32),
+        dones=np.zeros(4, dtype=bool),
+        per_agent_rewards=rewards[:, None],
+        gamma=1.0,
+        lam=1.0,
+        next_values=np.zeros(4, dtype=np.float32),
+        sequence_ids=np.asarray([0, 1, 0, 1]),
+        episode_ends=np.zeros(4, dtype=bool),
+    )
+    assert np.array_equal(
+        gae[:, 0], np.asarray([3, 30, 2, 20], dtype=np.float32)
+    )
 
 
 @pytest.mark.parametrize("architecture", ["gnn:mlp", "gnn:gat", "gnn:geometry"])

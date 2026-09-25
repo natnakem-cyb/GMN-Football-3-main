@@ -720,6 +720,9 @@ def compute_gae(
     next_graph_observations: Optional[List[Any]] = None,
     critic = None,
     per_agent_rewards: np.ndarray = None,
+    next_values: Optional[np.ndarray] = None,
+    sequence_ids: Optional[np.ndarray] = None,
+    episode_ends: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes Generalized Advantage Estimation (GAE) and Returns backwards over the rollout.
@@ -744,6 +747,53 @@ def compute_gae(
         advantages: shape (T,) or (T, num_agents)
         returns: shape (T,) or (T, num_agents)
     """
+    if next_values is not None or sequence_ids is not None or episode_ends is not None:
+        if next_values is None or sequence_ids is None or episode_ends is None:
+            raise ValueError(
+                "next_values, sequence_ids, and episode_ends must be supplied together"
+            )
+        next_values = np.asarray(next_values, dtype=np.float32)
+        sequence_ids = np.asarray(sequence_ids)
+        episode_ends = np.asarray(episode_ends, dtype=bool)
+        rewards = np.asarray(rewards, dtype=np.float32)
+        values = np.asarray(values, dtype=np.float32)
+        dones = np.asarray(dones, dtype=bool)
+        expected = len(rewards)
+        if any(len(x) != expected for x in (values, dones, next_values, sequence_ids, episode_ends)):
+            raise ValueError("batched GAE inputs must have the same leading length")
+
+        if per_agent_rewards is not None:
+            per_agent_rewards = np.asarray(per_agent_rewards, dtype=np.float32)
+            if per_agent_rewards.shape[0] != expected:
+                raise ValueError("per_agent_rewards length must match rewards")
+            advantages = np.zeros_like(per_agent_rewards, dtype=np.float32)
+            last_gae: Dict[Any, np.ndarray] = {}
+            for t in reversed(range(expected)):
+                seq = sequence_ids[t].item() if hasattr(sequence_ids[t], "item") else sequence_ids[t]
+                continuation = 0.0 if episode_ends[t] else 1.0
+                next_gae = last_gae.get(seq, np.zeros(per_agent_rewards.shape[1], dtype=np.float32))
+                delta = (
+                    per_agent_rewards[t]
+                    + gamma * next_values[t] * (0.0 if dones[t] else 1.0)
+                    - values[t]
+                )
+                gae = delta + gamma * lam * continuation * next_gae
+                advantages[t] = gae
+                last_gae[seq] = gae
+            returns = advantages + values[:, None]
+            return advantages, returns
+
+        advantages = np.zeros_like(rewards, dtype=np.float32)
+        last_gae_by_sequence: Dict[Any, float] = {}
+        for t in reversed(range(expected)):
+            seq = sequence_ids[t].item() if hasattr(sequence_ids[t], "item") else sequence_ids[t]
+            continuation = 0.0 if episode_ends[t] else 1.0
+            next_gae = last_gae_by_sequence.get(seq, 0.0)
+            delta = rewards[t] + gamma * next_values[t] * (0.0 if dones[t] else 1.0) - values[t]
+            advantages[t] = delta + gamma * lam * continuation * next_gae
+            last_gae_by_sequence[seq] = float(advantages[t])
+        return advantages, advantages + values
+
     # If the rollout was truncated mid-episode and we have a critic + next_local_obs,
     # compute the real bootstrap value instead of defaulting to 0.0.
     effective_bootstrap = bootstrap_value
@@ -829,7 +879,13 @@ def collect_rollout_batched(
         "dones": [],
         "terminated": [],
         "truncated": [],
+        "next_values": [],
+        "sequence_ids": [],
+        "episode_ends": [],
     }
+    use_graphs = bool(getattr(actor, "requires_graph_observations", False))
+    if use_graphs:
+        buffers["graph_observations"] = []
     completed_episodes: List[Dict[str, Any]] = []
     total_steps = 0
 
@@ -850,7 +906,7 @@ def collect_rollout_batched(
         obs_dict, info = batch_init[env_idx]
         state_masks = unwrap_masks(obs_dict)
         obs_dict = unwrap_obs(obs_dict)
-        env_states.append({
+        state = {
             "obs_dict": obs_dict,
             "masks": state_masks,
             "agents": list(obs_dict.keys()),
@@ -859,7 +915,14 @@ def collect_rollout_batched(
             "ep_rew": 0.0,
             "ep_len": 0,
             "info": info,
-        })
+        }
+        if use_graphs:
+            if not getattr(env, "include_graph_observations", False):
+                raise RuntimeError(
+                    "GNN actor requires GMNMultiAgentEnv(include_graph_observations=True)"
+                )
+            state["graph_obs_dict"] = unwrap_graph_observations(info, agent_order)
+        env_states.append(state)
 
     for _ in range(num_steps):
         # Build per-env action dicts from a single shared policy forward.
@@ -878,18 +941,27 @@ def collect_rollout_batched(
                 state["obs_dict"] = unwrap_obs(fresh_obs)
                 state["agents"] = list(state["obs_dict"].keys())
                 state["info"] = fresh_info
+                if use_graphs:
+                    state["graph_obs_dict"] = unwrap_graph_observations(
+                        fresh_info, state["agents"]
+                    )
                 current_agents = state["agents"]
             local_obs = np.stack([state["obs_dict"][a] for a in current_agents], axis=0).astype(np.float32)
             local_obs_stack.append(local_obs)
             mask_matrix = _mask_matrix(state.get("masks"), current_agents)
             with torch.no_grad():
-                dist = actor(
-                    torch.tensor(local_obs, dtype=torch.float32),
-                    torch.tensor(mask_matrix, dtype=torch.bool),
-                )
+                if use_graphs:
+                    current_graphs = [state["graph_obs_dict"][a] for a in current_agents]
+                    dist = actor(current_graphs, torch.tensor(mask_matrix, dtype=torch.bool))
+                    value_t = critic([current_graphs[0]])
+                else:
+                    dist = actor(
+                        torch.tensor(local_obs, dtype=torch.float32),
+                        torch.tensor(mask_matrix, dtype=torch.bool),
+                    )
+                    value_t = critic(torch.tensor(local_obs.flatten(), dtype=torch.float32).unsqueeze(0))
                 actions_t = dist.sample()
                 logprobs_t = dist.log_prob(actions_t)
-                value_t = critic(torch.tensor(local_obs.flatten(), dtype=torch.float32).unsqueeze(0))
             action_dict = {a: int(actions_t[i].item()) for i, a in enumerate(current_agents)}
             action_sets.append(action_dict)
             state["_last_actions"] = actions_t.cpu().numpy().astype(np.int64)
@@ -938,8 +1010,33 @@ def collect_rollout_batched(
             buffers["terminated"].append(shared_term)
             buffers["truncated"].append(shared_trunc)
 
+            next_obs_dict = unwrap_obs(observations)
+            next_value = 0.0
+            next_graph_dict = None
+            if not shared_term and current_agents and all(a in next_obs_dict for a in current_agents):
+                with torch.no_grad():
+                    if use_graphs:
+                        next_graph_dict = unwrap_graph_observations(info, current_agents)
+                        next_value = float(critic([next_graph_dict[current_agents[0]]]).item())
+                    else:
+                        next_joint_obs = np.stack(
+                            [next_obs_dict[a] for a in current_agents], axis=0
+                        ).astype(np.float32)
+                        next_value = float(
+                            critic(torch.tensor(next_joint_obs, dtype=torch.float32).unsqueeze(0)).item()
+                        )
+            buffers["next_values"].append(next_value)
+            buffers["sequence_ids"].append(env_idx)
+            buffers["episode_ends"].append(shared_term or shared_trunc)
+            if use_graphs:
+                buffers["graph_observations"].append(
+                    [state["graph_obs_dict"][a] for a in current_agents]
+                )
+
             state["masks"] = unwrap_masks(observations)
-            state["obs_dict"] = unwrap_obs(observations)
+            state["obs_dict"] = next_obs_dict
+            if use_graphs and next_graph_dict is not None:
+                state["graph_obs_dict"] = next_graph_dict
             state["ep_rew"] += shared_reward
             state["ep_len"] += 1
             total_steps += 1
@@ -1040,6 +1137,10 @@ def collect_rollout_batched(
                 fresh_obs, fresh_info = env.reset_one(env_idx, seed=1000 + env_idx)
                 state["masks"] = unwrap_masks(fresh_obs)
                 state["obs_dict"] = unwrap_obs(fresh_obs)
+                if use_graphs:
+                    state["graph_obs_dict"] = unwrap_graph_observations(
+                        fresh_info, state["agents"]
+                    )
                 state["agents"] = list(state["obs_dict"].keys())
                 state["info"] = fresh_info
 
@@ -1058,6 +1159,11 @@ def collect_rollout_batched(
     res_buffer["dones"] = np.array(buffers["dones"], dtype=bool)
     res_buffer["terminated"] = np.array(buffers["terminated"], dtype=bool)
     res_buffer["truncated"] = np.array(buffers["truncated"], dtype=bool)
+    res_buffer["next_values"] = np.asarray(buffers["next_values"], dtype=np.float32)
+    res_buffer["sequence_ids"] = np.asarray(buffers["sequence_ids"], dtype=np.int64)
+    res_buffer["episode_ends"] = np.asarray(buffers["episode_ends"], dtype=bool)
+    if use_graphs:
+        res_buffer["graph_observations"] = buffers["graph_observations"]
     res_buffer["next_local_obs"] = np.stack([env_states[0]["obs_dict"][a] for a in agent_order], axis=0).astype(np.float32)
     res_buffer["completed_episodes"] = completed_episodes
     res_buffer["total_steps"] = total_steps
@@ -1086,6 +1192,12 @@ def collect_rollout_batched(
     )
     assert res_buffer["dones"].shape == (T,), (
         f"dones shape mismatch: got {res_buffer['dones'].shape}"
+    )
+    assert res_buffer["next_values"].shape == (T,), (
+        f"next_values shape mismatch: got {res_buffer['next_values'].shape}"
+    )
+    assert res_buffer["sequence_ids"].shape == (T,), (
+        f"sequence_ids shape mismatch: got {res_buffer['sequence_ids'].shape}"
     )
     assert res_buffer["next_local_obs"].shape == (num_agents, obs_dim), (
         f"next_local_obs shape mismatch: got {res_buffer['next_local_obs'].shape}"

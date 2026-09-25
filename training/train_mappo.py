@@ -76,8 +76,6 @@ def run_mappo_training(
 ) -> bool:
     if policy_architecture not in ("flat", "gnn:gat", "gnn:geometry", "gnn:mlp"):
         raise ValueError("policy_architecture must be flat, gnn:gat, gnn:geometry, or gnn:mlp")
-    if policy_architecture != "flat" and n_envs != 1:
-        raise ValueError("GNN MAPPO currently requires --n-envs 1; graph-aware batched rollout is not wired yet")
     graph_policy = policy_architecture != "flat"
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
@@ -491,6 +489,9 @@ def run_mappo_training(
             next_graph_observations=buffer.get("next_graph_observations"),
             critic=critic,
             per_agent_rewards=buffer.get("per_agent_rewards"),
+            next_values=buffer.get("next_values"),
+            sequence_ids=buffer.get("sequence_ids"),
+            episode_ends=buffer.get("episode_ends"),
         )
 
         # 3. PPO Update Step

@@ -18,6 +18,8 @@ import json
 import struct
 import subprocess
 import logging
+import threading
+import socket
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
@@ -27,6 +29,7 @@ from gymnasium import spaces
 from pettingzoo.utils.env import ParallelEnv
 
 logger = logging.getLogger(__name__)
+_BRIDGE_START_LOCK = threading.Lock()
 
 
 def _fail_closed_fallback_mask() -> np.ndarray:
@@ -1196,16 +1199,19 @@ class GMNMultiAgentEnv(ParallelEnv):
             pass
 
     def _ensure_bridge_running(self):
+        """Serialize health-check/startup so concurrent envs share one bridge."""
+        with _BRIDGE_START_LOCK:
+            return self._ensure_bridge_running_locked()
+
+    def _ensure_bridge_running_locked(self):
         """Verifies connection to bridge server or starts it via npx tsx.
         
         Kills any existing bridge processes first, then starts fresh with retry.
         Raises RuntimeError if the bridge cannot be started after max attempts.
         """
-        max_launch_attempts = 3
-        launch_attempt = 0
         bridge_script = os.path.join(os.path.dirname(__file__), "bridge_server.ts")
 
-        while True:
+        def health_ready() -> bool:
             try:
                 res = requests.get(f"{self.base_url}/health", timeout=2.0)
                 if res.status_code == 200:
@@ -1217,51 +1223,68 @@ class GMNMultiAgentEnv(ParallelEnv):
                             f"[GMN-PettingZoo Contract Mismatch] Bridge reports obs_dim={bridge_obs_dim}, "
                             f"act_dim={bridge_act_dim}; Expected obs_dim={OBSERVATION_DIM}, act_dim={ACTION_SPACE_SIZE}."
                         )
-                    return
+                    return True
             except requests.RequestException:
-                pass
+                return False
+            return False
 
-            if not self.auto_start_bridge:
-                raise RuntimeError(
-                    f"[GMN-PettingZoo] Bridge not running at {self.base_url} and auto_start_bridge=False. "
-                    "Start it manually or enable auto_start_bridge."
-                )
-
-            launch_attempt += 1
-            if launch_attempt > max_launch_attempts:
-                raise RuntimeError(
-                    f"[GMN-PettingZoo] Failed to start bridge after {max_launch_attempts} attempts. "
-                    f"Check that tsx/node are installed and {bridge_script} is valid."
-                )
-
-            # Kill stale bridge before each launch attempt
-            self._kill_existing_bridge()
-
-            print(f"[GMN-PettingZoo] Launching Headless Bridge Server on {self.base_url}...")
+        def port_is_open() -> bool:
             try:
-                self.bridge_process = subprocess.Popen(
-                    _npx_cmd() + ["tsx", bridge_script],
-                    env=dict(os.environ, GMN_BRIDGE_PORT=str(self.port)),
-                    # Do not leave an unread PIPE attached to the bridge.
-                    # The child emits logs while serving steps; a full pipe
-                    # blocks Node's event loop and makes WebSocket clients hang.
-                )
-            except Exception as e:
-                raise RuntimeError(
-                    f"[GMN-PettingZoo] Failed to launch bridge subprocess: {e}"
-                ) from e
+                with socket.create_connection((self.host, self.port), timeout=0.25):
+                    return True
+            except OSError:
+                return False
 
-            # Wait for bridge to come up, with increasing backoff
-            for wait_sec in (3.0, 5.0, 8.0):
-                time.sleep(wait_sec)
-                try:
-                    res = requests.get(f"{self.base_url}/health", timeout=2.0)
-                    if res.status_code == 200:
-                        return
-                except requests.RequestException:
-                    pass
+        if health_ready():
+            return
 
-            # If still not up, loop back and kill/retry
+        if not self.auto_start_bridge:
+            raise RuntimeError(
+                f"[GMN-PettingZoo] Bridge not running at {self.base_url} and auto_start_bridge=False. "
+                "Start it manually or enable auto_start_bridge."
+            )
+
+        # A listener may be between TCP bind and HTTP readiness. Give it time
+        # to answer health instead of launching another process onto the port.
+        if port_is_open():
+            for _ in range(60):
+                time.sleep(0.5)
+                if health_ready():
+                    return
+            raise RuntimeError(
+                f"[GMN-PettingZoo] Port {self.port} is already accepting TCP connections, "
+                "but the bridge health endpoint did not become ready."
+            )
+
+        print(f"[GMN-PettingZoo] Launching Headless Bridge Server on {self.base_url}...", flush=True)
+        try:
+            self.bridge_process = subprocess.Popen(
+                _npx_cmd() + ["tsx", bridge_script],
+                env=dict(os.environ, GMN_BRIDGE_PORT=str(self.port)),
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"[GMN-PettingZoo] Failed to launch bridge subprocess: {e}"
+            ) from e
+
+        for _ in range(60):
+            time.sleep(0.5)
+            if health_ready():
+                return
+            if self.bridge_process.poll() is not None:
+                # If another process won a bind race, allow it to become healthy
+                # before failing. Never kill or replace an unowned listener.
+                if port_is_open():
+                    for _ in range(20):
+                        time.sleep(0.5)
+                        if health_ready():
+                            return
+                break
+
+        raise RuntimeError(
+            f"[GMN-PettingZoo] Bridge failed to become healthy at {self.base_url}. "
+            f"Check that tsx/node are installed and {bridge_script} is valid."
+        )
 
 
     def _connect_ws(self):
