@@ -14,7 +14,9 @@
       "lines": 44,
       "crlf": 43,
       "lf_only": 0,
-      "first_line": "[GMN Headless Bridge] Server listening on http://0.0.0.0:5417 (HTTP + "
+      "first_line": "[GMN Headless Bridge] Server listening on http://0.0.0.0:5417 (HTTP + ",
+      "sha256_committed_blob": "84bfaede9f52c32cbd544d62962741123395b02bda2c2f3b10ec973bb6d0a31f",
+      "size_committed_blob": 1407
     },
     {
       "path": "debug_out.txt",
@@ -27,7 +29,9 @@
       "lines": 2,
       "crlf": 1,
       "lf_only": 0,
-      "first_line": "[RewardAdapter] active=AttackingDrillRewardAdapter scenario=academy_3_"
+      "first_line": "[RewardAdapter] active=AttackingDrillRewardAdapter scenario=academy_3_",
+      "sha256_committed_blob": "200da7224867256048aea4871373f682eaf9d012773df764c0ee721b9797f83c",
+      "size_committed_blob": 87
     },
     {
       "path": "null",
@@ -40,7 +44,9 @@
       "lines": 9,
       "crlf": 8,
       "lf_only": 0,
-      "first_line": "taskkill : ERROR: The process \"node.exe\" not found.\r"
+      "first_line": "taskkill : ERROR: The process \"node.exe\" not found.\r",
+      "sha256_committed_blob": "a8db61c881932616831bc44ec874d0ca5d8b499e3a367c5b3f4e3843c86200bc",
+      "size_committed_blob": 313
     },
     {
       "path": "retrain_seed42_validation.log",
@@ -53,7 +59,9 @@
       "lines": 63,
       "crlf": 62,
       "lf_only": 0,
-      "first_line": "==================================================\r"
+      "first_line": "==================================================\r",
+      "sha256_committed_blob": "5ab8d423edad5fd05954f10c78a2d03bbaf8eafa62d8c7086e38b912426f9adc",
+      "size_committed_blob": 4949
     },
     {
       "path": "training/full_trace_episode_0.log",
@@ -66,7 +74,9 @@
       "lines": 165,
       "crlf": 164,
       "lf_only": 0,
-      "first_line": "=== Full trace: Episode 0 (seed 500000) ===\r"
+      "first_line": "=== Full trace: Episode 0 (seed 500000) ===\r",
+      "sha256_committed_blob": "608d7d33ee9aa94b7ae7a26ceee3bd7365b97a598ec5e2586a26a77f6c6fe018",
+      "size_committed_blob": 18917
     },
     {
       "path": "training/log_run3_200k.txt",
@@ -79,7 +89,9 @@
       "lines": 116,
       "crlf": 115,
       "lf_only": 0,
-      "first_line": "==================================================\r"
+      "first_line": "==================================================\r",
+      "sha256_committed_blob": "8f5d6bfcf270b21da44d2e0b6ed8789a0254c947fcea52f42d134e394f8574cb",
+      "size_committed_blob": 9503
     },
     {
       "path": "training/log_run3_200k_full.txt",
@@ -92,7 +104,9 @@
       "lines": 35,
       "crlf": 34,
       "lf_only": 0,
-      "first_line": "==================================================\r"
+      "first_line": "==================================================\r",
+      "sha256_committed_blob": "0d257e21637cf2e0784b9627571e34fadb59dcf4d852f03a4a598f837e94d95b",
+      "size_committed_blob": 3433
     },
     {
       "path": "training/log_smoke_test.txt",
@@ -105,7 +119,9 @@
       "lines": 74,
       "crlf": 73,
       "lf_only": 0,
-      "first_line": "==================================================\r"
+      "first_line": "==================================================\r",
+      "sha256_committed_blob": "e90fa65d4b60b0c37ea706c11bfcf0bc1a307aa60f2d2de1b2c1b12fe4f5f712",
+      "size_committed_blob": 5941
     },
     {
       "path": "training/mappo_200k_new_run.log",
@@ -118,7 +134,9 @@
       "lines": 96,
       "crlf": 95,
       "lf_only": 0,
-      "first_line": "==================================================\r"
+      "first_line": "==================================================\r",
+      "sha256_committed_blob": "ca7b2bfa5e9fd584b74b118ab38b962f3b7a6354356f298a3bfb77d8f9afe583",
+      "size_committed_blob": 8845
     },
     {
       "path": "training/mappo_200k_run.log",
@@ -131,7 +149,9 @@
       "lines": 102,
       "crlf": 0,
       "lf_only": 101,
-      "first_line": "=================================================="
+      "first_line": "==================================================",
+      "sha256_committed_blob": "a955de63b217d60e7fc8464bd29418dd02bd2d96129906d8f79d913ce22b60c6",
+      "size_committed_blob": 8925
     },
     {
       "path": "training/mappo_500k_run.log",
@@ -144,7 +164,9 @@
       "lines": 260,
       "crlf": 259,
       "lf_only": 0,
-      "first_line": "==================================================\r"
+      "first_line": "==================================================\r",
+      "sha256_committed_blob": "024cef9cd569a6fa100b0deb7759c67bfa1f3dab292635c1ef8db18a90065d4a",
+      "size_committed_blob": 26145
     },
     {
       "path": "training/results/forensic_seed42_offball_inventory_output.txt",
@@ -157,7 +179,9 @@
       "lines": 360,
       "crlf": 359,
       "lf_only": 0,
-      "first_line": "======================================================================"
+      "first_line": "======================================================================",
+      "sha256_committed_blob": "1e1471dc97b77e3a132b58d88f28ca4c5758d338308928cedbc4e9e174c81902",
+      "size_committed_blob": 12633
     },
     {
       "path": "training/results/forensic_verify_canonical_artifacts_output.txt",
@@ -170,7 +194,14 @@
       "lines": 178,
       "crlf": 177,
       "lf_only": 0,
-      "first_line": "=== INDEPENDENT VERIFICATION: CANONICAL 3-AGENT ARTIFACTS ===\r"
+      "first_line": "=== INDEPENDENT VERIFICATION: CANONICAL 3-AGENT ARTIFACTS ===\r",
+      "sha256_committed_blob": "5d8a740db61fe60d4537cf38a99f8257c13b379f092f04cd4147855668f7a5b7",
+      "size_committed_blob": 9890
     }
-  ]
+  ],
+  "hash_frames": {
+    "working_tree_after_transcode": "CRLF preserved (EOL-identical to the UTF-16 source); sha256_after values above",
+    "committed_blob": "LF-normalised by core.autocrlf=true; sha256_committed_blob values above",
+    "note": "Both frames are recorded because git rewrites CRLF to LF on commit in this repository; example dbg_out.txt working tree d263da088da72825 (1450 B) vs committed blob 84bfaede9f52c32c (1407 B)."
+  }
 }
