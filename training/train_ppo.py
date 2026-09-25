@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import argparse
+import atexit
 from typing import Callable
 
 # Add project root to sys.path
@@ -139,6 +140,26 @@ def run_ppo_training(
         env = DummyVecEnv([(lambda idx=i: make_env(idx)) for i in range(n_envs)])
         print(f"   Parallel stepping enabled with {n_envs} environments (ports 5050..{5050 + n_envs - 1}).")
     raw_env = env.envs[0]  # first sub-env, reused by the final evaluation section
+
+    # P0.5c-1 — Bridge lifecycle ownership: make_env() above creates bridge
+    # children (node.exe / bridge_server.ts on ports 5050+ via GMNFootballEnv)
+    # and they must be reaped on EVERY exit path. The try/finally that closes
+    # env only begins after the VecNormalize construction below, so a failure
+    # in this pre-try window (e.g. corrupt _vecnormalize.pkl at
+    # VecNormalize.load, or Ctrl+C during env setup) would otherwise leave the
+    # bridge listening on TCP 5050 after the process exits. The hook reads the
+    # current binding of env at exit time, so it closes whichever wrapper is
+    # outermost (DummyVecEnv or VecNormalize); env.close() is idempotent, so
+    # this hook and the existing finally block can both run safely
+    # (mirrors train_mappo.py P0.5 / train_mappo_shaped.py P0.5b).
+    def _close_ppo_training_env() -> None:
+        try:
+            env.close()
+        except Exception:
+            # Best-effort teardown; never mask the run's own exit status.
+            pass
+
+    atexit.register(_close_ppo_training_env)
 
     vec_norm_path = resume_path.replace(".zip", "_vecnormalize.pkl") if resume_path else None
     if vec_norm_path and os.path.exists(vec_norm_path):

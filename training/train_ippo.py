@@ -4,6 +4,7 @@ IPPO is not the primary training path in this repository; see
 """
 
 import argparse
+import atexit
 import os
 import sys
 import time
@@ -191,6 +192,27 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
 
     print("\n1. Initializing Multi-Agent PettingZoo Environment & SuperSuit Vectorization...")
     pz_env = GMNMultiAgentEnv(scenario="academy_3_vs_1_with_keeper", auto_start_bridge=True)
+
+    # P0.5c-2 — Bridge lifecycle ownership: GMNMultiAgentEnv above creates the
+    # bridge child (node.exe / bridge_server.ts on port 5050) and it must be
+    # reaped on EVERY exit path. The try/finally that closes vec_env + pz_env
+    # only begins after the SuperSuit vectorization below, so a failure in
+    # this pre-try window (SuperSuit API mismatch, Ctrl+C while the bridge
+    # starts) would otherwise leave the bridge listening on TCP 5050 after the
+    # process exits. Closing pz_env also netstat-reaps any listener on its
+    # port (GMNMultiAgentEnv.close), so no second hook is needed for the
+    # eval_pz_env constructed later: that constructor reuses the live
+    # listener and its own inner finally covers its teardown
+    # (mirrors train_mappo.py P0.5 / train_mappo_shaped.py P0.5b).
+    def _close_ippo_training_env() -> None:
+        try:
+            pz_env.close()
+        except Exception:
+            # Best-effort teardown; never mask the run's own exit status.
+            pass
+
+    atexit.register(_close_ippo_training_env)
+
     print(f"   Controllable Agents: {pz_env.possible_agents}")
 
     # Vectorize the 3-agent ParallelEnv into an SB3-compatible VecEnv where each agent is 1 sub-env

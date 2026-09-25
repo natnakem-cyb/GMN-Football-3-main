@@ -1,3 +1,4 @@
+import atexit
 import os
 import sys
 import time
@@ -122,6 +123,26 @@ def run_stage2_curriculum():
     raw_env = make_env()
     env = DummyVecEnv([lambda: raw_env])
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=5.0)
+
+    # P0.5c-3 — Bridge lifecycle ownership: make_env() above creates the
+    # bridge child (node.exe / bridge_server.ts on port 5050 via
+    # GMNFootballEnv) and it must be reaped on EVERY exit path. This trainer
+    # has no whole-function try/finally — the only teardown was env.close()
+    # at the end of the normal path — so any exception (missing stage-1
+    # checkpoint at PPO.load, Ctrl+C during eval/training, disk error on
+    # model.save) would otherwise leave the bridge listening on TCP 5050
+    # after the process exits. Registering here covers every exit path
+    # without restructuring the function body; the existing normal-path
+    # env.close() may run first — env.close() is idempotent (mirrors
+    # train_mappo.py P0.5 / train_mappo_shaped.py P0.5b).
+    def _close_stage2_training_env() -> None:
+        try:
+            env.close()
+        except Exception:
+            # Best-effort teardown; never mask the run's own exit status.
+            pass
+
+    atexit.register(_close_stage2_training_env)
 
     # 1. Zero-shot Evaluation of Stage 1 Model on Stage 2
     stage1_checkpoint = os.path.join(models_dir, "ppo_academy_empty_goal_100k.zip")
