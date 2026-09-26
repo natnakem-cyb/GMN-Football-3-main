@@ -249,3 +249,90 @@ This ensures every checkpoint filename contains the seed, preventing accidental 
 *Canonical evaluator: `eval_mappo_comprehensive.py` v2_ground_truth_bridge*  
 *Verification script: `training/verify_checkpoints.py`*  
 *Legacy archive: `training/results/_legacy/`*
+
+
+---
+
+## Addendum — File-Identity Findings (2026-09-26)
+
+Added by a measurement-only audit of the `comprehensive_eval_*` archives. No training
+was run. These findings are **new** and are not covered by the sections above.
+
+### A. Evaluator mask-fix boundary (affects every archive before 2026-09-15)
+
+Action masking was not threaded into `training/eval_mappo_comprehensive.py` until commit
+`24ee543` (2026-09-15 09:15:37 +0300, "Part 1+5: fix reset-mask fabrication and bridge
+fail-closed mask behavior"). Before that commit the evaluator called:
+
+```
+dist = actor(torch.from_numpy(local_obs).float())
+```
+
+with no `action_mask` argument, so those archives describe an **unmasked** policy.
+Verified mechanically with `git log -S` on the masked call, not by date comparison.
+Any archive whose `evaluation_metadata.git_commit` predates `24ee543` is affected.
+This is a stronger and more reliable discriminator than any internal consistency check —
+per-archive results are catalogued in `training/results/archive_maskfix_classification.csv`.
+
+### B. NEW duplicate cluster — `seed42_best.pt` == `seed42_clean.pt`
+
+```
+sha256 = e5e0b7c1f0547384125d4b865a4aec9417afe454084446734f8474f32f91c939
+timesteps = 100352
+  training/models/mappo_academy_3_vs_1_with_keeper_seed42_best.pt
+  training/models/mappo_academy_3_vs_1_with_keeper_seed42_clean.pt
+```
+
+This is **not** the seed43/44/137/best cluster documented in section "500k Terminal
+Checkpoint Audit" above, and it was **not** previously documented anywhere. The assertion
+at line ~140 that "all four `_best.pt` checkpoints are distinct binaries" remains true for
+the four `_best` files taken together, but that check compared `_best` only against
+`_best` and never against `_clean`. The two archives describing this single binary
+disagree sharply: `seed42_best` reported 0.9524% pass+shot, `seed42_clean` reported
+86.4229%. Both are already disqualified under section A, so this is a file-identity
+finding independent of the evaluator defect.
+
+### C. `seed42_best.pt` has held at least three different binaries under one filename
+
+| source | SHA-256 |
+|---|---|
+| `training/BASELINE.json`, `training/PHASE1_BASELINE.json` | `9757c68807c8293ea4b85212bf338ddc2b8138efaaf5fe674c701fb0ad0b29c7` |
+| `comprehensive_eval_..._seed42_best.json` metadata (`4b6f48d`) | `ddaf4d38558cf39aca4adb409f7ff1ab3a1ab2024ca42f7c1742e12439fbef48` |
+| current file on disk | `e5e0b7c1f0547384125d4b865a4aec9417afe454084446734f8474f32f91c939` |
+
+The cross-seed naming enforcement described in section "Root Cause" above prevents one
+seed from writing another's name, but it does **not** prevent repeated writes to the same
+name. A checkpoint filename is not a stable identifier for a binary; only the SHA-256 is.
+
+### D. Five archives describe binaries that no longer exist
+
+| archive | recorded model_sha256 | binary present? |
+|---|---|---|
+| `..._seed42_best` | `ddaf4d38558cf39a...` | no |
+| `..._seed123_clean` | `98128763723d9957...` | no |
+| `..._seed42_clean` | `5dbccb936fc8b5ac...` | no |
+| `..._seed7_clean` | `c2c069a974225c78...` | no |
+| `..._seed999_clean` | `19967b541cfb23e3...` | no |
+
+A full-tree SHA scan (2170 files) found none of these anywhere in the working tree. The
+files at those paths now hold different binaries. These archives have been annotated in
+place with `_unverifiable_annotation` / `DO_NOT_CITE`. They were deliberately **not**
+re-run: evaluating the current file at those paths would measure a different policy and
+writing the result to the archive path would falsely imply it reconciles the original.
+Their numbers can never be re-derived.
+
+### E. Consequence for the tackle-spam finding
+
+The "elevated tackle" figures of 42.64/episode (seed 999) and 9.48/episode (seed 7) in
+`training/results/BASELINE_200k_MASKING_FIXED.md` originate from the `seed999_clean` and
+`seed7_clean` archives. Both were produced by the unmasked evaluator (section A) and the
+binaries they measured no longer exist (section D). Those figures therefore **cannot be
+attributed to policy behavior and cannot be re-measured**. This retires the finding on
+grounds of unverifiability; it does not establish what the masked policies of those
+specific checkpoints would do, which is now unknowable.
+
+### F. Standing recommendation
+
+Pin every evaluation by checkpoint SHA-256 and verify the hash before and after a run.
+Treat a filename as a label, not an identifier. Do not overwrite an evaluation archive
+whose recorded checkpoint hash no longer resolves to a file on disk.

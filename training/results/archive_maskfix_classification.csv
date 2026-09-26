@@ -1,0 +1,32 @@
+archive,category,mask_status,git_commit,commit_date,timesteps,episodes,total_steps,pass_shot_pct,tackle_identity,tackle_note
+comprehensive_eval_mappo_ac3v1_seed123_100k_E0.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2474,0.1213,PASS,
+comprehensive_eval_mappo_ac3v1_seed123_100k_E1.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2381,0.112,PASS,
+comprehensive_eval_mappo_ac3v1_seed42_100k_E0.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2526,0.0,PASS,trivial_both_zero
+comprehensive_eval_mappo_ac3v1_seed42_100k_E1.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2528,0.2901,PASS,
+comprehensive_eval_mappo_ac3v1_seed7_100k_E0.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2447,0.1362,PASS,
+comprehensive_eval_mappo_ac3v1_seed7_100k_E1.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2423,0.6603,PASS,trivial_both_zero
+comprehensive_eval_mappo_ac3v1_seed999_100k_E0.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2477,0.2288,PASS,
+comprehensive_eval_mappo_ac3v1_seed999_100k_E1.json,C_MASKED_VALID,masked,046c378b9d3a45df849f4cad55a0c7eb251c498a,2026-09-16 14:29:52 +0300,,50,2497,0.2536,PASS,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed123_100k.json,C_MASKED_VALID,masked,aaaec6338593ecbd8a131a73ce31601156d10289,2026-09-16 11:04:23 +0300,,50,3523,0.123,PASS,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed123_clean.json,B_PRE_MASKFIX_STALE,unmasked,81031ae828c6450dabbc7ce29b55fcf2465c8911,2026-09-14 14:46:36 +0300,,50,993,5.2702,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed123_retrain.json,B_PRE_MASKFIX_STALE,unmasked,0411313216bcac0d760030ac4856b01b03a15350,2026-09-09 02:49:24 +0300,,100,74973,99.4865,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed123_shaperfix.json,B_PRE_MASKFIX_STALE,unmasked,3566a6a85c91c7e79acd510fbcf0e1848f9a4d1e,2026-09-10 15:46:59 +0300,,50,2119,0.0472,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed137_best.json,B_PRE_MASKFIX_STALE,unmasked,4b6f48d899b448b5615cf0be3056c28a1f518b1e,2026-09-07 20:51:20 +0300,,500,18414,3.2258,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed42.STALE_presuperseded_20260926.json,A_NO_PROVENANCE,UNKNOWN,,,,500,39803,77.8241,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed42.json,C_MASKED_VALID,masked,90239b75c3d2884cc46620a6fc8380fc96dc2e5c,2026-09-26 13:03:08 +0300,,500,16876,0.875,PASS,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed42_100k.json,C_MASKED_VALID,masked,aaaec6338593ecbd8a131a73ce31601156d10289,2026-09-16 11:04:23 +0300,,50,2550,0.0131,PASS,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed42_best.json,B_PRE_MASKFIX_STALE,unmasked,4b6f48d899b448b5615cf0be3056c28a1f518b1e,2026-09-07 20:51:20 +0300,,500,31184,0.9524,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed42_clean.json,B_PRE_MASKFIX_STALE,unmasked,81031ae828c6450dabbc7ce29b55fcf2465c8911,2026-09-14 14:46:36 +0300,,50,793,86.4229,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed42_retrain.json,B_PRE_MASKFIX_STALE,unmasked,0411313216bcac0d760030ac4856b01b03a15350,2026-09-09 02:49:24 +0300,,100,2151,70.3704,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed42_shaperfix.json,B_PRE_MASKFIX_STALE,unmasked,3566a6a85c91c7e79acd510fbcf0e1848f9a4d1e,2026-09-10 15:46:59 +0300,,50,3794,0.4305,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed43_best.json,B_PRE_MASKFIX_STALE,unmasked,4b6f48d899b448b5615cf0be3056c28a1f518b1e,2026-09-07 20:51:20 +0300,,500,16283,13.4844,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed44.STALE_presuperseded_20260926.json,A_NO_PROVENANCE,UNKNOWN,,,,500,28841,5.4529,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed44.json,C_MASKED_VALID,masked,90239b75c3d2884cc46620a6fc8380fc96dc2e5c,2026-09-26 13:03:08 +0300,,500,15534,0.7682,PASS,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed44_best.STALE_presuperseded_20260926.json,B_PRE_MASKFIX_STALE,unmasked,4b6f48d899b448b5615cf0be3056c28a1f518b1e,2026-09-07 20:51:20 +0300,,500,19003,1.1191,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed44_best.json,C_MASKED_VALID,masked,90239b75c3d2884cc46620a6fc8380fc96dc2e5c,2026-09-26 13:03:08 +0300,,500,13656,0.7323,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed7_100k.json,C_MASKED_VALID,masked,aaaec6338593ecbd8a131a73ce31601156d10289,2026-09-16 11:04:23 +0300,,50,2453,0.0679,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed7_clean.json,B_PRE_MASKFIX_STALE,unmasked,81031ae828c6450dabbc7ce29b55fcf2465c8911,2026-09-14 14:46:36 +0300,,50,944,0.0,PASS,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed999_100k.json,C_MASKED_VALID,masked,aaaec6338593ecbd8a131a73ce31601156d10289,2026-09-16 11:04:23 +0300,,50,2469,0.054,PASS,trivial_both_zero
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed999_clean.json,B_PRE_MASKFIX_STALE,unmasked,81031ae828c6450dabbc7ce29b55fcf2465c8911,2026-09-14 14:46:36 +0300,,50,954,7.0231,PASS,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed999_retrain.json,B_PRE_MASKFIX_STALE,unmasked,0411313216bcac0d760030ac4856b01b03a15350,2026-09-09 02:49:24 +0300,,100,1855,80.8086,FAIL,
+comprehensive_eval_mappo_academy_3_vs_1_with_keeper_seed999_shaperfix.json,B_PRE_MASKFIX_STALE,unmasked,3566a6a85c91c7e79acd510fbcf0e1848f9a4d1e,2026-09-10 15:46:59 +0300,,50,2448,1.0893,PASS,trivial_both_zero
