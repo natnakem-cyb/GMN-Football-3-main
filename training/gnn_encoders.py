@@ -207,7 +207,26 @@ class GraphAttentionLayer(nn.Module):
 
         # Softmax over neighbors per target node
         attn_weights = torch.zeros(num_edges, self.num_heads, device=node_features.device)
-        max_logits = _aggregate_by_index(attn_logits.clamp(max=0), tgt, num_nodes)
+        # Genuine per-target max for numerical stability.
+        # The previous implementation used _aggregate_by_index(...clamp(max=0)),
+        # which is a *sum* scatter rather than a max, and the clamp forces that
+        # sum to be <= 0 so subtracting it can only increase magnitude. On live
+        # graphs (edge features reaching ~+-77) this pushed attn_logits past the
+        # float32 exp() overflow threshold (~88.72) on layer 2, saturating
+        # exp() to inf and producing inf/(inf+1e-8) -> NaN.
+        max_logits = torch.full(
+            (num_nodes, self.num_heads),
+            float("-inf"),
+            device=attn_logits.device,
+            dtype=attn_logits.dtype,
+        )
+        max_logits = max_logits.scatter_reduce(
+            0,
+            tgt.unsqueeze(-1).expand(-1, self.num_heads),
+            attn_logits,
+            reduce="amax",
+            include_self=True,
+        )
         attn_logits = attn_logits - max_logits[tgt]
         exp_weights = attn_logits.exp()
 

@@ -331,3 +331,59 @@ All 9 checkpoints + eval JSONs + replay preserved in `training/models/` and `tra
 - [x] Add deterministic regression tests: `training/tests/test_reward_exploit_regression.py` (18 tests, all passing)
 - [x] Verify existing tests still pass: `test_reward_shaper.py` (31), `test_action_masks.py` (10), `test_reward_exploits.py` (6)
 - [x] Produce `REWARD_AUDIT_FIX_REPORT.md` with root causes, reward table, exploit measurements, decomposition, terminology clarification, regression status, and remaining risks
+
+## KNOWN DEFECT — GAT encoder NaNs on real environment graphs (`gnn:gat`) — **FIXED**
+
+- [x] ~~**BLOCKER for all `gnn:gat` training.**~~ **RESOLVED.** Root cause diagnosed 2026-09-26 and fixed. Regression coverage added. `gnn:gat` training is unblocked.
+
+**Symptom**
+- `gnn:gat` seed 42, `academy_3_vs_1_with_keeper`, 100k steps. Crashed in `training/mappo_rollout.py:234` via `training/gnn_mappo_networks.py:58` with NaN actor logits for all 3 agents.
+- The crash is **not** at global step 0. `train_mappo.py:754` prints per-update progress and the log contains none, so the failure occurs inside the *first* `collect_rollout` — reproducibly at rollout step **17–27** depending on RNG.
+
+**Root cause — `training/gnn_encoders.py:210-216`**
+```python
+max_logits = _aggregate_by_index(attn_logits.clamp(max=0), tgt, num_nodes)
+attn_logits = attn_logits - max_logits[tgt]
+exp_weights = attn_logits.exp()
+sum_exp = _aggregate_by_index(exp_weights, tgt, num_nodes)
+attn_weights = exp_weights / (sum_exp[tgt] + 1e-8)
+```
+This is a broken numerical-stability guard with two compounding faults:
+1. `_aggregate_by_index` is a **sum** scatter, not a **max**. The per-target shift is therefore a sum of neighbour logits, not the largest.
+2. `.clamp(max=0)` forces that sum to be `<= 0`, so subtracting it can only *increase* magnitude. The shift is guaranteed to move logits the wrong way.
+
+**Measured proof** (live `academy_3_vs_1_with_keeper` graph at the failing rollout step, float32 `exp()` overflow threshold ≈ 88.72):
+
+| Layer | max raw attn_logits | max after the "stability" shift | entries > 88.72 | NaN attn weights |
+|---|---:|---:|---:|---:|
+| 0 | 15.5252 | 64.5663 | 0/132 | 0 |
+| 1 | 17.1852 | 64.7038 | 0/132 | 0 |
+| 2 | 26.0162 | **109.5610** | 1/132 | **29** |
+
+Layer 2 is the first to overflow because node features amplify through the two preceding message-passing layers. One edge reaches 109.56, `exp()` saturates to `inf`, and `inf / (inf + 1e-8)` produces `NaN`, which propagates to all node rows and then to the actor logits.
+
+**Ruled out as causes**
+- Graph input is clean: node/edge features contain 0 NaN and 0 Inf at the failing step; edge indices are all in range.
+- Not initialization sensitivity: 100/100 random actor initializations on the same graph produced finite logits.
+- Not action masking: the mask has 3/3 legal rows; the `Categorical` is never reached with an all-illegal row.
+- Not a zero-degree trap: zero in-degree (node 0) and zero out-degree (nodes 6-9) exist and are handled correctly — the `+ 1e-8` denominator guard and the `num_edges == 0` early return both work.
+- Not a crash at initialization: a 27-step clean prefix precedes the NaN.
+
+**Classification:** numerical instability in the GAT softmax, driven by edge-feature magnitudes that grow to ±76.87 on live graphs (vs ±1.34 at reset). Secondary contributor: `graph_builder` edge features are not normalized.
+
+**Fix applied (authorized, scoped to `gnn_encoders.py` only):** the clamped-sum pseudo-max was replaced with a genuine per-target max via `torch.Tensor.scatter_reduce(0, ..., reduce="amax", include_self=True)`, initialised to `-inf`. Dropping the `.clamp(max=0)` lets the shift be a real maximum, so `attn_logits - max` is `<= 0` by construction and `exp()` cannot overflow. No other change was made to `gnn_encoders.py`, `gnn_graph_builder.py`, or the rollout path.
+
+**Before/after evidence** — `training/tests/test_gnn_gat_attention_stability.py` (8 tests):
+
+| | pre-fix encoder | post-fix encoder |
+|---|---|---|
+| New regression suite | **8 failed** | **8 passed** |
+| GNN suite (policy integration + phase4 + graph builder) | 77 passed | 77 passed |
+| Combined | — | **85 passed** in 471.61s |
+
+Pre-fix failures were genuine NaN, not incidental: `GraphAttentionLayer produced 256 NaN / 0 Inf values at attn_logits=120` and `non-finite grad for query_proj.weight`. Tests cover the deterministic overflow regime (logits 89 / 120 / 500 / 5000), backward-pass finiteness, isolated zero-degree nodes, and a 40-step live `academy_3_vs_1_with_keeper` sweep that asserts finite logits and asserts live edge-feature magnitude exceeds 10.0 — confirming the sweep actually exercises the regime that broke training, not the benign reset-state range.
+
+**Testing gap that let this ship:** the 77 passing GNN tests use synthetic or reset-state graphs, whose edge features stay within ±1.34. No test drives the encoder past the first rollout. Add a multi-step live-graph fixture.
+
+- [ ] Rerun seed 42 with a GNN-specific `_quarantine.pt` checkpoint name and verify post-save SHA + manifest. (Fix landed; run not yet started.)
+- [x] Considered fallback: `gnn:mlp` would change the research question from "does message-passing improve on flat-obs" to "does graph-structured pooling improve on flat-obs". NOT used — `gnn:gat` was diagnosed to a precise root cause and fixed, so no fallback was warranted.
