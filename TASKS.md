@@ -52,10 +52,10 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [x] Pass-spam expectations corrected: a fixed-seed run completed 3 long passes and 18 short passes across 10 episodes while meeting the existing non-positive total-reward criterion. Valid pass completion is not itself an exploit.
 - [x] Live pass pipeline fixed: receiver movement used absolute ball coordinates instead of ball-minus-player displacement. The live one-pass/event/reward test now passes with relative movement.
 - [x] Added batched Gap 1 graph attachment coverage, graph-aware batched PPO rollout/update, and per-environment GAE coverage; synthetic batched integration test passes.
-- [ ] Complete a clean **post-P0.5** full Python suite run (`14dfa58` changed trainer shutdown ownership). Prior evidence: last complete measurement is the pre-fix baseline 318 passed, 1 skipped, 4 failed; the post-GNN-fix attempt produced no pytest summary. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`.
+- [x] Complete a clean **post-P0.5** full Python suite run (`14dfa58` changed trainer shutdown ownership). Prior evidence: last complete measurement is the pre-fix baseline 318 passed, 1 skipped, 4 failed; the post-GNN-fix attempt produced no pytest summary. See `training/results/GNN_IMPLEMENTATION_PROGRESS.md`. **DONE on c66bf9b: 342 passed, 1 skipped (designed zero-goal curriculum skip), 0 failed in 775.24s (343 collected).**
 - [x] ONNX export has CPU parity for `mlp`, `gat`, and `geometry`, including a second node/edge shape; the tensorized browser ONNX runner typechecks. This is not end-to-end browser deployment: canonical browser graph construction and app/agent wiring remain open.
 - [ ] Quantitative held-out diagnostic-probe validation remains deferred and open: no held-out quantitative result exists; no quality inference is made from the synthetic parity fixtures or smoke run.
-- [ ] Run the complete post-P0.5 Python suite with progress output and record whether the port-5050 `EADDRINUSE` warning recurs (duplicate of the full-suite entry above, retained for the explicit EADDRINUSE observation). Orphan-reaping is now covered by the P0.5 + P0.5b lifecycle regressions; the full-suite observation itself remains outstanding.
+- [x] Run the complete post-P0.5 Python suite with progress output and record whether the port-5050 `EADDRINUSE` warning recurs (duplicate of the full-suite entry above, retained for the explicit EADDRINUSE observation). Orphan-reaping is now covered by the P0.5 + P0.5b lifecycle regressions; the full-suite observation itself remains outstanding. **Observed on c66bf9b: full suite ran without EADDRINUSE *during* execution, but post-suite cleanup is MANUAL — 3 residual node.exe / bridge_server.ts listeners left on TCP 5050 (PIDs 1568, 12680, 11328). Automatic clean exit not established; suite-wide spawn paths still leave orphans. P0.5/P0.5b atexit hooks cover specific trainers; suite-wide spawn paths do not.**
 - [ ] Train diagnostic probes on held-out graph data and report quantitative results; current encoder/probe shape tests do not measure representation quality. No probe dataset or held-out result has been created yet.
 
 ## Item 1 — Make reward shaping (CooperativeRewardShaper) actually functional
@@ -271,8 +271,7 @@ All 9 checkpoints + eval JSONs + replay preserved in `training/models/` and `tra
 - [x] Reward exploit tests: `python -m pytest training/tests/test_reward_exploits.py -v` → 6/6 passed
 - [x] TypeScript: `npx tsc --noEmit` → 0 errors
 - [x] Frontend regression: `npm test` → 15/15 scenarios + determinism passed
-- [x] Full Python suite: `python -m pytest training/tests/ -v` → 173/174 passed
-  - Note: 1 transient failure in `test_schema_validation_academy_3_vs_1_defender_3` due to port contention when running full suite; passes in isolation
+- [x] Full Python suite: `python -m pytest training/tests/ -v` → 342 passed, 1 skipped, 0 failed in 775.24s (343 collected) on c66bf9b. Designed zero-goal curriculum skip only.
 - [x] Final validation report: `docs/GNN_PHASE4_VALIDATION_REPORT.md` updated with actual results
 
 ## Reward System Correctness + Anti-Spam Hardening
