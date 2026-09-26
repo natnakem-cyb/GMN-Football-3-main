@@ -388,7 +388,7 @@ def evaluate_single_agent_ppo(
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
     passes_per_ep = passes / max(1, num_episodes)
-    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0
+    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0  # normalized against canonical 3-agent decision budget for cross-algorithm comparability
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
@@ -560,7 +560,7 @@ def evaluate_multi_agent_ippo(
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
     passes_per_ep = passes / max(1, num_episodes)
-    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0
+    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0  # normalized against canonical 3-agent decision budget for cross-algorithm comparability
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
@@ -768,7 +768,7 @@ def evaluate_multi_agent_mappo(
     goal_rate_pct = (goals / max(1, num_episodes)) * 100.0
     shots_per_ep = shots / max(1, num_episodes)
     passes_per_ep = passes / max(1, num_episodes)
-    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0
+    pass_shot_rate_pct = ((passes + shots) / max(1, num_episodes * 51 * 3)) * 100.0  # normalized against canonical 3-agent decision budget for cross-algorithm comparability
     non_scoring_episode_rate_pct = ((num_episodes - goals) / max(1, num_episodes)) * 100.0
     turnovers_conceded_per_ep = turnovers_conceded_total / max(1, num_episodes)
 
