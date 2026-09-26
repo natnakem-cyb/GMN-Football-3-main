@@ -58,7 +58,7 @@ runs/
 training/logs/
 training/models/opponent_pool/
 training/results/forensics/
-training/results/*.csv
+training/results/*_summary.csv
 training/models/**/
 *.bak
 training/models/*_temp.pt
@@ -69,6 +69,8 @@ training/models/*smoke_*.pt
 training/models/*smoke_*.zip
 training/models/**/*.pt
 training/models/*.pt
+training/models/*.json
+runs/*/experiment_manifest.json
 
 # Checkpoint archive (local-only, never committed)
 training/checkpoints_archive/
