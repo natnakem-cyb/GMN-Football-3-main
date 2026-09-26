@@ -69,3 +69,6 @@ training/models/*smoke_*.pt
 training/models/*smoke_*.zip
 training/models/**/*.pt
 training/models/*.pt
+
+# Checkpoint archive (local-only, never committed)
+training/checkpoints_archive/

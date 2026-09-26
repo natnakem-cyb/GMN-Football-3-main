@@ -39,14 +39,14 @@ import math
 import os
 import subprocess
 import sys
+import torch
+import numpy as np
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import numpy as np
-import torch
-
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from training.checkpoint_archive import archive_referenced_checkpoints
 from training.gmn_pettingzoo import GMNMultiAgentEnv  # noqa: E402
 from training.mappo_networks import SharedActor  # noqa: E402
 from training.checkpoint_contract import load_mappo_actor  # noqa: E402
@@ -1268,6 +1268,9 @@ def run_measurement(
     write_detail_json(detail_path, results=results, rows=rows, provenance=provenance)
     write_csv(summary_path, CANONICAL_SUMMARY_COLUMNS, rows)
     write_csv(reconciliation_path, CANONICAL_RECONCILIATION_COLUMNS, reconciliation_rows)
+
+    # Archive any checkpoints referenced in the detail JSON
+    archive_referenced_checkpoints(detail_path)
 
     return {
         "results": results,

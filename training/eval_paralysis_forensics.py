@@ -11,14 +11,14 @@ import hashlib
 import json
 import os
 import sys
+import torch
+import numpy as np
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
-import torch
-
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from training.checkpoint_archive import archive_referenced_checkpoints
 from training.gmn_pettingzoo import GMNMultiAgentEnv
 from training.mappo_networks import SharedActor, CentralizedCritic
 from training.mappo_rollout import unwrap_obs, unwrap_masks, _mask_matrix
@@ -381,6 +381,9 @@ def main():
     with open(json_path, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"\nDetailed results saved to: {json_path}")
+
+    # Archive any checkpoints referenced in the report
+    archive_referenced_checkpoints(json_path)
 
     # Save summary CSV row
     csv_path = os.path.join(os.path.dirname(__file__), "results", "paralysis_forensics_summary.csv")
