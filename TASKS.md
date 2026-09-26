@@ -43,6 +43,52 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 - [ ] Prevention: never capture logs with PowerShell `>` (writes UTF-16LE) — use `cmd /c "... > file"` or `Out-File -Encoding utf8`; Python always passes `encoding="utf-8"` for text-mode writes.
 
 
+## Open — P0.5d Defect 2: unconditional bridge adoption (design decision pending)
+
+- [ ] **P0.5d Defect 2** — `training/gmn_gym.py` `_ensure_bridge_running()` adopts ANY
+  process that answers `GET /health` with matching `observation_dim` / `action_space_size`.
+  There is no identity check, no staleness check and no ownership check. An
+  env that adopts a listener records `bridge_process = None`, so it also declines
+  to reap it (see the P0.5d scoping note below).
+
+**Status: NOT fixed and NOT to be fixed without a recorded human decision.**
+Deliberately left unchanged by commit `6d10d77`. Three options, none chosen:
+
+  1. **Adopt-any-healthy (status quo).** Cheapest, zero added latency. Keeps the
+     risk that a wedged, wrong-scenario or wrong-session bridge is inherited
+     silently. Mitigation would be diagnostic only: log the adopted PID, its
+     command line and its `/health` `scenario` field so a mismatch is visible
+     in logs. Does not prevent inheritance, only makes it observable.
+  2. **Identity + staleness check.** Bridge exposes a startup token /
+     instance id (or PID + start time); the env adopts only if the token
+     matches what it would have spawned, and rejects or restarts on
+     mismatch. Adds a bridge protocol change and one extra round trip.
+     Needs a decision on the failure mode: hard-fail, or reap-and-respawn.
+  3. **Refcounted shared bridge.** Track how many in-process envs reference a
+     port and only reap when the count reaches zero. This is what the
+     shared-port case in P0.5d actually needed: `train_ppo.py` reuses
+     `raw_env` while `eval_progress.py:309` builds a second `GMNFootballEnv`
+     on the SAME port 5050. A naive port-scoped reap killed that shared bridge
+     and broke the final eval with `ConnectionClosedError` at
+     `gmn_gym.py` `reset()` → `ws_client.send`. P0.5d therefore reaped ONLY on
+     the spawned path (env owns the bridge) and never on the adopted path.
+
+**Evidence that shaped this entry (do not re-derive):**
+- Live A/B on the adopted path: baseline left PID 6500 LISTENING after
+  `close()`; the first P0.5d implementation freed the port — but broke
+  `train_ppo` final eval for the reason in option 3. Rescoped before commit.
+- A `svchost.exe` system service holds a **UDP** bind on port 5050 (PID 6748).
+  Any port-scoped killer must filter TCP + LISTENING + command line, or it
+  will kill a system service. `_parse_netstat_listening_pids` does this.
+- The spawned-path `node.exe` grandchild leak could NOT be reproduced on
+  baseline (`RESULT: clean`); it is therefore a hardening measure, not a
+  confirmed defect fix.
+
+**Unrelated but still open:** the `train_ppo.py` first-step hang was NOT
+reproduced (4 configs + 13-scenario sweep). Under the default
+`GMN_WS_RECV_TIMEOUT=10` a missing frame must raise, so the reported 30s+
+silence does not match the recv path. P0.5d does not claim to fix it.
+
 ## Open — Production GNN policy integration
 - [x] Gap 1: add opt-in graph construction at reset/step; single-environment and batched reset/step paths preserve the flat observation contract.
 - [x] Gap 2: connect GNN actor/critic to single- and batched-environment rollout/PPO; gradient coverage exercises `mlp`, `gat`, and `geometry`, plus the 256-step live `gnn:mlp` smoke. No policy-quality claim.
