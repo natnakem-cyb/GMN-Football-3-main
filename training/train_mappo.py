@@ -78,6 +78,23 @@ def run_mappo_training(
     if policy_architecture not in ("flat", "gnn:gat", "gnn:geometry", "gnn:mlp"):
         raise ValueError("policy_architecture must be flat, gnn:gat, gnn:geometry, or gnn:mlp")
     graph_policy = policy_architecture != "flat"
+
+    # Schema validation is a development/CI guard. build_graph() is called 3x per
+    # environment step, and the unconditional jsonschema.validate() previously
+    # re-validated the 23KB schema against the draft 2020-12 metaschema on every one
+    # of those calls, dominating step time. Disable it for training runs here rather
+    # than relying on the launcher to remember to export it -- correctness is covered
+    # by the test suite, which runs with validation ON (the module default).
+    # An explicit GNN_VALIDATE_GRAPH=1 in the environment still wins, so a training run
+    # can opt back in for debugging.
+    if graph_policy and "GNN_VALIDATE_GRAPH" not in os.environ:
+        os.environ["GNN_VALIDATE_GRAPH"] = "0"
+        print(
+            "[graph] GNN_VALIDATE_GRAPH=0 (schema validation off for training hot path). "
+            "Set GNN_VALIDATE_GRAPH=1 to re-enable.",
+            flush=True,
+        )
+
     is_smoke_test = timesteps < 50000
     if checkpoint_name is None:
         suffix = "smoke" if is_smoke_test else "quarantine"
