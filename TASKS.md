@@ -405,6 +405,51 @@ Pre-fix failures were genuine NaN, not incidental: `GraphAttentionLayer produced
   - Confirm the new run's bridge is a genuine child (creation time after launch) before letting it hold a port.
 - [x] Considered fallback: `gnn:mlp` would change the research question from "does message-passing improve on flat-obs" to "does graph-structured pooling improve on flat-obs". NOT used — `gnn:gat` was diagnosed to a precise root cause and fixed, so no fallback was warranted.
 
+### Progress visibility and measured training cost (measured 2026-09-27 ~04:58)
+
+**Correction to an earlier wrong inference.** The seed-42 stdout log sits at 1309 bytes with zero
+`[Step ...]` lines. I initially concluded the process "has not completed a single PPO update in
+3.5 hours". **That was wrong.** `train_mappo.py:640` gates the *entire* progress-logging block
+behind `if total_steps_elapsed - last_check_step >= check_freq_steps`, and
+`check_freq_steps = 10000` (line 352). The run is simply below the first 10k-step boundary.
+Buffering is real but secondary; the gating is the primary reason the log is quiet. The run is
+progressing normally. The specific error was inferring a process state from a log line that is
+absent *by design* — a third instance of the "explanation substituted for mechanism" pattern.
+
+**True progress source.** The per-episode forensic JSONL written by the env during rollouts is
+independent of stdout and gives a real env-step count by summing `episode_length`:
+
+    training/results/forensics/terminal_tick_trace_<scenario>_seed<seed>_<runid>.jsonl
+
+**Measured cost — this materially revises the original estimate.**
+
+| Quantity | Value |
+|---|---|
+| Wall elapsed at measurement | 3.17 h |
+| Env steps completed | 6,497 (6.5%) |
+| Rate | **2,051 steps/hr** |
+| Projected for seed 42 to 100k | **48.8 h** |
+| Projected for 4 seeds | **~195 h (~8 days)** |
+
+The original "~1.5-2 hr, admittedly an estimate" planning budget, and the later "~7-10 h per
+seed" guess, were both low by roughly 6x. Option 3 (evaluate seed 42 alone, then decide) is still
+the right sequencing, but note it now costs ~49 h, not ~8 h. Options worth weighing before
+committing further: reduce `--timesteps` for the GNN arm (e.g. 25k => ~12 h/seed) — noting that a
+GNN trained on fewer steps than the 100k flat E1 baseline is not a matched comparison — or accept
+seed 42 alone. **Cost/value decision, not a data question; still requires a human call.**
+
+**Monitor.** `runs/gnn_gat_seed42_rerun/monitor_seed42.ps1` polls every 60 s and appends to
+`runs/gnn_gat_seed42_rerun/progress_monitor.log`:
+`timestamp | steps/target (pct) | episodes | goals | delta | rate | eta | cpu | rss | bridges | stderr | stdout`.
+Reusable for 123/999/7 by passing `-WorkerPid`, `-Jsonl`, `-OutLog`, `-StdoutLog`, `-StderrLog`.
+It flags `!!STDERR_NONEMPTY` and `!!BRIDGES=<n>` automatically, so anomalies surface without an
+agent poll. It self-terminates when the worker exits. It uses scalar CPU capture per the
+methodology note above.
+
+**For the remaining seeds, launch with `python -u` AND the monitor attached.** Note that
+`python -u` alone does not surface progress sooner than the 10k-step gate — it only removes the
+secondary buffering delay. The monitor is what actually gives live visibility.
+
 ### Recurring failure mode: plausible explanation substituted for mechanism check
 
 Observed more than once in this work, in different disguises. Worth naming because each instance
