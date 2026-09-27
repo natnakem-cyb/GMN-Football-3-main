@@ -450,6 +450,100 @@ methodology note above.
 `python -u` alone does not surface progress sooner than the 10k-step gate — it only removes the
 secondary buffering delay. The monitor is what actually gives live visibility.
 
+### ROOT CAUSE of the 651x slowdown: unconditional JSON Schema validation in the hot path
+
+Diagnosed 2026-09-27, read-only. **No fix applied — awaiting authorization.**
+
+**Measured A/B (`GMNMultiAgentEnv`, `academy_3_vs_1_with_keeper`):**
+
+| Config | ms/step | steps/sec |
+|---|---:|---:|
+| `include_graph_observations=False` | 2.11 | 473.6 |
+| `include_graph_observations=True` | 1374.72 | 0.7 |
+| Flat MAPPO baseline (historical) | 8.0 | 126.2 |
+
+**Stage breakdown of the graph path** (profiling method: capture one real observation on an
+explicit port, close the env, then profile `build_graph` offline — no env alive during
+measurement):
+
+| Stage | ms/step | share |
+|---|---:|---:|
+| `env.step` (bridge round-trip) | 1217.98 | 95.4% |
+| `_as_graph_tensor` x3 | 30.83 | 2.4% |
+| GAT actor forward x3 | 27.84 | 2.2% |
+| unwrap obs/masks/graphs | 0.02 | 0.0% |
+
+**The GAT policy is NOT the bottleneck** (2.2%). The cost is graph *construction*.
+
+**cProfile of `build_graph` (368.07 ms/call, called 3x per step):**
+
+| Component | Cumulative | Share |
+|---|---:|---:|
+| `jsonschema.validators.validate` | 156.275s / 156.648s | **99.77%** |
+| - `check_schema` (re-validating the schema against the metaschema, every call) | 106.191s | 67.8% |
+| - `best_match` -> `max` (error-reporting path) | 50.053s | 32.0% |
+| Actual graph construction | ~0.373s | **0.23%** |
+
+**Single offending line — `training/gnn_graph_builder.py:1609`:**
+
+```python
+    # Schema validation
+    jsonschema.validate(graph, _SCHEMA)
+```
+
+Unconditional, on every `build_graph` call, i.e. 3x per environment step. `jsonschema.validate`
+additionally re-runs `check_schema` each time. Schema validation is a development/CI guard and
+does not belong in a per-tick hot path.
+
+**Projected impact if that line is removed** (non-jsonschema work is 1.86 ms/call x3 = 5.6 ms,
+plus the 2.11 ms env floor = 7.7 ms/step = **~130 steps/sec**):
+
+| | Before | After (projected) |
+|---|---:|---:|
+| Throughput | 0.7 steps/sec | ~130 steps/sec |
+| 100k-step seed | 48.8 h | **~13 min** |
+| 4 seeds | ~195 h (~8 days) | **~52 min** |
+
+**Candidate fixes, none applied:**
+1. Delete line 1609; rely on the existing test suite for schema conformance. Simplest, loses
+   runtime safety.
+2. **Recommended:** gate validation behind an env var / keyword (e.g. `GNN_VALIDATE_GRAPH=1`),
+   ON in tests, OFF in training. Keeps the safety net where it matters, removes it from the hot
+   path.
+3. Use a pre-compiled validator (`validator_for(_SCHEMA)(_SCHEMA)`) built once at module import
+   to avoid `check_schema` per call. Cuts ~68% but retains the `best_match`/error path and
+   per-call cost — insufficient on its own.
+4. Validate once per episode rather than per call.
+5. Additionally: the 3 agents observe the same world state and differ only by
+   `controlledPlayerId`, so the graph could be built once per step and shared. Worth ~3x on the
+   residual 5.6 ms, but a larger refactor — defer unless measurement after 1-2 warrants it.
+
+### Standing rules for diagnostics run near a live training run (added 2026-09-27)
+
+These exist because a performance diagnostic constructed `GMNMultiAgentEnv` while seed 42 was
+training and **killed that run's bridge**, destroying 3.4 h of compute and 0 checkpoints (the run
+had passed 6.5% but had not reached the 50k checkpoint gate, so nothing was resumable). The
+failure mode had already been documented in this file 20 minutes earlier. Documenting a hazard is
+not the same as operating under it.
+
+1. **No diagnostic may construct an env while any training run is live.** Before executing, verify
+   `Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where CommandLine -match
+   'train_mappo|train_ppo'` returns 0, and that no `bridge_server.ts` node process exists. If
+   either is non-zero, abort — do not proceed on judgement.
+2. **`!!BRIDGES` monitor alerts are actionable, not informational.** Concretely: on seeing
+   `!!BRIDGES=<n>` with n not equal to the protected run's expected count, **stop all other work
+   immediately** and determine whether the protected run's bridge PID is still alive, before doing
+   anything else — including finishing the diagnostic that was in flight. The monitor correctly
+   flagged `!!BRIDGES=0` twice at 05:02:24 and 05:04:24; the run was already dead and this was not
+   noticed until after the fact. An unread anomaly signal is functionally the same as no monitor.
+3. **State the ports/processes a diagnostic will touch, and verify non-overlap before executing.**
+   Passing an explicit port is necessary but NOT sufficient — `GMNMultiAgentEnv` construction calls
+   `_kill_existing_bridge()`, which is port-scoped and does `taskkill /F /T` on whatever netstat
+   reports for `self.port`. The diagnostic must confirm the *actual* port in use does not collide
+   with a live run's bridge, before running, and re-verify the protected bridge PID after.
+4. **Prefer measurement methods that need no live env at all.** Capture one observation, close the
+   env, then profile offline. This removes the hazard rather than managing it.
+
 ### Recurring failure mode: plausible explanation substituted for mechanism check
 
 Observed more than once in this work, in different disguises. Worth naming because each instance
