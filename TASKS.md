@@ -54,6 +54,17 @@ Tracking task vs progress. Status: `[ ]` = pending, `[~]` = in progress, `[x]` =
 **Status: NOT fixed and NOT to be fixed without a recorded human decision.**
 Deliberately left unchanged by commit `6d10d77`. Three options, none chosen:
 
+**Live evidence of the risk (2026-09-27, during the `gnn:gat` seed-42 run).** 12 orphaned
+`bridge_server.ts` processes were found alive and holding ports 5129 / 5142 / 5167 / 5498,
+originating from the killed pre-fix training run and from diagnostic sweeps. None held 5050,
+so the seed-42 run was not silently adopting them — but with no staleness or identity check
+there is nothing in `_ensure_bridge_running()` that would have *prevented* that. Reaped
+manually with the same `taskkill /F /T /PID` tree-kill that `_kill_existing_bridge()` uses.
+Note: `_kill_existing_bridge()` is port-scoped (`self.port`), so it must **not** be invoked
+against a port a live run is legitimately using — doing so would kill that run's bridge.
+Post-cleanup verified: 0 orphans alive, ports released, seed-42's PID 15100 still on 5050,
+worker CPU still advancing. This is a manual mitigation, not a fix.
+
   1. **Adopt-any-healthy (status quo).** Cheapest, zero added latency. Keeps the
      risk that a wedged, wrong-scenario or wrong-session bridge is inherited
      silently. Mitigation would be diagnostic only: log the adopted PID, its
