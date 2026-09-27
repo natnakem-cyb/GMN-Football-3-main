@@ -396,5 +396,11 @@ Pre-fix failures were genuine NaN, not incidental: `GraphAttentionLayer produced
 
 **Testing gap that let this ship:** the 77 passing GNN tests use synthetic or reset-state graphs, whose edge features stay within ±1.34. No test drives the encoder past the first rollout. Add a multi-step live-graph fixture.
 
-- [ ] Rerun seed 42 with a GNN-specific `_quarantine.pt` checkpoint name and verify post-save SHA + manifest. (Fix landed; run not yet started.)
+- [x] Rerun seed 42 with a GNN-specific `_quarantine.pt` checkpoint name. **In progress** at commit `c4e6b8278dedd91a56c1a0177a2c3d5b630f105f`, checkpoint `mappo_gnn_gat_academy_3_vs_1_with_keeper_seed42_100k_quarantine.pt`, worker PID 15972, bridge PID 15100 on port 5050. Cleared the pre-fix 121.5s crash point; stderr clean. Post-save SHA + manifest still to be verified.
+- [ ] Seeds 123 / 999 / 7 — **HELD** until seed 42 completes and its post-save SHA and manifest are verified. Launch protocol for all three:
+  - Use `python -u` (or `PYTHONUNBUFFERED=1`). Seed 42's log stalled at 1.28 KB of an 8 KB block buffer, so step-level progress is invisible until the buffer fills; liveness had to be inferred from CPU/RSS. Do not repeat this for the remaining seeds.
+  - Checkpoint name must be GNN-specific and end `_quarantine.pt` (produces a GNN-specific `_clean.pt`). A name ending directly in `.pt` silently falls back to `mappo_<scenario>_seed<seed>_clean.pt` and would **overwrite the existing flat checkpoint**.
+  - Record `git rev-parse HEAD` at launch; verify no tracked code differs from HEAD.
+  - Reap any orphaned `bridge_server.ts` processes first, but **never** via `_kill_existing_bridge()` against a port a live run is using — it is port-scoped and will kill that run's bridge. Identify the live run's bridge by creation-time correlation with the launch timestamp, not by port assumption.
+  - Confirm the new run's bridge is a genuine child (creation time after launch) before letting it hold a port.
 - [x] Considered fallback: `gnn:mlp` would change the research question from "does message-passing improve on flat-obs" to "does graph-structured pooling improve on flat-obs". NOT used — `gnn:gat` was diagnosed to a precise root cause and fixed, so no fallback was warranted.
