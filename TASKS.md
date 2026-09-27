@@ -404,3 +404,35 @@ Pre-fix failures were genuine NaN, not incidental: `GraphAttentionLayer produced
   - Reap any orphaned `bridge_server.ts` processes first, but **never** via `_kill_existing_bridge()` against a port a live run is using — it is port-scoped and will kill that run's bridge. Identify the live run's bridge by creation-time correlation with the launch timestamp, not by port assumption.
   - Confirm the new run's bridge is a genuine child (creation time after launch) before letting it hold a port.
 - [x] Considered fallback: `gnn:mlp` would change the research question from "does message-passing improve on flat-obs" to "does graph-structured pooling improve on flat-obs". NOT used — `gnn:gat` was diagnosed to a precise root cause and fixed, so no fallback was warranted.
+
+### Recurring failure mode: plausible explanation substituted for mechanism check
+
+Observed more than once in this work, in different disguises. Worth naming because each instance
+produced a confident-sounding claim that was wrong, and in one case could have caused real damage.
+
+- **"I did not find one."** (earlier `gnn:gat` flag) — asserted no fallback was needed on the
+  strength of a plausible argument rather than a check of the actual condition.
+- **"Sampling artifact."** (seed-42 liveness) — a CPU delta of exactly `+0s` was attributed to the
+  sample "landing during a blocking env step". That was a guess. The real cause was that
+  PowerShell `Process` objects re-read `.CPU` lazily, so subtracting two held objects returns 0.
+  Correctly doubted the healthy run, but diagnosed it wrongly and moved on instead of capturing
+  scalars to find out.
+
+**Standing rule:** when a measurement looks anomalous, find the mechanism before explaining it
+away. "Probably X" is not a finding.
+
+**Why this is not merely cosmetic:** a liveness check that reports "STALLED" on a healthy run is
+worse than no check at all. Under a standing instruction to report anomalies, that false positive
+would have invited a kill-and-restart of a 3.5-hour run for no reason.
+
+**Method:** capture measurements into scalars immediately — `[double](Get-Process -Id N).CPU` —
+never hold the `Process` object across a `Start-Sleep`. Sample over a window (>=60s) and compute
+`delta / wall` as utilisation; seed 42 measures ~127% (multi-threaded torch), so any single-digit
+figure means the process is genuinely blocked.
+
+**Verification discipline that worked, for contrast:** when proving the GAT fix, the same
+suspicion-first stance caught a regression test failing for the *wrong reason* (a shape error
+bypassing the layer under test, not the NaN), a PowerShell `-Encoding utf8NoBOM` flag that is
+invalid in PS 5.1 and silently produced a false "before" baseline of "8 passed", and a botched
+line insert that split a test function. All three were caught before reporting. A check that
+returns an implausible result should be treated as a bug in the check until proven otherwise.
