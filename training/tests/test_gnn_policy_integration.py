@@ -15,7 +15,7 @@ from training.checkpoint_contract import (
     validate_policy_checkpoint,
 )
 from training.gmn_pettingzoo import GMNMultiAgentEnv
-from training.gnn_graph_to_tensor import GraphTensor
+from training.gnn_graph_to_tensor import GraphTensor, NODE_FEATURE_DIM
 from training.gnn_mappo_networks import GNNMAPPOActor, GNNMAPPOCritic
 from training.mappo_networks import SharedActor
 from training.mappo_rollout import collect_rollout, collect_rollout_batched, compute_gae
@@ -36,7 +36,7 @@ def test_bridge_cleanup_finds_windows_listening_pid_on_exact_port():
 
 
 def _graph(value: float = 0.0) -> GraphTensor:
-    nodes = torch.full((3, 32), float(value), dtype=torch.float32)
+    nodes = torch.full((3, NODE_FEATURE_DIM), float(value), dtype=torch.float32)
     nodes[0, 17] = 1.0  # controlled-player feature
     return GraphTensor(
         node_features=nodes,

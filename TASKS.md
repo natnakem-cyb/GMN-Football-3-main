@@ -575,3 +575,23 @@ bypassing the layer under test, not the NaN), a PowerShell `-Encoding utf8NoBOM`
 invalid in PS 5.1 and silently produced a false "before" baseline of "8 passed", and a botched
 line insert that split a test function. All three were caught before reporting. A check that
 returns an implausible result should be treated as a bug in the check until proven otherwise.
+
+## Open — GNN actor node cannot see the ball or possession (2026-09-28; fix landed in code 2026-09-29, live acceptance still outstanding)
+
+**Status 2026-09-29:** the defect is fixed in code (A, C, D). It stays open because no post-fix
+capture or trained checkpoint exists yet, so nothing proves the fix changed *behaviour* rather than
+only what is *representable*. Everything recorded below is the frozen pre-fix (32-dim) evidence
+base, kept verbatim; it describes the defect, not the current code.
+
+Read-only root-cause analysis of the first `gnn` training run (14 checkpoint
+captures, no training run): the graph observation never delivered ball or
+possession information to the actor's node, so the `gnn` policy could not in
+principle learn on-ball behaviour.
+
+- Zeroing the ball node **and every ball-touching edge** changes carrier-row logits by **exactly 0.0** on all 7 `gnn` checkpoints (flat arm: mean 0.080), and untrained `gnn` actors are equally blind (Δ = 0.0) while already 75-89% mode-locked — the observed on-ball collapse is an initialisation prior over a blind input, not a training-dynamics problem.
+- Attention is not the cause: the offline reimplementation reproduces `GATLayer` bit-identically (error 0.00e+00), and attention is not degenerate (normalised entropy 0.62-0.87, max weight 0.42-0.65, effective fan-in 2.71-3.53). Positive control: injecting one possession scalar into the agent's own node moves logits by 0.092-0.109, so the head can read possession and the input path cannot deliver it.
+- [x] **Fix landed 2026-09-29 (A, C and D).** (A) ball/goal-relative and possession features added to the player node vector in `gnn_graph_to_tensor.py`: `NODE_FEATURE_DIM` 32 → 39, dims 32-38 = `ball_rel_x`, `ball_rel_y`, `ball_distance`, `goal_rel_x`, `goal_rel_y`, `is_nearest_to_ball`, `has_possession`. (C) the carrier flag is stamped from the engine's exact `ground_truth.current_ball_owner.agent_id` in `gnn_graph_builder.py`, never inferred from proximity. (D) the masked-mean `global_emb` is fused onto every per-agent embedding in `gnn_encoders.py`, so ball and goal nodes reach the actor even though they are still graph sinks. **B (reverse ball→player / goal→player edges) deliberately not implemented** — D closes the reachability gap without an edge-schema change, so `ball reachable = 0` at depth ≥1 remains structurally true and is now harmless.
+- [x] **Backward-compat and sync guardrails (2026-09-29).** `NODE_FEATURE_DIM` is the single source of truth; `checkpoint_contract.GNN_NODE_FEATURE_DIM`, `gnn_onnx.py` and `src/agents/GnnOnnxPolicy.ts::NODE_FEATURE_DIM` mirror it, and `check_node_width` refuses a capture/actor pair from different feature generations — pre-fix 32-wide captures can no longer be scored by a 39-wide model and report a false "still blind". The widened ablations are verified no-ops on 32-wide tensors, so a pre-fix row and a post-fix row cannot quietly mean different things. `pytest training/tests` = 389 passed / 1 skipped / 0 failed (four stale 32-dim assumptions in `test_gnn_policy_integration.py` had to be widened first); `npx tsc --noEmit` clean; the 39-wide ONNX export still matches PyTorch for mlp/gat/geometry. Fresh-init offline checks on a synthetic post-fix graph: `ball_gone` 0.109, `poss_ablated` 0.177, `inject_poss` 0.064 mean |Δlogit| — all were exactly 0.0 pre-fix. These are pre-flight checks, not acceptances.
+- [ ] Re-run the 4-seed sweep and gate on the recorded acceptance test (`ball_gone` |Δlogit| > 0, fresh mode share well below 1.0, pass/shot mass above the 4/19 ≈ 0.21 uniform baseline). One step blocks this: `training/onball_state_capture.py` must be run briefly against the new graph builder to produce a 39-wide capture — none exists yet, so every trained-checkpoint figure above is still pre-fix and the acceptance test cannot be scored.
+- **Standing note — the GNN-vs-flat comparison is moot as originally posed:** every `gnn` reward/pass/shot number produced before the fix describes this defect, not the architecture, and must not be read as an architecture verdict. Do not run a Phase 2A continuation first.
+- Details, evidence chain, mechanism, reproduction commands, limitations: `training/results/OPEN_ITEM_GNN_BALL_VISIBILITY.md`.

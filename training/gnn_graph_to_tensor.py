@@ -9,6 +9,7 @@ Output: GraphTensor dataclass with node_features, edge_index, edge_features, etc
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -45,8 +46,25 @@ EDGE_TYPE_TO_INDEX = {
     "FORMATION_LANE": 12,
 }
 
-# Continuous node feature indices in the packed node_features tensor
-NODE_FEATURE_DIM = 32
+# Continuous node feature indices in the packed node_features tensor.
+#
+# Layout:
+#   0-29  original player/ball/goal features (position, velocity, role, flags, ...)
+#   30-31 intentionally UNUSED/reserved. Kept free so the root-cause diagnostic
+#         control `inject_poss` (onball_rootcause_analysis.py::variant_graph)
+#         stays an out-of-distribution perturbation, not an existing feature.
+#   32-38 ball/goal-relative player features added under Fix A of
+#         training/results/OPEN_ITEM_GNN_BALL_VISIBILITY.md.
+NODE_FEATURE_DIM = 39
+
+# Fix A: player-node ball/goal geometry dims, appended to _encode_player_node.
+PLAYER_BALL_REL_X_DIM = 32
+PLAYER_BALL_REL_Y_DIM = 33
+PLAYER_BALL_DISTANCE_DIM = 34
+PLAYER_GOAL_REL_X_DIM = 35
+PLAYER_GOAL_REL_Y_DIM = 36
+PLAYER_IS_NEAREST_TO_BALL_DIM = 37
+PLAYER_HAS_POSSESSION_DIM = 38
 
 # Edge feature dimension (max over all edge types)
 EDGE_FEATURE_DIM = 10
@@ -97,8 +115,98 @@ class GraphTensor:
 # ---------------------------------------------------------------------------
 # Node feature extraction
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Fix A support: ball / goal geometry helpers
+#
+# The graph always carries a BALL node and two GOAL nodes, so every
+# ball-relative quantity the player vector needs can be derived here without a
+# new upstream data source (see training/results/OPEN_ITEM_GNN_BALL_VISIBILITY.md
+# section 6A).
+# ---------------------------------------------------------------------------
 
-def _encode_player_node(node: Dict[str, Any], idx: int, all_nodes: List[Dict[str, Any]]) -> torch.Tensor:
+# Pitch extents implied by the normalized coordinate convention used throughout
+# the builder: x in [-1, 1], y in [-0.42, 0.42]. These are the same divisors the
+# PLAYER_BALL / PLAYER_GOAL edge encoders below already use.
+PITCH_LENGTH = 2.0
+PITCH_WIDTH = 0.84
+# Distance normalizer used by every other distance feature in this file.
+DISTANCE_NORM = 1.414
+
+# goal_left sits at x = -1.0 and is the goal the LEFT team defends, so the left
+# team attacks goal_right and the right team attacks goal_left
+# (src/engine/Contract.ts:33 — "the attacking goal is RIGHT").
+ATTACKING_GOAL_TEAM = {"left": "right", "right": "left"}
+# Fallback attacking-goal positions if the graph omits the GOAL nodes.
+DEFAULT_ATTACKING_GOAL = {"left": (1.0, 0.0), "right": (-1.0, 0.0)}
+
+
+def _is_sentinel_player(node: Dict[str, Any]) -> bool:
+    """True for the builder's inactive/substituted placeholder (-1.0, -1.0)."""
+    pos = node.get("position") or {}
+    return float(pos.get("x", 0.0)) == -1.0 and float(pos.get("y", 0.0)) == -1.0
+
+
+def _node_xy(node: Dict[str, Any]) -> Tuple[float, float]:
+    pos = node.get("position") or {}
+    return float(pos.get("x", 0.0)), float(pos.get("y", 0.0))
+
+
+def _ball_and_goal_context(
+    nodes: List[Dict[str, Any]],
+) -> Tuple[Optional[Tuple[float, float]], Dict[str, Tuple[float, float]], Optional[str]]:
+    """Derive (ball_xy, attacking_goal_xy_by_team, nearest_player_id) from nodes.
+
+    ``attacking_goal_xy`` is keyed by the *attacking* team, resolved from the
+    GOAL node whose ``team`` field names the side that defends it. ``nearest``
+    is the global nearest present (non-sentinel) player to the ball; ties are
+    broken by the earliest node index so the result is deterministic.
+    """
+    ball_xy: Optional[Tuple[float, float]] = None
+    defending_goal: Dict[str, Tuple[float, float]] = {}
+    for node in nodes:
+        node_type = node.get("node_type", "PLAYER")
+        if node_type == "BALL":
+            ball_xy = _node_xy(node)
+        elif node_type == "GOAL":
+            defending_goal[str(node.get("team", ""))] = _node_xy(node)
+
+    attacking: Dict[str, Tuple[float, float]] = {}
+    for team, opponent in ATTACKING_GOAL_TEAM.items():
+        if opponent in defending_goal:
+            attacking[team] = defending_goal[opponent]
+        elif team in DEFAULT_ATTACKING_GOAL:
+            attacking[team] = DEFAULT_ATTACKING_GOAL[team]
+
+    nearest_id: Optional[str] = None
+    if ball_xy is not None:
+        best_dist = float("inf")
+        for node in nodes:
+            if node.get("node_type", "PLAYER") != "PLAYER":
+                continue
+            if _is_sentinel_player(node):
+                continue
+            px, py = _node_xy(node)
+            dist = math.hypot(ball_xy[0] - px, ball_xy[1] - py)
+            if dist < best_dist:  # strict < keeps the earliest node on ties
+                best_dist = dist
+                nearest_id = node.get("global_id")
+
+    return ball_xy, attacking, nearest_id
+
+
+
+def _encode_player_node(
+    node: Dict[str, Any],
+    ball_xy: Optional[Tuple[float, float]] = None,
+    attacking_goal_xy: Optional[Tuple[float, float]] = None,
+    nearest_ball_id: Optional[str] = None,
+) -> torch.Tensor:
+    """Encode one PLAYER node.
+
+    Dims 0-29 are the historical player vector. Dims 32-38 are the Fix A
+    ball/goal-relative features; sentinel (inactive) players keep them at zero
+    so a placeholder cannot claim ball geometry it does not have.
+    """
     features = torch.zeros(NODE_FEATURE_DIM, dtype=torch.float32)
 
     # Position (indices 0-1): already normalized [-1,1] x [-0.42,0.42]
@@ -138,7 +246,31 @@ def _encode_player_node(node: Dict[str, Any], idx: int, all_nodes: List[Dict[str
     # sentinel flag (index 29): 1.0 if position is (-1.0, -1.0)
     x = float(node["position"]["x"])
     y = float(node["position"]["y"])
-    features[29] = 1.0 if (x == -1.0 and y == -1.0) else 0.0
+    sentinel = (x == -1.0 and y == -1.0)
+    features[29] = 1.0 if sentinel else 0.0
+
+    # --- Fix A: ball / goal-relative geometry (indices 32-38) ---
+    # Signs follow the edge encoders: positive relative_x means the object is
+    # toward +x (the right goal) from this player.
+    if not sentinel:
+        if ball_xy is not None:
+            ball_dx = ball_xy[0] - x
+            ball_dy = ball_xy[1] - y
+            features[PLAYER_BALL_REL_X_DIM] = ball_dx / PITCH_LENGTH
+            features[PLAYER_BALL_REL_Y_DIM] = ball_dy / PITCH_WIDTH
+            features[PLAYER_BALL_DISTANCE_DIM] = math.hypot(ball_dx, ball_dy) / DISTANCE_NORM
+            features[PLAYER_IS_NEAREST_TO_BALL_DIM] = (
+                1.0 if nearest_ball_id is not None and node.get("global_id") == nearest_ball_id else 0.0
+            )
+        goal_xy = attacking_goal_xy
+        if goal_xy is not None:
+            features[PLAYER_GOAL_REL_X_DIM] = (goal_xy[0] - x) / PITCH_LENGTH
+            features[PLAYER_GOAL_REL_Y_DIM] = (goal_xy[1] - y) / PITCH_WIDTH
+        # Source of truth: engine ball.ownerId, carried by gmn_pettingzoo as
+        # info.ground_truth.current_ball_owner.agent_id and stamped onto the
+        # matching player node by gnn_graph_builder. Deliberately not a
+        # distance heuristic: the engine already names the owner exactly.
+        features[PLAYER_HAS_POSSESSION_DIM] = 1.0 if node.get("has_possession", False) else 0.0
 
     return features
 
@@ -168,7 +300,7 @@ def _encode_ball_node(node: Dict[str, Any]) -> torch.Tensor:
     elif ownership == "right":
         features[9] = 1.0
 
-    # Remaining indices unused (10-31) = 0.0
+    # Remaining indices unused (10-38) = 0.0
     return features
 
 
@@ -244,12 +376,22 @@ def _encode_team_shape_node(node: Dict[str, Any]) -> torch.Tensor:
     return features
 
 
-def _encode_node(node: Dict[str, Any]) -> Tuple[torch.Tensor, int]:
+def _encode_node(
+    node: Dict[str, Any],
+    ball_xy: Optional[Tuple[float, float]] = None,
+    attacking_goal_map: Optional[Dict[str, Tuple[float, float]]] = None,
+    nearest_ball_id: Optional[str] = None,
+) -> Tuple[torch.Tensor, int]:
     node_type = node.get("node_type", "PLAYER")
     node_type_idx = NODE_TYPE_TO_INDEX.get(node_type, 0)
 
     if node_type == "PLAYER":
-        features = _encode_player_node(node, 0, [])
+        features = _encode_player_node(
+            node,
+            ball_xy=ball_xy,
+            attacking_goal_xy=(attacking_goal_map or {}).get(str(node.get("team", ""))),
+            nearest_ball_id=nearest_ball_id,
+        )
     elif node_type == "BALL":
         features = _encode_ball_node(node)
     elif node_type == "GOAL":
@@ -417,10 +559,19 @@ def graph_to_tensors(graph: Dict[str, Any]) -> GraphTensor:
             node_id_to_index[f"team_shape_{node['team']}"] = idx
 
     # Encode nodes
+    # Fix A: ball/goal geometry is derived once per graph, then handed to each
+    # player encoder (the ball position already lives in the BALL node).
+    ball_xy, attacking_goal_map, nearest_ball_id = _ball_and_goal_context(nodes)
+
     node_features_list = []
     node_type_list = []
     for node in nodes:
-        feats, ntype = _encode_node(node)
+        feats, ntype = _encode_node(
+            node,
+            ball_xy=ball_xy,
+            attacking_goal_map=attacking_goal_map,
+            nearest_ball_id=nearest_ball_id,
+        )
         node_features_list.append(feats)
         node_type_list.append(ntype)
 

@@ -195,6 +195,10 @@
           "type": "boolean",
           "description": "True if role is GK. Source: Player.isGoalkeeper (GameEngine.ts:170)."
         },
+        "has_possession": {
+          "type": "boolean",
+          "description": "True if this player is the engine's exact ball owner. Source: info.ground_truth.current_ball_owner.agent_id (engine ball.ownerId), matched against global_id. Consumed by node feature dim 38 (Fix A, OPEN_ITEM_GNN_BALL_VISIBILITY.md)."
+        },
         "features": {
           "type": "object",
           "required": [

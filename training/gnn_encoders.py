@@ -18,6 +18,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from training.gnn_graph_to_tensor import NODE_FEATURE_DIM
+
 
 def _aggregate_by_index(values: torch.Tensor, indices: torch.Tensor, size: int) -> torch.Tensor:
     """Sum edge rows by destination using ONNX-friendly dense matmul."""
@@ -38,6 +40,28 @@ def _masked_mean_pool(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     return masked_sum / mask_sum
 
 
+def _fuse_global(agent_h: torch.Tensor, global_ctx: torch.Tensor) -> torch.Tensor:
+    """Fix D: concatenate the pooled global embedding onto every agent row.
+
+    ``global_emb`` is a masked mean pool over *all* nodes, so it already carries
+    the ball and goal node content that message passing cannot deliver to the
+    agent row (ball/goal nodes are graph sinks — see
+    training/results/OPEN_ITEM_GNN_BALL_VISIBILITY.md section 3, finding 4).
+    Fusing it before the policy head gives the actor a ball-aware channel even
+    where the per-node features (Fix A) leave gaps.
+
+    Args:
+        agent_h: (num_agents, hidden_dim) per-agent hidden states
+        global_ctx: (hidden_dim,) or (1, hidden_dim) pooled global embedding
+
+    Returns:
+        (num_agents, hidden_dim * 2) tensor for the widened agent head.
+    """
+    if global_ctx.dim() == 1:
+        global_ctx = global_ctx.unsqueeze(0)
+    return torch.cat([agent_h, global_ctx.expand_as(agent_h)], dim=-1)
+
+
 # ---------------------------------------------------------------------------
 # MLP Baseline Encoder
 # ---------------------------------------------------------------------------
@@ -50,7 +74,7 @@ class MLPBaselineEncoder(nn.Module):
 
     def __init__(
         self,
-        node_feat_dim: int = 32,
+        node_feat_dim: int = NODE_FEATURE_DIM,
         z_dim: int = 8,
         hidden_dim: int = 128,
         output_dim: int = 128,
@@ -80,8 +104,9 @@ class MLPBaselineEncoder(nn.Module):
             nn.ReLU(),
         )
 
-        # Output heads
-        self.agent_head = nn.Linear(hidden_dim, output_dim)
+        # Output heads. Fix D: the agent head consumes [agent hidden, pooled
+        # global embedding], so it is 2x wide.
+        self.agent_head = nn.Linear(hidden_dim * 2, output_dim)
         self.global_head = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, graph_tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -109,14 +134,14 @@ class MLPBaselineEncoder(nn.Module):
             global_emb = global_emb.unsqueeze(0)  # (1, hidden_dim)
             global_emb = self.context_fusion(torch.cat([global_emb, context], dim=-1)).squeeze(0)
 
-        # Agent embeddings
+        # Agent embeddings (Fix D: fused with the pooled global embedding)
         agent_indices = graph_tensor.agent_node_indices
         if agent_indices:
-            agent_emb = node_emb[agent_indices]  # (num_agents, hidden_dim)
-            agent_emb = self.agent_head(agent_emb)
+            agent_emb = _fuse_global(node_emb[agent_indices], global_emb)
         else:
             # No agents: use global embedding as fallback
-            agent_emb = self.agent_head(global_emb.unsqueeze(0))
+            agent_emb = _fuse_global(global_emb.unsqueeze(0), global_emb)
+        agent_emb = self.agent_head(agent_emb)
 
         global_emb = self.global_head(global_emb)
 
@@ -258,7 +283,7 @@ class GATEncoder(nn.Module):
 
     def __init__(
         self,
-        node_feat_dim: int = 32,
+        node_feat_dim: int = NODE_FEATURE_DIM,
         edge_feat_dim: int = 10,
         z_dim: int = 8,
         hidden_dim: int = 128,
@@ -293,8 +318,9 @@ class GATEncoder(nn.Module):
             nn.ReLU(),
         )
 
-        # Output heads
-        self.agent_head = nn.Linear(hidden_dim, output_dim)
+        # Output heads. Fix D: the agent head consumes
+        # [agent hidden, pooled global embedding], so it is 2x wide.
+        self.agent_head = nn.Linear(hidden_dim * 2, output_dim)
         self.global_head = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, graph_tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -321,13 +347,14 @@ class GATEncoder(nn.Module):
             global_emb = global_emb.unsqueeze(0)
             global_emb = self.context_fusion(torch.cat([global_emb, context], dim=-1)).squeeze(0)
 
-        # Agent embeddings
+        # Agent embeddings (Fix D: fused with the pooled global embedding so the
+        # policy head can see ball/goal content that never reaches this row)
         agent_indices = graph_tensor.agent_node_indices
         if agent_indices:
-            agent_emb = h[agent_indices]
-            agent_emb = self.agent_head(agent_emb)
+            agent_emb = _fuse_global(h[agent_indices], global_emb)
         else:
-            agent_emb = self.agent_head(global_emb.unsqueeze(0))
+            agent_emb = _fuse_global(global_emb.unsqueeze(0), global_emb)
+        agent_emb = self.agent_head(agent_emb)
 
         global_emb = self.global_head(global_emb)
 
@@ -346,7 +373,7 @@ class GeometryAwareEncoder(nn.Module):
 
     def __init__(
         self,
-        node_feat_dim: int = 32,
+        node_feat_dim: int = NODE_FEATURE_DIM,
         edge_feat_dim: int = 10,
         z_dim: int = 8,
         hidden_dim: int = 128,
@@ -393,8 +420,9 @@ class GeometryAwareEncoder(nn.Module):
             nn.ReLU(),
         )
 
-        # Output heads
-        self.agent_head = nn.Linear(hidden_dim, output_dim)
+        # Output heads. Fix D: the agent head consumes
+        # [agent hidden, pooled global embedding], so it is 2x wide.
+        self.agent_head = nn.Linear(hidden_dim * 2, output_dim)
         self.global_head = nn.Linear(hidden_dim, output_dim)
 
     def _get_relative_coords(self, coords: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
@@ -459,13 +487,13 @@ class GeometryAwareEncoder(nn.Module):
             global_emb = global_emb.unsqueeze(0)
             global_emb = self.context_fusion(torch.cat([global_emb, context], dim=-1)).squeeze(0)
 
-        # Agent embeddings
+        # Agent embeddings (Fix D: fused with the pooled global embedding)
         agent_indices = graph_tensor.agent_node_indices
         if agent_indices:
-            agent_emb = h[agent_indices]
-            agent_emb = self.agent_head(agent_emb)
+            agent_emb = _fuse_global(h[agent_indices], global_emb)
         else:
-            agent_emb = self.agent_head(global_emb.unsqueeze(0))
+            agent_emb = _fuse_global(global_emb.unsqueeze(0), global_emb)
+        agent_emb = self.agent_head(agent_emb)
 
         global_emb = self.global_head(global_emb)
 

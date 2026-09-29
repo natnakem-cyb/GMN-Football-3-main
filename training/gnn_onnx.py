@@ -14,7 +14,7 @@ import torch
 from torch import nn
 
 from training.checkpoint_contract import create_policy_checkpoint_contract
-from training.gnn_graph_to_tensor import GraphTensor
+from training.gnn_graph_to_tensor import GraphTensor, NODE_FEATURE_DIM
 from training.gnn_mappo_networks import GNNMAPPOActor
 
 
@@ -70,7 +70,7 @@ def sample_graph_inputs(
 ) -> tuple[torch.Tensor, ...]:
     """Small valid graph used only to trace/export and verify the ONNX module."""
     generator = torch.Generator().manual_seed(seed)
-    nodes = torch.randn(num_nodes, 32, generator=generator)
+    nodes = torch.randn(num_nodes, NODE_FEATURE_DIM, generator=generator)
     nodes[:, 17] = 0.0
     nodes[1, 17] = 1.0
     if edge_index is None:

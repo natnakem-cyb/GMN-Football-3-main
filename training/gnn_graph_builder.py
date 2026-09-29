@@ -1644,6 +1644,19 @@ def build_graph(observation: dict[str, Any], info: dict[str, Any], scenario_id: 
     # Build PLAYER nodes with authoritative controlled player
     player_nodes, player_map = _build_player_nodes(parsed, scenario_id, controlled_player_id)
 
+    # Fix A plumbing: the engine already names the ball owner exactly, but this
+    # value used to stop here — parsed["exact_ball_owner_id"] stayed None, so
+    # POSSESSES edges, PLAYER_BALL.has_possession, and any node-level possession
+    # flag never fired (OPEN_ITEM_GNN_BALL_VISIBILITY.md section 3, finding 2).
+    # Trust the id only if it names a player node actually present in this graph;
+    # otherwise the POSSESSES edge below would dangle and graph_to_tensors would
+    # raise.
+    if exact_owner_id is not None and exact_owner_id not in player_map:
+        exact_owner_id = None
+    parsed["exact_ball_owner_id"] = exact_owner_id
+    for _player_node in player_nodes:
+        _player_node["has_possession"] = (_player_node["global_id"] == exact_owner_id)
+
     # Build BALL node
     ball_node = _build_ball_node(parsed)
     ball_node_id = ball_node["node_id"]

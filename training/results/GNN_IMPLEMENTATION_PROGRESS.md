@@ -210,3 +210,35 @@ with later evidence.
 - **Full-suite verification:** pending a complete run with progress output. The
   last complete result remains the pre-fix baseline of 318 passed, 1 skipped,
   and 4 failed; the prior post-fix attempt did not emit a final summary.
+
+## Open item — actor node cannot see the ball (2026-09-28)
+
+A read-only root-cause analysis of the first `gnn` training run found that the
+graph observation never routes ball or possession information to the actor's
+node: `_encode_player_node` has no ball/goal/possession term, possession sits on
+`PLAYER_BALL` edges that point *into* the ball (and is never actually set), and
+ball/goal nodes are sinks, so no ball→player path exists at any depth. Destroying
+the ball changes `gnn` carrier-row logits by exactly 0.0 (`flat`: 0.080), while
+injecting one possession scalar into the agent's own node moves logits by
+0.092-0.109 — the head can read possession, the input path cannot deliver it.
+
+Consequence for this document: no `gnn` policy-quality number produced so far
+measures message passing; it measures this defect. **The GNN-vs-flat comparison
+is moot as originally posed until the fix lands.** Recommended fix (A+D),
+acceptance test, evidence chain, and reproduction commands:
+`training/results/OPEN_ITEM_GNN_BALL_VISIBILITY.md`. No fix is implemented yet.
+
+**Update (2026-09-29): the fix is now implemented.** The player node vector is
+39 wide (dims 32-38 carry ball/goal-relative geometry, `is_nearest_to_ball` and
+`has_possession`, the last stamped from the engine's exact ball owner), and the
+pooled `global_emb` is fused onto every agent embedding before the head. Fix B
+(mirrored ball/goal edges) was deliberately not taken; ball and goal nodes are
+still sinks, which no longer blocks the actor because of the fusion. The
+paragraph above and every number above it stay as the frozen pre-fix baseline:
+they describe the defect, not the current code. The item remains open until a
+post-fix capture and checkpoint reproduce a non-zero `ball_gone` |Δlogit| and a
+fresh-init mode share well below 1.0 - pre-fix captures cannot be re-scored with
+post-fix weights, because the checkpoint contract now rejects a 32/39
+`node_feature_dim` mismatch. Verification so far is offline only: 389 passed, 1
+skipped, 0 failed; `tsc --noEmit` clean; the 39-wide ONNX export still matches
+PyTorch.

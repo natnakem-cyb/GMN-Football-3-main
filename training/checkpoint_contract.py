@@ -52,7 +52,7 @@ ACTION_SCHEMA_VERSION = "discrete19_v1"
 ACTION_SPACE_SIZE = 19
 POLICY_ARCHITECTURE_SCHEMA_VERSION = "policy_architecture_v1"
 GNN_GRAPH_SCHEMA_ID = "gnn_graph_schema_v3.json"
-GNN_NODE_FEATURE_DIM = 32
+GNN_NODE_FEATURE_DIM = 39  # must match training/gnn_graph_to_tensor.py::NODE_FEATURE_DIM
 GNN_EDGE_FEATURE_DIM = 10
 GNN_CONTEXT_DIM = 8
 

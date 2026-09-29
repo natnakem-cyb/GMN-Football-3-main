@@ -18,6 +18,15 @@ export interface GnnOnnxGraphInput {
 const REQUIRED_INPUTS = ['node_features', 'agent_node_index'] as const;
 
 /**
+ * Node feature width. Must stay in lockstep with
+ * training/gnn_graph_to_tensor.py::NODE_FEATURE_DIM (39 since the ball/goal
+ * relative features on dims 32-38). A mismatch reshapes the input tensor
+ * against a graph the exported model was not trained on, so the session either
+ * errors or silently returns garbage logits.
+ */
+export const NODE_FEATURE_DIM = 39;
+
+/**
  * Browser ONNX runner for exported GNN actors.
  *
  * The caller supplies tensorized graphs. This class does not build graphs from
@@ -52,7 +61,7 @@ export class GnnOnnxPolicy {
   async predictLogits(graph: GnnOnnxGraphInput): Promise<Float32Array> {
     this.validateGraph(graph);
     const candidateFeeds: Record<string, ort.Tensor> = {
-      node_features: new ort.Tensor('float32', graph.nodeFeatures, [graph.nodeCount, 32]),
+      node_features: new ort.Tensor('float32', graph.nodeFeatures, [graph.nodeCount, NODE_FEATURE_DIM]),
       edge_index: new ort.Tensor('int64', graph.edgeIndex, [2, graph.edgeCount]),
       edge_features: new ort.Tensor('float32', graph.edgeFeatures, [graph.edgeCount, 10]),
       node_mask: new ort.Tensor('float32', graph.nodeMask, [graph.nodeCount]),
@@ -109,7 +118,7 @@ export class GnnOnnxPolicy {
       throw new Error('GNN edge count must be a non-negative integer.');
     }
     const expected = [
-      [graph.nodeFeatures.length, graph.nodeCount * 32, 'node features'],
+      [graph.nodeFeatures.length, graph.nodeCount * NODE_FEATURE_DIM, 'node features'],
       [graph.edgeIndex.length, graph.edgeCount * 2, 'edge indices'],
       [graph.edgeFeatures.length, graph.edgeCount * 10, 'edge features'],
       [graph.nodeMask.length, graph.nodeCount, 'node mask'],
