@@ -425,3 +425,92 @@ class TestPossessionGroundTruth:
         assert carrier[PLAYER_BALL_REL_Y_DIM].item() == pytest.approx(rel_y, abs=1e-6)
         assert carrier[PLAYER_BALL_DISTANCE_DIM].item() == pytest.approx(dist, abs=1e-6)
         assert carrier[PLAYER_IS_NEAREST_TO_BALL_DIM].item() == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Live plumbing: the ENV must deliver the per-tick owner to build_graph
+#
+# The tests above hand build_graph a ready-made info dict, which is exactly why
+# they passed while every live capture had dim 38 dark: gmn_pettingzoo only put
+# `ground_truth` on the info dict at episode END, so mid-episode build_graph saw
+# no owner and dropped it at the player_map guard. These tests bind the real
+# _attach_graph_observations to a stub so the bridge-id -> roster-id translation
+# is covered offline (OPEN_ITEM_GNN_BALL_VISIBILITY.md, Fix C follow-up).
+# ---------------------------------------------------------------------------
+
+
+def _stub_env(owner_agent_index, agents):
+    """GMNMultiAgentEnv._attach_graph_observations without a bridge."""
+    import types
+
+    from training.gmn_pettingzoo import GMNMultiAgentEnv
+
+    stub = types.SimpleNamespace(
+        include_graph_observations=True,
+        scenario=SCENARIO,
+        agents=list(agents),
+        _last_ball_owner_agent_idx=owner_agent_index,
+    )
+    stub._graph_controlled_player_id = GMNMultiAgentEnv._graph_controlled_player_id
+    stub._attach_graph_observations = types.MethodType(
+        GMNMultiAgentEnv._attach_graph_observations, stub
+    )
+    return stub
+
+
+def _possession_carrier_ids(observations, infos, stub):
+    stub._attach_graph_observations(observations, infos)
+    graphs = infos.get("graph_observations") or {
+        a: info.get("graph_observation") for a, info in infos.items()
+    }
+    carriers = set()
+    for graph in graphs.values():
+        tensors = graph_to_tensors(graph)
+        for idx, node in enumerate(graph["nodes"]):
+            if node.get("node_type") != "PLAYER":
+                continue
+            if tensors.node_features[idx, PLAYER_HAS_POSSESSION_DIM].item() == 1.0:
+                carriers.add(node["global_id"])
+    return carriers
+
+
+class TestLivePossessionPlumbing:
+    BRIDGE_ROSTER = ["left_1", "left_2", "left_3"]
+
+    def test_controlled_carrier_reaches_dim_38_on_an_ordinary_tick(self):
+        # Bridge ids are one-based; the graph roster is zero-based. Index 2 is
+        # "left_3", i.e. roster player left_2.
+        obs = {a: _synthetic_observation() for a in self.BRIDGE_ROSTER}
+        infos = {}
+        carriers = _possession_carrier_ids(obs, infos, _stub_env(2, self.BRIDGE_ROSTER))
+        assert carriers == {"left_2"}
+
+    def test_ownerless_tick_keeps_dim_38_dark_but_geometry_lit(self):
+        obs = {a: _synthetic_observation() for a in self.BRIDGE_ROSTER}
+        infos = {}
+        stub = _stub_env(255, self.BRIDGE_ROSTER)
+        assert _possession_carrier_ids(obs, infos, stub) == set()
+        graph = infos["graph_observations"]["left_1"]
+        geometry = graph_to_tensors(graph).node_features[:, PLAYER_BALL_DISTANCE_DIM]
+        assert torch.count_nonzero(geometry).item() > 0
+
+    def test_an_explicit_episode_end_ground_truth_is_not_clobbered(self):
+        # Terminal ticks already carry ground_truth; that authoritative value must
+        # win over the per-tick index (here they deliberately disagree).
+        obs = {a: _synthetic_observation() for a in self.BRIDGE_ROSTER}
+        infos = {
+            a: {"ground_truth": {"current_ball_owner": {"agent_id": "left_0",
+                                                        "team": "left"}}}
+            for a in self.BRIDGE_ROSTER
+        }
+        carriers = _possession_carrier_ids(obs, infos, _stub_env(2, self.BRIDGE_ROSTER))
+        assert carriers == {"left_0"}
+
+    def test_unmappable_owner_id_degrades_to_no_possession(self):
+        # A ball-owner id that is not team_index shaped must not raise, and must
+        # not stamp anyone (build_graph would drop the id at the player_map guard).
+        agents = ["left_1", "left_2"]
+        obs = {a: _synthetic_observation() for a in agents}
+        infos = {}
+        stub = _stub_env(1, ["left_1", "mystery"])
+        assert _possession_carrier_ids(obs, infos, stub) == set()

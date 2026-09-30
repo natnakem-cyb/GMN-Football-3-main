@@ -602,6 +602,27 @@ class GMNMultiAgentEnv(ParallelEnv):
             )
 
         per_agent_infos = all(agent in infos for agent in observations)
+
+        # Per-tick possession for the graph (Fix C follow-up, OPEN_ITEM_GNN_BALL_
+        # VISIBILITY.md): `info["ground_truth"]` is only attached at episode END
+        # (see the episode_stats block in step()), so on ordinary ticks build_graph
+        # saw no ball owner at all and dim 38 / POSSESSES edges / the
+        # PLAYER_BALL.has_possession flag stayed dead in live captures even though
+        # the offline unit test - which hand-builds the info dict - passed. The
+        # per-tick owner index is already maintained on every reset/step path, so
+        # feed it through the same bridge->roster id translation used for the
+        # controlled player. Only controlled-team carriers are indexable this way;
+        # opponent possession remains unknown to the graph, where the ball node's
+        # side one-hot stays the only signal.
+        graph_owner_id: Optional[str] = None
+        owner_idx = getattr(self, "_last_ball_owner_agent_idx", 255)
+        live_agents = list(getattr(self, "agents", []) or [])
+        if isinstance(owner_idx, int) and 0 <= owner_idx < len(live_agents):
+            try:
+                graph_owner_id = self._graph_controlled_player_id(live_agents[owner_idx])
+            except ValueError:
+                graph_owner_id = None
+
         graph_by_agent: Dict[str, Any] = {}
         for agent_id, observation in observations.items():
             if isinstance(observation, dict) and "observation" in observation:
@@ -611,6 +632,16 @@ class GMNMultiAgentEnv(ParallelEnv):
             info = infos[agent_id] if per_agent_infos else infos
             graph_info = dict(info) if isinstance(info, dict) else {}
             graph_info["controlledPlayerId"] = self._graph_controlled_player_id(agent_id)
+            if graph_owner_id is not None and not (
+                isinstance(graph_info.get("ground_truth"), dict)
+                and graph_info["ground_truth"].get("current_ball_owner")
+            ):
+                ground_truth = dict(graph_info.get("ground_truth") or {})
+                ground_truth["current_ball_owner"] = {
+                    "agent_id": graph_owner_id,
+                    "team": "right" if graph_owner_id.startswith("right") else "left",
+                }
+                graph_info["ground_truth"] = ground_truth
             graph_by_agent[agent_id] = build_graph(
                 graph_input, graph_info, graph_scenario
             )

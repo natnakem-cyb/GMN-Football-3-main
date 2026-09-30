@@ -1,7 +1,7 @@
 # Open Item — GNN Actor Node Cannot See the Ball or Possession
 
 **Opened:** 2026-09-28
-**Status:** Fixed in code — fixes A, C and D implemented 2026-09-29 (section 11). Fix B (reverse ball→player / goal→player edges) deliberately **not** implemented; D covers the gap. **Training-side acceptance is still open** (section 7): it needs fresh post-fix captures from a live run, which no offline test can substitute.
+**Status:** Fixed in code — fixes A, C and D implemented 2026-09-29 (section 11), plus the Fix C live-plumbing follow-up (section 11.1). First live post-fix capture measured 2026-09-30 (section 11.1). **Training-side acceptance is still open** (section 7): the live capture is a step-0 untrained policy, so the trained-checkpoint half of the gate still needs a fresh training run.
 **Severity:** High for the `gnn` arm — a hard ceiling on learnable on-ball behaviour. Inert for the `flat` arm.
 **Evidence:** `runs/gnnflat_seq_20260927_210021/rootcause/rootcause_report.md` (also `.json`, `.csv`), `pooled_probe.json`
 **Tools:** `training/onball_state_capture.py`, `training/onball_rootcause_analysis.py`, `training/onball_pooled_probe.py`, `training/rootcause_capture_all.ps1`
@@ -109,7 +109,7 @@ After A+D land, re-run the same 4-seed sweep and re-run this analysis. The fix i
 4. The positive control still holds: `inject_poss` continues to move logits.
 5. Structural: ball reachability to the agent row is non-zero at ≥1 hop, or the ball-relative features are present at dim 32+.
 
-**Status of each item (2026-09-29, offline evidence only):** item 5 is satisfied by construction — dims 32-38 exist and are populated, covered by `training/tests/test_gnn_ball_visibility.py`. Items 1-4 still need a post-fix capture. What offline work does establish: on a synthetic post-fix graph a fresh-init actor moves under every control (`ball_gone` mean |Δlogit| 0.109, `poss_ablated` 0.177, `inject_poss` 0.064), so the pipeline is now capable of carrying the signal — which is exactly what the pre-fix table could not say (0.0 on all 14 checkpoints). It says nothing about a *trained* checkpoint's mode share or pass/shot mass, so it is a pre-flight check, not an acceptance.
+**Status of each item (2026-09-30, live input-path capture measured — section 11.1):** item 5 is satisfied by construction — dims 32-38 exist and are populated, covered by `training/tests/test_gnn_ball_visibility.py`. Items 1 and 4 are satisfied on the input path: on a live 3-episode capture (gnn, seed 42, step 0) `ball_gone` mean |Δlogit| is 0.063 (was exactly 0.0 on all 14 pre-fix checkpoints) and `inject_poss` still moves logits (mean |Δlogit| 0.074, down from 0.092-0.109 pre-fix but on only 3 episodes / one seed, so within expected capture-to-capture variation and recorded for drift rather than read as a regression). What the live capture does *not* establish: items 2-3 on a *trained* checkpoint — at step 0 the policy IS fresh-init (mode share 0.75, pass/shot mass 0.20 vs the 0.21 uniform baseline), so the gate threshold `max(0.05, 3 × fresh-init mean)` = max(0.05, 0.21) = 0.21 is not met by the trained-column number 0.063, exactly as expected for an untrained policy. The threshold becomes meaningful only on a trained checkpoint, which still waits on a fresh training run. What offline work established (kept for the record): on a synthetic post-fix graph a fresh-init actor moves under every control (`ball_gone` mean |Δlogit| 0.109, `poss_ablated` 0.177, `inject_poss` 0.064), so the pipeline is capable of carrying the signal — which is exactly what the pre-fix table could not say.
 
 ---
 
@@ -187,5 +187,27 @@ Dims **30-31 are intentionally left spare**, so the `inject_poss` positive contr
 - `npx tsc --noEmit`: clean.
 - Ablation controls through a fresh-init `GNNMAPPOActor(mlp)` on a synthetic post-fix graph: `ball_gone` |Δlogit| 0.109, `poss_ablated` 0.177, `inject_poss` 0.064, lofted-ball 0.007 — and the same two ablations are no-ops on a 32-wide tensor, confirming the widening cannot silently change meaning between generations.
 
-**What is *not* verified** (see section 7): live post-fix captures, trained-checkpoint mode share, and pass/shot probability mass. Until those run, this item stays open.
+### 11.1. Fix C live-plumbing follow-up + first live post-fix capture (2026-09-30)
+
+**Why a follow-up was needed, and what it says about scope.** The offline tests hand `build_graph` a ready-made `info` dict, so they passed while every live capture had dim 38 dark — the same "test passes, real path doesn't" gap seen with the GAT NaN. That makes Fix C necessary in practice, not optional: the dim-38 possession stamp (Fix C) and the 39-wide propagation that carries it are required additions, because without the live plumbing in `training/gmn_pettingzoo.py::_attach_graph_observations` dim 38 would have stayed dark in every training run. Concretely: `training/gmn_pettingzoo.py` only attached `info["ground_truth"]` at episode END, so on ordinary ticks `build_graph` saw no ball owner and dropped possession at the `player_map` guard. The per-tick owner index (`_last_ball_owner_agent_idx`) was already maintained on every reset/step path, so the fix feeds it through the same bridge→roster id translation used for the controlled player (`_graph_controlled_player_id`). Only controlled-team carriers are indexable this way; opponent possession remains unknown to the graph, where the ball node's side one-hot stays the only signal. Concretely, in `_attach_graph_observations`: the env resolves the per-tick owner to a graph roster id once per tick, and — unless the tick already carries an authoritative episode-end `ground_truth.current_ball_owner` — stamps `graph_info["ground_truth"]["current_ball_owner"]` for every agent's `build_graph` call. An explicit episode-end value is never clobbered; an unmappable id degrades to no possession rather than raising.
+
+**Offline cover for the translation** (`training/tests/test_gnn_ball_visibility.py::TestLivePossessionPlumbing`, 4 tests, `test_gnn_ball_visibility.py` now 30 passed): controlled carrier reaches dim 38 on an ordinary tick, ownerless tick keeps dim 38 dark but geometry lit, an explicit episode-end `ground_truth` wins over the per-tick index, unmappable owner id stamps nobody.
+
+**First live post-fix capture** (3 episodes, gnn, seed 42, step 0 — untrained policy; `runs/ballfix_gate_20260929/rootcause/` is git-ignored, so the measured table is recorded here rather than referenced as a file):
+
+| Probe (60 on-ball rows, 39-wide) | Pre-fix (all 7 gnn checkpoints, trained) | Post-fix live (step-0 policy) |
+|---|---|---|
+| `ball_zeroed` mean |Δlogit| | exactly 0.0 | 0.017 (argmax flip 0.10) |
+| `poss_ablated` mean |Δlogit| | exactly 0.0 (dim did not exist) | 0.038 (argmax flip 0.22) |
+| `ball_gone` mean |Δlogit| | exactly 0.0 | 0.063 (argmax flip 0.10) |
+| `inject_poss` positive control mean |Δlogit| | 0.092–0.109 (only path that moved) | 0.074 (argmax flip 0.25) |
+| Fresh-init `ball_gone` mean |Δlogit| on the same capture | 0.0 on all 8 inits | 0.070 (min 0.048, max 0.105) |
+| Structure: agent rows self-reporting possession (dim 38) | 0 | 60/60 on-ball rows |
+| Structure: agent rows with ball-relative features (dims 32-34, 37) | 0 (dims did not exist) | 282/282 rows |
+| Structure/edges: `POSSESSES` flags on owner rows / edge types | 0 flags | 60 flags, `POSSESSES` ×180 in edge-type counts |
+| Deliberately unchanged (Fix B deferred, D covers the gap) | ball→agent reachability 0 at all hops | still 0 at all hops — by design; the signal travels node features (Fix A) + fused global embedding (Fix D), not reversed edges |
+
+**Reading of the table.** The input path is proven live: zeroing the ball or clearing possession now moves logits on real rollout states, where pre-fix both were exactly 0.0. The trained-column numbers (mode share 0.75, pass/shot mass 0.20, margin mean 0.028) describe a step-0 policy and are *not* acceptance evidence — they are the starting point a fresh training run must improve. The topology note is unchanged from pre-fix (agent rows still receive only `TEAMMATE` edges; edge set is a fixed template plus proximity edges), which is expected: that half of the blindness was closed by Fix D's global fusion, not by new edges.
+
+**Flat-path safety of the shared-env change:** the new block lives entirely inside `_attach_graph_observations`, which returns immediately when `include_graph_observations` is false, so the flat path (which never enables graph observations — `train_mappo.py` passes `include_graph_observations=graph_policy`) cannot be altered; the flat live smoke tests in `training/tests/test_mappo_rollout_regression.py` still pass (35 passed incl. `test_gnn_ball_visibility.py`). **What is verified since (section 11.1):** live post-fix input-path capture (gnn, seed 42, step 0, 3 episodes) — ball/possession reach the actor node (see table). **What is still not verified** (see section 7): a *trained* post-fix checkpoint's mode share and pass/shot probability mass. Until a fresh training run produces one, this item stays open.
 
