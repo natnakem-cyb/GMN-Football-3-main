@@ -216,6 +216,12 @@ def run_ippo_training(timesteps: int = 200000, checkpoint_name: str = None, resu
     print(f"   Controllable Agents: {pz_env.possible_agents}")
 
     # Vectorize the 3-agent ParallelEnv into an SB3-compatible VecEnv where each agent is 1 sub-env
+    # P1 fix: concat_vec_envs_v1 deep-copies this env via cloudpickle. GMNMultiAgentEnv.
+    # __setstate__ now re-points every copy at its OWN free bridge port (allocated
+    # dynamically above the parent's port, so it cannot collide with train_mappo's
+    # 5050+i scheme), and each copy launches its own bridge subprocess on first reset().
+    # Previously all four copies reconnected to the parent's http://127.0.0.1:5050, i.e.
+    # ONE engine: a reset in any sub-env wiped the other three episodes mid-rollout.
     vec_env = ss.pettingzoo_env_to_vec_env_v1(pz_env)
     vec_env = ss.concat_vec_envs_v1(vec_env, num_vec_envs=4, num_cpus=0, base_class="stable_baselines3")
     print(f"   SuperSuit VecEnv created: {vec_env.num_envs} vectorized sub-environments (sharing 1 policy)")

@@ -25,7 +25,46 @@ import { TrainingJobService } from './TrainingJobService';
 import { MetricsBroadcaster } from './MetricsBroadcaster';
 
 const PORT = parseInt(process.env.GMN_BRIDGE_PORT || '5050', 10);
-const HOST = process.env.GMN_BRIDGE_HOST || '0.0.0.0';
+// SECURITY: bind to loopback by default. The bridge exposes state-mutating and
+// destructive routes (reset, checkpoint upload/delete, process start/stop, and
+// /close which exits the process); listening on 0.0.0.0 exposed all of them to
+// every host on the network. Remote access is intentionally unsupported — set
+// GMN_BRIDGE_HOST explicitly (and pair it with GMN_BRIDGE_TOKEN) if you really
+// need a non-loopback bind.
+const HOST = process.env.GMN_BRIDGE_HOST || '127.0.0.1';
+// Optional shared secret for the destructive/admin routes. When unset, those
+// routes are refused entirely (loopback clients included) so an accidentally
+// exposed bridge cannot be used to delete checkpoints, kill training jobs, or
+// terminate the process. Read-only routes (/health, /api/checkpoints, ...) and
+// the WebSocket step protocol stay open so local training keeps working.
+const ADMIN_TOKEN = process.env.GMN_BRIDGE_TOKEN || '';
+
+/** Routes that mutate files, spawn/kill processes, or shut the bridge down. */
+const ADMIN_ROUTES = new Set([
+  '/close',
+  '/api/training/start',
+  '/api/training/stop',
+  '/api/training/export',
+  '/api/checkpoints/upload',
+  '/api/checkpoints/delete',
+]);
+
+function isAdminRoute(method: string, urlPath: string): boolean {
+  if (ADMIN_ROUTES.has(urlPath)) return true;
+  // DELETE /api/checkpoints/[filename]
+  return method === 'DELETE' && urlPath.startsWith('/api/checkpoints/');
+}
+
+function isAdminAuthorized(req: any, parsedBody: any): boolean {
+  if (!ADMIN_TOKEN) return false;
+  const header = req.headers['x-gmn-bridge-token'];
+  const provided =
+    (typeof header === 'string' ? header : '') ||
+    parsedBody?.token ||
+    new URL(req.url || '/', 'http://localhost').searchParams.get('token') ||
+    '';
+  return provided === ADMIN_TOKEN;
+}
 
 // Singleton broadcaster - shared between bridge and training jobs
 export const metricsBroadcaster = new MetricsBroadcaster();
@@ -771,6 +810,25 @@ const server = http.createServer((req, res) => {
       const parsedBody = body ? JSON.parse(body) : {};
 
       const urlPath = (req.url || '').split('?')[0];
+
+      // --- AUTH GATE FOR DESTRUCTIVE / ADMIN ROUTES ---
+      // Checkpoint upload/delete, training job start/stop/export, and /close all
+      // write files, spawn/kill processes, or exit the bridge. They require the
+      // GMN_BRIDGE_TOKEN shared secret; without one they are refused outright so
+      // a loopback (or mis-bound) bridge cannot be used to destroy state.
+      // Read-only routes and the WebSocket step protocol are unaffected.
+      if (isAdminRoute(req.method || '', urlPath)) {
+        if (!isAdminAuthorized(req, parsedBody)) {
+          res.writeHead(403);
+          res.end(JSON.stringify({
+            success: false,
+            error: ADMIN_TOKEN
+              ? 'Forbidden: missing or invalid x-gmn-bridge-token for admin route'
+              : 'Forbidden: admin routes are disabled (set GMN_BRIDGE_TOKEN to enable)',
+          }));
+          return;
+        }
+      }
 
       if (req.method === 'GET' && (urlPath === '/' || urlPath === '/info' || urlPath === '/health')) {
         res.writeHead(200);

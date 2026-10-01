@@ -140,6 +140,9 @@ def collect_rollout(
     - dones: shape (num_steps,) bool — genuine terminations only (not truncations)
     - terminated: shape (num_steps,) bool — genuine terminations only
     - truncated: shape (num_steps,) bool — time-limit truncations only
+    - episode_ends: shape (num_steps,) bool — True on termination OR truncation (GAE chain cut)
+    - next_values: shape (num_steps,) float32 — V(s_{t+1}) from the PRE-reset observation
+    - sequence_ids: shape (num_steps,) int64 — always 0 (one continuous stream per rollout)
     - next_local_obs: shape (num_agents, obs_dim) float32 — joint observation after the last rollout step
     - completed_episodes: list of dicts with {"reward": float, "length": int, "goal": int}
     - mixscript_stats: dict with override/success counts when mix-script is active
@@ -162,6 +165,9 @@ def collect_rollout(
         "dones": [],          # shape (num_steps,) — genuine terminations only (not truncations)
         "terminated": [],     # shape (num_steps,) — genuine terminations only
         "truncated": [],      # shape (num_steps,) — time-limit truncations only
+        "next_values": [],    # shape (num_steps,) — V(s_{t+1}) from the PRE-reset observation
+        "sequence_ids": [],   # shape (num_steps,) — always 0 here (single continuous stream)
+        "episode_ends": [],   # shape (num_steps,) — True on termination OR truncation
         "mixscript_overridden": [],  # shape (num_steps,) — bool: was a mix-script override applied
         "mixscript_action": [],      # shape (num_steps,) — int: overridden action, or -1
     }
@@ -291,7 +297,15 @@ def collect_rollout(
                     _mixscript_action = _scripted_action
 
                     # Recompute logprob for the overridden action so the surrogate
-                    # objective remains approximately on-policy for this transition.
+                    # objective remains approximately on-policy for this transition,
+                    # AND write the scripted action into the action tensor so the
+                    # buffer stores a consistent (action, log pi(action)) pair.
+                    # Without the `actions` mutation below, the buffer kept the
+                    # ORIGINAL sampled action while storing log pi(scripted action);
+                    # the PPO importance ratio exp(new_logpi - old_logpi) was then
+                    # computed across two different actions, which silently
+                    # corrupted every overridden transition.
+                    actions[_target_idx] = _scripted_action
                     with torch.no_grad():
                         _override_mask = torch.tensor(
                             mask_matrix[_target_idx:_target_idx + 1], dtype=torch.bool
@@ -330,6 +344,23 @@ def collect_rollout(
         per_agent_rewards = np.array([rewards[a] for a in current_agents], dtype=np.float32)
         shared_reward = float(per_agent_rewards.mean())
 
+        # V(s_{t+1}) from the PRE-reset observation. `obs_dict` / `graph_obs_dict`
+        # still describe the post-step state here (the env-level reset below has
+        # not run yet), so this is the correct bootstrap target at a truncation
+        # boundary. On a genuine termination the MDP has no successor, so 0.0.
+        next_value = 0.0
+        if not terminated and current_agents and all(a in obs_dict for a in current_agents):
+            with torch.no_grad():
+                if current_graphs is not None:
+                    next_value = float(critic([graph_obs_dict[current_agents[0]]]).item())
+                else:
+                    next_joint_obs = np.stack(
+                        [obs_dict[a] for a in current_agents], axis=0
+                    ).astype(np.float32)
+                    next_value = float(
+                        critic(torch.tensor(next_joint_obs, dtype=torch.float32).unsqueeze(0)).item()
+                    )
+
         # Step 3: reward-chain trace on terminal tick
         terminal_frame_reward = getattr(env, "_last_frame_reward", float("nan"))
         terminal_shared_reward = getattr(env, "_last_shared_reward", float("nan"))
@@ -361,6 +392,14 @@ def collect_rollout(
         buffer["dones"].append(bool(terminated))
         buffer["terminated"].append(bool(terminated))
         buffer["truncated"].append(bool(truncated))
+        # GAE boundary bookkeeping. `dones` alone (terminations only) is NOT
+        # sufficient: at a truncation the next stored transition belongs to a
+        # fresh episode, so the GAE chain must be cut (episode_ends=True) while
+        # still bootstrapping with V(s_{t+1}) (next_value). This mirrors the
+        # batched collector's semantics exactly.
+        buffer["next_values"].append(next_value)
+        buffer["sequence_ids"].append(0)
+        buffer["episode_ends"].append(bool(terminated or truncated))
         buffer["mixscript_overridden"].append(_mixscript_overridden)
         buffer["mixscript_action"].append(_mixscript_action if _mixscript_overridden else -1)
 
@@ -452,6 +491,9 @@ def collect_rollout(
         "dones": np.array(buffer["dones"], dtype=np.bool_),
         "terminated": np.array(buffer["terminated"], dtype=np.bool_),
         "truncated": np.array(buffer["truncated"], dtype=np.bool_),
+        "next_values": np.array(buffer["next_values"], dtype=np.float32),
+        "sequence_ids": np.array(buffer["sequence_ids"], dtype=np.int64),
+        "episode_ends": np.array(buffer["episode_ends"], dtype=np.bool_),
         "mixscript_overridden": np.array(buffer["mixscript_overridden"], dtype=np.bool_),
         "mixscript_action": np.array(buffer["mixscript_action"], dtype=np.int64),
         "next_local_obs": np.stack([unwrap_obs(obs_dict)[a] for a in agent_order], axis=0).astype(np.float32),
@@ -495,6 +537,12 @@ def collect_rollout(
     )
     assert res_buffer["truncated"].shape == (num_steps,), (
         f"truncated shape mismatch: expected {(num_steps,)}, got {res_buffer['truncated'].shape}"
+    )
+    assert res_buffer["next_values"].shape == (num_steps,), (
+        f"next_values shape mismatch: expected {(num_steps,)}, got {res_buffer['next_values'].shape}"
+    )
+    assert res_buffer["episode_ends"].shape == (num_steps,), (
+        f"episode_ends shape mismatch: expected {(num_steps,)}, got {res_buffer['episode_ends'].shape}"
     )
     assert res_buffer["next_local_obs"].shape == (num_agents, obs_dim), (
         f"next_local_obs shape mismatch: expected {(num_agents, obs_dim)}, got {res_buffer['next_local_obs'].shape}"
@@ -889,40 +937,60 @@ def collect_rollout_batched(
     completed_episodes: List[Dict[str, Any]] = []
     total_steps = 0
 
-    # Initialize all sub-environments via the batch reset path.
-    batch_init = env.reset_batch([42 + i for i in range(batch_size)])
-    if len(batch_init) != batch_size:
-        raise RuntimeError(f"[collect_rollout_batched] Expected {batch_size} envs, got {len(batch_init)}")
+    # Initialize all sub-environments via the batch reset path — but ONLY on the
+    # first rollout. Previously this ran unconditionally, hard-resetting every
+    # sub-env at the start of each rollout: a partially collected episode was
+    # silently abandoned mid-trajectory, yet no episode-boundary flag was
+    # recorded, so GAE chained advantage across the reset (values from episode
+    # N+1 bleeding into episode N). Now the per-env state is carried across
+    # rollouts and boundaries only happen where the env itself reports one.
+    prior_states = getattr(env, "_mappo_batch_states", None)
+    if (
+        isinstance(prior_states, list)
+        and len(prior_states) == batch_size
+        and all(isinstance(s, dict) and s.get("agents") for s in prior_states)
+    ):
+        env_states = prior_states
+        agent_order = list(env_states[0]["agent_order"])
+        num_agents = len(agent_order)
+        obs_dim = env_states[0]["obs_dim"]
+    else:
+        batch_init = env.reset_batch([42 + i for i in range(batch_size)])
+        if len(batch_init) != batch_size:
+            raise RuntimeError(f"[collect_rollout_batched] Expected {batch_size} envs, got {len(batch_init)}")
 
-    # Per-env rollout state, indexed by env_idx.
-    env_states: List[Dict[str, Any]] = []
-    ref_obs_dict, _ = batch_init[0]
-    ref_obs_dict = unwrap_obs(ref_obs_dict)
-    agent_order = list(ref_obs_dict.keys())
-    num_agents = len(agent_order)
-    obs_dim = ref_obs_dict[agent_order[0]].shape[0]
+        # Per-env rollout state, indexed by env_idx.
+        env_states = []
+        ref_obs_dict, _ = batch_init[0]
+        ref_obs_dict = unwrap_obs(ref_obs_dict)
+        agent_order = list(ref_obs_dict.keys())
+        num_agents = len(agent_order)
+        obs_dim = ref_obs_dict[agent_order[0]].shape[0]
 
-    for env_idx in range(batch_size):
-        obs_dict, info = batch_init[env_idx]
-        state_masks = unwrap_masks(obs_dict)
-        obs_dict = unwrap_obs(obs_dict)
-        state = {
-            "obs_dict": obs_dict,
-            "masks": state_masks,
-            "agents": list(obs_dict.keys()),
-            "agent_order": agent_order,
-            "obs_dim": obs_dim,
-            "ep_rew": 0.0,
-            "ep_len": 0,
-            "info": info,
-        }
-        if use_graphs:
-            if not getattr(env, "include_graph_observations", False):
-                raise RuntimeError(
-                    "GNN actor requires GMNMultiAgentEnv(include_graph_observations=True)"
-                )
-            state["graph_obs_dict"] = unwrap_graph_observations(info, agent_order)
-        env_states.append(state)
+        for env_idx in range(batch_size):
+            obs_dict, info = batch_init[env_idx]
+            state_masks = unwrap_masks(obs_dict)
+            obs_dict = unwrap_obs(obs_dict)
+            state = {
+                "obs_dict": obs_dict,
+                "masks": state_masks,
+                "agents": list(obs_dict.keys()),
+                "agent_order": agent_order,
+                "obs_dim": obs_dim,
+                "ep_rew": 0.0,
+                "ep_len": 0,
+                "info": info,
+            }
+            if use_graphs:
+                if not getattr(env, "include_graph_observations", False):
+                    raise RuntimeError(
+                        "GNN actor requires GMNMultiAgentEnv(include_graph_observations=True)"
+                    )
+                state["graph_obs_dict"] = unwrap_graph_observations(info, agent_order)
+            env_states.append(state)
+
+    # Persist so the next rollout continues the same trajectories.
+    env._mappo_batch_states = env_states
 
     for _ in range(num_steps):
         # Build per-env action dicts from a single shared policy forward.
@@ -936,6 +1004,14 @@ def collect_rollout_batched(
             current_agents = state["agents"]
             if not current_agents:
                 # Defensive: should be unreachable with reset-on-terminal.
+                # If it does fire, the trajectory is cut mid-episode, so mark
+                # the previous stored transition for THIS sub-env as a
+                # truncation. Otherwise GAE would chain advantage across the
+                # forced reset (the boundary would be invisible).
+                _last_idx = len(buffers["episode_ends"]) - batch_size + env_idx
+                if 0 <= _last_idx < len(buffers["episode_ends"]):
+                    buffers["episode_ends"][_last_idx] = True
+                    buffers["truncated"][_last_idx] = True
                 fresh_obs, fresh_info = env.reset_one(env_idx, seed=1000 + env_idx)
                 state["masks"] = unwrap_masks(fresh_obs)
                 state["obs_dict"] = unwrap_obs(fresh_obs)

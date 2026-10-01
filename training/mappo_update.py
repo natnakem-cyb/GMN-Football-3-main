@@ -109,7 +109,13 @@ def ppo_update(
         joint_obs_t = torch.from_numpy(joint_obs_repeated).float()
 
     n_samples = T * num_agents
-    metrics = {"policy_loss": [], "value_loss": [], "entropy": [], "approx_kl": []}
+    metrics = {
+        "policy_loss": [],
+        "value_loss": [],
+        "entropy": [],
+        "approx_kl": [],
+        "football_entropy": [],
+    }
     surrogate_loss_share_M = []
     surrogate_loss_share_M1 = []
 
@@ -131,14 +137,19 @@ def ppo_update(
             # Targeted on-ball football entropy bonus (Form A): add extra entropy
             # from the marginal distribution over legal PASS/SHOT actions only.
             # This does not change the base reward, GAE, or mask logic.
-            football_entropy_bonus = 0.0
+            football_entropy_bonus = torch.zeros((), device=batch_masks.device if batch_masks is not None else torch.device("cpu"))
+            football_entropy_value = 0.0
             if onball_football_entropy_bonus > 0.0 and batch_masks is not None:
                 pass_shot_legal = batch_masks[:, 9:13].any(dim=-1)  # indices 9,10,11,12
                 if pass_shot_legal.any():
                     # Use the already-computed distribution; extract marginal over PASS/SHOT.
                     # Do NOT re-run actor with a restricted mask — that can trigger the
                     # fail-closed all-illegal check in states where PASS/SHOT are not legal.
-                    football_probs = dist.probs.detach().clone()
+                    # CRITICAL: `dist.probs` MUST stay attached to the autograd graph.
+                    # Detaching it (or calling .item() on the resulting entropy) made
+                    # this bonus a mathematical no-op — the subtracted term became a
+                    # Python constant, so it contributed zero gradient to the actor.
+                    football_probs = dist.probs
                     # Zero out non-football actions and renormalize only for rows where
                     # football is legal; rows without legal football actions get 0 bonus.
                     football_mask = batch_masks[:, 9:13].float()  # (batch, 4)
@@ -151,7 +162,11 @@ def ppo_update(
                         legal_marginal * torch.log(legal_marginal.clamp(min=1e-8)),
                         dim=-1
                     ).mean()
-                    football_entropy_bonus = float(onball_football_entropy_bonus) * float(football_entropy.item())
+                    # Keep it as a TENSOR so the term participates in loss.backward().
+                    football_entropy_bonus = (
+                        float(onball_football_entropy_bonus) * football_entropy
+                    )
+                    football_entropy_value = float(football_entropy.detach().item())
 
             ratio = torch.exp(new_logprobs - old_logprobs_t[batch_idx])
             surr1_base = ratio * advantages_t[batch_idx]
@@ -234,6 +249,7 @@ def ppo_update(
             metrics["value_loss"].append(value_loss.item())
             metrics["entropy"].append(entropy.item())
             metrics["approx_kl"].append(approx_kl)
+            metrics["football_entropy"].append(football_entropy_value)
 
     out = {k: float(np.mean(v)) for k, v in metrics.items()}
     out["surrogate_loss_share_M"] = float(np.mean(surrogate_loss_share_M)) if surrogate_loss_share_M else 0.0

@@ -395,6 +395,37 @@ class CooperativeRewardShaper:
         return shaped_rewards
 
 
+_BRIDGE_HOST_LOOPBACK = "127.0.0.1"
+_BRIDGE_PORT_ALLOC_LOCK = threading.Lock()
+_BRIDGE_PORT_ALLOC_NEXT: Optional[int] = None
+
+
+def _allocate_bridge_port(base_port: int) -> int:
+    """Reserve a free TCP port for a cloned GMNMultiAgentEnv instance.
+
+    Used by ``GMNMultiAgentEnv.__setstate__`` so that every copy produced by
+    SuperSuit's cloudpickle vectorization (train_ippo.py) drives its OWN bridge
+    process instead of reconnecting to the parent's ``http://127.0.0.1:5050``.
+    Without this, all four "vectorized" sub-envs shared one engine: any single
+    reset wiped the other three episodes mid-rollout.
+    """
+    global _BRIDGE_PORT_ALLOC_NEXT
+    with _BRIDGE_PORT_ALLOC_LOCK:
+        if _BRIDGE_PORT_ALLOC_NEXT is None or _BRIDGE_PORT_ALLOC_NEXT <= base_port:
+            _BRIDGE_PORT_ALLOC_NEXT = base_port + 1
+        candidate = _BRIDGE_PORT_ALLOC_NEXT
+        while candidate < 65535:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                try:
+                    probe.bind((_BRIDGE_HOST_LOOPBACK, candidate))
+                except OSError:
+                    candidate += 1
+                    continue
+            _BRIDGE_PORT_ALLOC_NEXT = candidate + 1
+            return candidate
+        raise RuntimeError("[GMN-PettingZoo] No free TCP port available for cloned env")
+
+
 class GMNMultiAgentEnv(ParallelEnv):
     """
     PettingZoo ParallelEnv wrapper for GMN-Football-3 multi-agent scenarios.
@@ -692,6 +723,11 @@ class GMNMultiAgentEnv(ParallelEnv):
         self._pending_pass = None
         if hasattr(self, "_batch_envs"):
             self._batch_envs = []
+        # Also drop the batched collector's carried-over per-env rollout state so
+        # the next collect_rollout_batched() re-initializes from the new scenario
+        # instead of resuming trajectories from the previous stage.
+        if hasattr(self, "_mappo_batch_states"):
+            self._mappo_batch_states = None
 
     def _decode_reset_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Decode one reset response payload into a per-env rollout state dict."""
@@ -2324,8 +2360,23 @@ class GMNMultiAgentEnv(ParallelEnv):
         return state
 
     def __setstate__(self, state):
-        """Restores state from pickle and marks client/process for lazy re-initialization."""
+        """Restores state from pickle and marks client/process for lazy re-initialization.
+
+        Each unpickled copy is re-pointed at its OWN free bridge port and its own
+        bridge subprocess. Reusing the originating port made every vectorized
+        copy (SuperSuit cloudpickle in train_ippo.py) talk to the SAME engine, so
+        concurrent episodes interfered: one sub-env's reset wiped the others.
+        """
         self.__dict__.update(state)
         self.bridge_process = None
         self.ws_client = None
+        try:
+            new_port = _allocate_bridge_port(int(self.port))
+        except Exception:
+            new_port = self.port
+        self.port = new_port
+        self.base_url = f"http://{self.host}:{self.port}"
+        self.ws_url = f"ws://{self.host}:{self.port}"
+        if getattr(self, "debug_rewards", False):
+            self.ws_url += "?debug=rewards"
         self._needs_bridge = True

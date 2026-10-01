@@ -245,6 +245,11 @@ def run_mappo_shaped_training(
             next_local_obs=buffer["next_local_obs"],
             critic=critic,
             per_agent_rewards=buffer.get("per_agent_rewards"),
+            # Episode-boundary bookkeeping from the collector: cuts GAE at BOTH
+            # termination and truncation, bootstrapping with the pre-reset V(s_{t+1}).
+            next_values=buffer.get("next_values"),
+            sequence_ids=buffer.get("sequence_ids"),
+            episode_ends=buffer.get("episode_ends"),
         )
 
         # 3. PPO Update Step
