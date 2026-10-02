@@ -536,6 +536,15 @@ class GMNMultiAgentEnv(ParallelEnv):
         self._last_shared_reward: float = 0.0
         self._last_ball_owner_agent_idx: int = 255  # OCCUPANCY-EXP: per-tick ball owner for probe
 
+        # F-3a: telemetry-loss accounting. The bridge only emits EPISODE_STATS
+        # when the ENGINE reports terminated/truncated. A Python-side shot-clock
+        # truncation ends the episode while the engine still considers it live,
+        # so no stats frame arrives and every conditional evaluator metric
+        # silently skips that episode. These counters make that population
+        # visible in every run instead of requiring a forensic reconstruction.
+        self._episode_stats_missing_count: int = 0
+        self._episode_stats_missing_by_reason: Dict[str, int] = {}
+
         # Observation and action spaces (identical across all agents)
         self._obs_space = spaces.Dict({
             "observation": spaces.Box(
@@ -1159,6 +1168,13 @@ class GMNMultiAgentEnv(ParallelEnv):
                     if agent in env_rewards and agent in shaped_rewards:
                         env_rewards[agent] = shaped_rewards[agent] + timeout_penalty
                 if getattr(self, "shot_clock_truncates", True):
+                    # NOTE: F-3b recovery is intentionally NOT applied here. This
+                    # batched path steps pool engines (`engine_idx` -> `self._batch_envs`),
+                    # so a single `get_episode_stats` query would return the PRIMARY
+                    # engine's stats and silently mislabel another sub-env's episode.
+                    # It is also unnecessary: step_batch never attaches ground_truth,
+                    # so no conditional metric consumes it. The single-env `step()`
+                    # path — which the evaluators use — does the recovery.
                     shared_trunc = True
                     shared_info["episode_length_steps"] = env_state.get("ep_len", 0)
                     shared_info["episode_physics_ticks"] = env_state.get("ep_len", 0)
@@ -1523,6 +1539,126 @@ class GMNMultiAgentEnv(ParallelEnv):
         raise RuntimeError(
             f"[GMN-PettingZoo Frame Length Error] Expected {expected_len} bytes, got only broadcast frames"
         )
+
+    def _attach_ground_truth(
+        self,
+        shared_info: Dict[str, Any],
+        episode_stats: Optional[Dict[str, Any]],
+        shared_term: bool,
+        shared_trunc: bool,
+    ) -> None:
+        """Attach (and account for) ground-truth engine stats on episode end.
+
+        Idempotent: returns immediately if `ground_truth` is already present, so
+        it is safe to call at multiple points in `step()`. The first call handles
+        engine-reported termination/truncation; the second (after the shot clock
+        sets `shared_trunc`) handles locally-truncated episodes the engine never
+        knew were ending.
+
+        Includes both termination (goal / scenario_complete) and truncation
+        (clock expiry) so pass/shot accuracy covers all episode endings.
+        """
+        if not (shared_term or shared_trunc):
+            return
+        if "ground_truth" in shared_info:
+            return
+
+        if not episode_stats:
+            # F-3a: record any episode that ends without ground-truth stats. This
+            # is the population that evaluator conditional metrics silently drop.
+            self._episode_stats_missing_count += 1
+            # A pure truncation (not termination) means the shot clock ended an
+            # episode the engine still considered live.
+            reason = (
+                "shot_clock_truncation"
+                if (shared_trunc and not shared_term)
+                else "engine_term_or_trunc_no_frame"
+            )
+            self._episode_stats_missing_by_reason[reason] = (
+                self._episode_stats_missing_by_reason.get(reason, 0) + 1
+            )
+            if getattr(self, "_forensic_debug", False):
+                print(
+                    f"[EPISODE_STATS MISSING] reason={reason} "
+                    f"episode_index={self._episode_index} "
+                    f"step={self._step_count} "
+                    f"term={shared_term} trunc={shared_trunc}",
+                    flush=True,
+                )
+            return
+
+        shared_info["ground_truth"] = {
+            "possession_left_pct": episode_stats.get("possession_left_pct"),
+            "completed_passes_left": episode_stats.get("completed_passes_left"),
+            "attempted_passes_left": episode_stats.get("attempted_passes_left"),
+            "shots_on_target_left": episode_stats.get("shots_on_target_left"),
+            "total_shots_left": episode_stats.get("total_shots_left"),
+            "shots_saved_left": episode_stats.get("shots_saved_left"),
+            "shots_blocked_left": episode_stats.get("shots_blocked_left"),
+            # F-2: an episode with no attempts has an UNDEFINED accuracy, not 0%
+            # accuracy. Returning 0.0 made "never shot" indistinguishable from
+            # "shot and missed every time", and because the evaluators guard on
+            # `is not None`, those zeros were averaged into the headline
+            # shot/pass accuracy — systematically deflating it, most severely for
+            # the lowest-volume policies. `None` is the population the metric is
+            # actually defined over.
+            "pass_accuracy": (
+                episode_stats.get("completed_passes_left", 0) / episode_stats.get("attempted_passes_left", 1)
+                if episode_stats.get("attempted_passes_left", 0) > 0
+                else None
+            ),
+            "shot_accuracy": (
+                episode_stats.get("shots_on_target_left", 0) / episode_stats.get("total_shots_left", 1)
+                if episode_stats.get("total_shots_left", 0) > 0
+                else None
+            ),
+            "current_ball_owner": episode_stats.get("current_ball_owner"),
+        }
+
+    def _request_episode_stats(self) -> Optional[Dict[str, Any]]:
+        """Fetch ground-truth episode stats on demand (F-3b).
+
+        The bridge emits EPISODE_STATS only when the ENGINE reports
+        terminated/truncated. A Python-side shot-clock truncation
+        (``shot_clock_truncates=True``) ends the episode without the engine
+        knowing, so those episodes received no stats frame and were silently
+        excluded from every conditional evaluator metric — measured at 49 of 100
+        episodes lost on the seed-42 E1 artifact, with Pearson r = -0.96 between
+        mean episode length and stats coverage.
+
+        This asks the bridge for the current stats over the existing WebSocket.
+
+        Telemetry must never be able to hang or crash a training run, so every
+        failure mode degrades to ``None`` and is counted by the F-3a
+        instrumentation rather than raised. That includes a binary frame racing
+        us on the socket, which is skipped (it would be a stray frame, not the
+        response to this query).
+        """
+        if self.ws_client is None:
+            return None
+        try:
+            self.ws_client.send(json.dumps({"type": "get_episode_stats"}))
+        except Exception:
+            return None
+
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            try:
+                raw = self.ws_client.recv(timeout=max(0.05, deadline - time.time()))
+            except Exception:
+                return None
+            if isinstance(raw, (bytes, bytearray)):
+                # A binary frame raced this query on the shared socket. It is not
+                # the response; skip it rather than mis-parsing it.
+                continue
+            try:
+                parsed = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(parsed, dict) and parsed.get("type") == "EPISODE_STATS":
+                return parsed
+            # Unsolicited broadcast (training_status / telemetry) — keep waiting.
+        return None
 
     def reset(
         self,
@@ -2048,29 +2184,10 @@ class GMNMultiAgentEnv(ParallelEnv):
                 shared_info["event"] = {"type": ev_type}
 
         # Attach ground-truth engine stats if the bridge sent them on episode end.
-        # Include both termination (goal/scenario_complete) and truncation (clock expiry)
-        # so pass/shot accuracy is computed for all episode endings, not just goals.
-        if episode_stats and (shared_term or shared_trunc):
-            shared_info["ground_truth"] = {
-                "possession_left_pct": episode_stats.get("possession_left_pct"),
-                "completed_passes_left": episode_stats.get("completed_passes_left"),
-                "attempted_passes_left": episode_stats.get("attempted_passes_left"),
-                "shots_on_target_left": episode_stats.get("shots_on_target_left"),
-                "total_shots_left": episode_stats.get("total_shots_left"),
-                "shots_saved_left": episode_stats.get("shots_saved_left"),
-                "shots_blocked_left": episode_stats.get("shots_blocked_left"),
-                "pass_accuracy": (
-                    episode_stats.get("completed_passes_left", 0) / episode_stats.get("attempted_passes_left", 1)
-                    if episode_stats.get("attempted_passes_left", 0) > 0
-                    else 0.0
-                ),
-                "shot_accuracy": (
-                    episode_stats.get("shots_on_target_left", 0) / episode_stats.get("total_shots_left", 1)
-                    if episode_stats.get("total_shots_left", 0) > 0
-                    else 0.0
-                ),
-                "current_ball_owner": episode_stats.get("current_ball_owner"),
-            }
+        # NOTE: this is the FIRST of two call sites. `step()` sets `shared_trunc`
+        # later (the shot clock, see the F-3b block below), so a shot-clock
+        # truncation has not happened yet at this point and is handled there.
+        self._attach_ground_truth(shared_info, episode_stats, shared_term, shared_trunc)
 
         # Standardized evaluator metrics: expose episode lengths on termination.
         if shared_term or shared_trunc:
@@ -2281,6 +2398,26 @@ class GMNMultiAgentEnv(ParallelEnv):
         for agent in self.agents:
             terminations[agent] = shared_term
             truncations[agent] = shared_trunc
+
+        # F-3b: recover ground-truth stats for locally-truncated episodes.
+        #
+        # Two ordering facts make this necessary and place it HERE:
+        #   1. The shot clock sets `shared_trunc` above, i.e. AFTER the first
+        #      `_attach_ground_truth` call, so that call saw shared_trunc=False.
+        #   2. `infos[agent] = dict(shared_info)` copies the info dict BEFORE the
+        #      shot clock runs, so mutating `shared_info` here would NOT reach the
+        #      returned infos. Hence the explicit re-sync into each infos entry.
+        #
+        # The engine never knew this episode was ending, so it sent no
+        # EPISODE_STATS frame and the episode would otherwise be dropped from
+        # every conditional evaluator metric.
+        if shared_trunc or shared_term:
+            if not episode_stats:
+                episode_stats = self._request_episode_stats()
+            self._attach_ground_truth(shared_info, episode_stats, shared_term, shared_trunc)
+            if "ground_truth" in shared_info:
+                for agent in list(infos.keys()):
+                    infos[agent]["ground_truth"] = shared_info["ground_truth"]
 
         # Phase 2: FORENSIC_ENV_TERMINAL capture
         if getattr(self, "_forensic_debug", False) and (shared_term or shared_trunc):

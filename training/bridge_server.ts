@@ -478,22 +478,8 @@ export class GMNBridgeService {
           checkpointReward: stepResult.info.checkpointReward,
           ballDistanceToGoal: stepResult.info.ballDistanceToGoal,
           resolved_pass_direction: resolvedPassDirection,
-          ground_truth: {
-            possession_left_pct: engine.stats.possession.left,
-            completed_passes_left: engine.stats.completedPasses.left,
-            attempted_passes_left: engine.stats.passes.left,
-            shots_on_target_left: engine.stats.shotsOnTarget.left,
-            total_shots_left: engine.stats.shots.left,
-            shots_saved_left: engine.stats.shotsSaved.left,
-            shots_blocked_left: engine.stats.shotsBlocked.left,
-            current_ball_owner: engine.ball.ownerId != null
-              ? (() => {
-                  const owner = engine.players.find((p) => p.id === engine.ball.ownerId);
-                  return owner ? { agent_id: owner.id, team: owner.team } : null;
-                })()
-              : null,
-            last_kicked_by: engine.ball.lastKickedBy,
-          },
+          // F-3b: was an inline literal duplicated across three step paths.
+          ground_truth: this.buildGroundTruth(engine),
         },
         controllableIds,
         defenderReward: engine.getActiveScenarioHandler()?.getLastDefenderReward?.() ?? 0,
@@ -501,6 +487,44 @@ export class GMNBridgeService {
       });
     }
     return results;
+  }
+
+  /**
+   * Single source of truth for ground-truth episode stats.
+   *
+   * F-3b: this literal was previously duplicated inline at three call sites
+   * (batched step, single step, stepMulti). The stepMulti copy had already
+   * drifted by dropping `last_kicked_by` — direct evidence that the copies had
+   * no single source of truth. All three now delegate here.
+   *
+   * It is also served on demand over the WebSocket (`get_episode_stats`).
+   * Python can end an episode the engine still considers live — the shot clock
+   * (`shot_clock_truncates=True`) sets truncated locally after the frame is
+   * already sent. The engine therefore never reports terminated/truncated, so
+   * NO EPISODE_STATS frame was emitted, and every such episode was silently
+   * excluded from all conditional metrics. Measured impact: only 51 of 100
+   * episodes carried ground truth on the seed-42 E1 artifact, with Pearson
+   * r = -0.96 between mean episode length and stats coverage.
+   *
+   * `engine` is a parameter because the batched path steps a pool engine, not
+   * `this.engine`.
+   */
+  public buildGroundTruth(engine: GameEngine = this.engine): Record<string, unknown> {
+    const owner =
+      engine.ball.ownerId != null
+        ? engine.players.find((p) => p.id === engine.ball.ownerId)
+        : undefined;
+    return {
+      possession_left_pct: engine.stats.possession.left,
+      completed_passes_left: engine.stats.completedPasses.left,
+      attempted_passes_left: engine.stats.passes.left,
+      shots_on_target_left: engine.stats.shotsOnTarget.left,
+      total_shots_left: engine.stats.shots.left,
+      shots_saved_left: engine.stats.shotsSaved.left,
+      shots_blocked_left: engine.stats.shotsBlocked.left,
+      current_ball_owner: owner ? { agent_id: owner.id, team: owner.team } : null,
+      last_kicked_by: engine.ball.lastKickedBy,
+    };
   }
 
   public reset(scenarioName = 'academy_empty_goal', seed?: number) {
@@ -637,24 +661,8 @@ export class GMNBridgeService {
         checkpointReward: result.info.checkpointReward,
         ballDistanceToGoal: result.info.ballDistanceToGoal,
         resolved_pass_direction: resolvedPassDirection,
-        ground_truth: {
-          possession_left_pct: this.engine.stats.possession.left,
-          completed_passes_left: this.engine.stats.completedPasses.left,
-          attempted_passes_left: this.engine.stats.passes.left,
-          shots_on_target_left: this.engine.stats.shotsOnTarget.left,
-          total_shots_left: this.engine.stats.shots.left,
-          shots_saved_left: this.engine.stats.shotsSaved.left,
-          shots_blocked_left: this.engine.stats.shotsBlocked.left,
-          current_ball_owner: this.engine.ball.ownerId != null
-            ? (() => {
-                const owner = this.engine.players.find((p) => p.id === this.engine.ball.ownerId);
-                return owner
-                  ? { agent_id: owner.id, team: owner.team }
-                  : null;
-              })()
-            : null,
-          last_kicked_by: this.engine.ball.lastKickedBy,
-        },
+        // F-3b: was an inline literal duplicated across three step paths.
+        ground_truth: this.buildGroundTruth(this.engine),
       },
     };
   }
@@ -743,23 +751,10 @@ export class GMNBridgeService {
         checkpointReward: result.info.checkpointReward,
         ballDistanceToGoal: result.info.ballDistanceToGoal,
         resolved_pass_direction: resolvedPassDirection,
-        ground_truth: {
-          possession_left_pct: this.engine.stats.possession.left,
-          completed_passes_left: this.engine.stats.completedPasses.left,
-          attempted_passes_left: this.engine.stats.passes.left,
-          shots_on_target_left: this.engine.stats.shotsOnTarget.left,
-          total_shots_left: this.engine.stats.shots.left,
-          shots_saved_left: this.engine.stats.shotsSaved.left,
-          shots_blocked_left: this.engine.stats.shotsBlocked.left,
-          current_ball_owner: this.engine.ball.ownerId != null
-            ? (() => {
-                const owner = this.engine.players.find((p) => p.id === this.engine.ball.ownerId);
-                return owner
-                  ? { agent_id: owner.id, team: owner.team }
-                  : null;
-              })()
-            : null,
-        },
+        // F-3b: was an inline literal duplicated across three step paths. This
+        // copy had additionally drifted by omitting `last_kicked_by`; the shared
+        // method restores it.
+        ground_truth: this.buildGroundTruth(this.engine),
       },
       observations, // array, same order as controllableIds
       action_masks: actionMasks,
@@ -1461,6 +1456,19 @@ wss.on('connection', (ws: WebSocket, req) => {
           ws.close();
         } else if (parsed.type === 'info') {
           ws.send(JSON.stringify(bridge.getInfo()));
+        } else if (parsed.type === 'get_episode_stats') {
+          // F-3b: serve ground-truth stats on demand.
+          //
+          // EPISODE_STATS is otherwise only emitted when the ENGINE reports
+          // terminated/truncated. Python can end an episode the engine still
+          // considers live — the shot clock (shot_clock_truncates=True) sets
+          // truncated locally, after this frame was already sent. Those episodes
+          // therefore received no stats frame and were silently excluded from
+          // every conditional metric (51 of 100 episodes on the seed-42 E1
+          // artifact). This query lets the client recover them.
+          //
+          // Read-only: it reports state and mutates nothing.
+          ws.send(JSON.stringify({ type: 'EPISODE_STATS', ...bridge.buildGroundTruth() }));
         } else if (parsed.type === 'step') {
           const stepResult = await bridge.step(parsed.action);
           ws.send(JSON.stringify(stepResult));
